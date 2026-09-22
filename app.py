@@ -197,13 +197,16 @@ _PUBLIC_PREFIXES = ("/", "/static/")
 
 
 def allowed_origins_for(cfg: dict) -> set[str]:
-    """Origins the browser may send on POST/WebSocket-upgrade requests.
+    """Origins the browser may send on HTTP requests to /api/*.
 
     Always includes the two loopback origins for the configured port. Extra
     origins come from `[server] allowed_origins` — needed as soon as the UI is
     reached through a reverse proxy or a private tunnel (e.g. Tailscale Serve
     at https://<machine>.<tailnet>.ts.net), because browsers send `Origin` on
     every POST and the middleware refuses unknown ones with 403.
+
+    Only HTTP requests are checked: `BaseHTTPMiddleware` never sees WebSocket
+    scopes, so the /ws endpoint is not covered by this list.
 
     Entries are normalized (trimmed, lower-cased, trailing slash dropped) and
     must carry a scheme; anything else is ignored rather than trusted.
@@ -228,8 +231,12 @@ def allowed_origins_for(cfg: dict) -> set[str]:
     return origins
 
 
-def _install_security_middleware(token: str, cfg: dict):
-    """Add token validation and origin checking middleware to the app."""
+def _install_security_middleware(token: str, cfg: dict, target=None):
+    """Add token validation and origin checking middleware to the app.
+
+    `target` lets tests install the same middleware on a throwaway FastAPI
+    app instead of the module-level one.
+    """
     import app as _self
     _self.session_token = token
     allowed_origins = allowed_origins_for(cfg)
@@ -283,7 +290,7 @@ def _install_security_middleware(token: str, cfg: dict):
 
             return await call_next(request)
 
-    app.add_middleware(SecurityMiddleware)
+    (target if target is not None else app).add_middleware(SecurityMiddleware)
 
 
 def configure(cfg: dict, session_token: str = ""):
