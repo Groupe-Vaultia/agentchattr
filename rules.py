@@ -6,7 +6,7 @@ import threading
 import uuid
 from pathlib import Path
 
-MAX_TEXT_CHARS = 160
+MAX_TEXT_CHARS = 600
 MAX_REASON_CHARS = 240
 
 

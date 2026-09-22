@@ -7,7 +7,7 @@
 // Constants
 // ---------------------------------------------------------------------------
 
-const RULE_MAX_CHARS = 160;
+const RULE_MAX_CHARS = 600;
 const RULE_REASON_MAX_CHARS = 240;
 
 // ---------------------------------------------------------------------------
@@ -371,7 +371,7 @@ function showCreateRule() {
     const form = document.createElement('div');
     form.className = 'job-create-form';
     form.innerHTML = `
-        <input type="text" placeholder="Write a short rule agents should follow" class="rule-create-text" maxlength="160" autofocus>
+        <input type="text" placeholder="Write a rule agents should follow" class="rule-create-text" maxlength="600" autofocus>
         <div class="job-create-actions">
             <button class="cancel-btn" onclick="this.closest('.job-create-form').remove()">Cancel</button>
             <button class="create-btn" onclick="submitCreateRule(this)">Create</button>
