@@ -2,6 +2,11 @@
 port = 8300
 host = "127.0.0.1"
 data_dir = "./data"
+# Origines supplémentaires acceptées par le navigateur (POST /api/*). Les deux
+# origines locales (127.0.0.1 et localhost sur `port`) sont toujours acceptées.
+# À renseigner quand l'interface est atteinte par un proxy ou un tunnel privé,
+# p. ex. Tailscale Serve : allowed_origins = ["https://poste.tailnet.ts.net"]
+allowed_origins = []
 
 # Add agents here. Each gets a status pill, @mention routing, and color.
 # "cwd" is the working directory for the agent's terminal session.

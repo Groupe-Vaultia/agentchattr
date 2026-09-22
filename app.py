@@ -196,15 +196,43 @@ def _resolve_authenticated_agent(request: Request) -> dict | None:
 _PUBLIC_PREFIXES = ("/", "/static/")
 
 
+def allowed_origins_for(cfg: dict) -> set[str]:
+    """Origins the browser may send on POST/WebSocket-upgrade requests.
+
+    Always includes the two loopback origins for the configured port. Extra
+    origins come from `[server] allowed_origins` — needed as soon as the UI is
+    reached through a reverse proxy or a private tunnel (e.g. Tailscale Serve
+    at https://<machine>.<tailnet>.ts.net), because browsers send `Origin` on
+    every POST and the middleware refuses unknown ones with 403.
+
+    Entries are normalized (trimmed, lower-cased, trailing slash dropped) and
+    must carry a scheme; anything else is ignored rather than trusted.
+    """
+    server = cfg.get("server", {}) if isinstance(cfg, dict) else {}
+    port = server.get("port", 8300)
+    origins = {
+        f"http://127.0.0.1:{port}",
+        f"http://localhost:{port}",
+    }
+    extra = server.get("allowed_origins", [])
+    if isinstance(extra, str):
+        extra = [extra]
+    if not isinstance(extra, list):
+        return origins
+    for entry in extra:
+        if not isinstance(entry, str):
+            continue
+        origin = entry.strip().rstrip("/").lower()
+        if origin.startswith(("http://", "https://")) and len(origin) > 8:
+            origins.add(origin)
+    return origins
+
+
 def _install_security_middleware(token: str, cfg: dict):
     """Add token validation and origin checking middleware to the app."""
     import app as _self
     _self.session_token = token
-    port = cfg.get("server", {}).get("port", 8300)
-    allowed_origins = {
-        f"http://127.0.0.1:{port}",
-        f"http://localhost:{port}",
-    }
+    allowed_origins = allowed_origins_for(cfg)
 
     class SecurityMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
@@ -228,7 +256,7 @@ def _install_security_middleware(token: str, cfg: dict):
 
             # --- Origin check (blocks cross-origin / DNS-rebinding attacks) ---
             origin = request.headers.get("origin")
-            if origin and origin not in allowed_origins:
+            if origin and origin.strip().rstrip("/").lower() not in allowed_origins:
                 return JSONResponse(
                     {"error": "forbidden: origin not allowed"},
                     status_code=403,
