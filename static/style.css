@@ -167,11 +167,10 @@ header {
 }
 
 .header-logo {
-    width: 24px;
-    height: 24px;
-    max-width: 24px;
-    max-height: 24px;
-    border-radius: 5px;
+    width: auto;
+    height: 40px;
+    max-height: 40px;
+    border-radius: 0;
     object-fit: contain;
     flex-shrink: 0;
 }

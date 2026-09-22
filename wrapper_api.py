@@ -259,12 +259,17 @@ def main():
             else:
                 transcript.append(m["content"])
         prompt = "\n".join(transcript) + f"\n\nReponds maintenant comme {get_name()}, en une contribution utile, sans prefixer ton nom."
-        args = shlex.split(cli_command) + ["-p", "--force", "--output-format", "text"]
+        # Chaque CLI a ses drapeaux (cursor-agent : --force ; agy : --dangerously-skip-permissions),
+        # dits en config par cli_flags. `-p <prompt>` en dernier marche pour les deux : cursor traite
+        # -p comme un booleen + prompt positionnel, agy prend le prompt comme valeur de -p.
+        args = shlex.split(cli_command) + shlex.split(agent_cfg.get("cli_flags", ""))
+        args += ["--output-format", "text"]
         if model:
             args += ["--model", model]
+        args += ["-p", prompt]
         cwd = agent_cfg.get("cwd")
         proc = subprocess.run(
-            args + [prompt], capture_output=True, text=True, timeout=180,
+            args, capture_output=True, text=True, timeout=180,
             cwd=cwd if cwd else None,
         )
         if proc.returncode != 0:
