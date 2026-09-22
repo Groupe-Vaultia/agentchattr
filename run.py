@@ -79,7 +79,9 @@ def main():
     mcp_bridge._CURSORS_FILE = data_dir / "mcp_cursors.json"
     mcp_bridge._load_cursors()
     mcp_bridge._ROLES_FILE = data_dir / "roles.json"
+    mcp_bridge._EFFORTS_FILE = data_dir / "efforts.json"
     mcp_bridge._load_roles()
+    mcp_bridge._load_efforts()
 
     # Start MCP servers in background threads
     http_port = config.get("mcp", {}).get("http_port", 8200)

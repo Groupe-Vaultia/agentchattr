@@ -2114,6 +2114,123 @@ async def set_agent_role(agent_name: str, request: Request):
     return JSONResponse({"ok": True, "role": role})
 
 
+# --- Effort de raisonnement par agent (Vaultia) ---
+
+_EFFORTS_VALIDES = {"", "rapide", "standard", "profond"}
+
+
+@app.get("/api/efforts")
+async def get_efforts():
+    import mcp_bridge
+    return mcp_bridge.get_all_efforts()
+
+
+@app.post("/api/efforts/{agent_name}")
+async def set_agent_effort(agent_name: str, request: Request):
+    """Fixe l'effort de raisonnement d'un agent.
+
+    Pour un agent API (Qwen local, etc.), il s'applique au message suivant. Pour un
+    agent CLI (Claude, Codex), il est retenu et pris au prochain lancement de l'agent.
+    """
+    import mcp_bridge
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    effort = str(body.get("effort", "")).strip().lower()
+    if effort not in _EFFORTS_VALIDES:
+        return JSONResponse({"error": "effort invalide (rapide, standard, profond, ou vide)"}, status_code=400)
+    mcp_bridge.set_effort(agent_name, effort)
+    await broadcast_status()
+    return JSONResponse({"ok": True, "effort": effort})
+
+
+# --- Ajouter une IA par lien (agent API OpenAI-compatible) (Vaultia) ---
+
+import re as _re_vaultia
+
+
+@app.post("/api/agents/add")
+async def add_api_agent(request: Request):
+    """Ajoute une IA connectee par un lien (point OpenAI-compatible) et la met en ligne.
+
+    Corps : {name, label?, base_url, model?, api_key?, color?, effort?, system_prompt?,
+    context_messages?}. Ecrit l'agent dans config.local.toml, l'enseigne au registre en
+    direct, puis lance son wrapper API. Ne touche jamais claude/codex/gemini.
+    """
+    import mcp_bridge
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    name = str(body.get("name", "")).strip().lower()
+    base_url = str(body.get("base_url", "")).strip()
+    if not _re_vaultia.fullmatch(r"[a-z0-9][a-z0-9_-]{1,30}", name):
+        return JSONResponse({"error": "nom invalide : lettres, chiffres, - et _ (2 a 31 caracteres)"}, status_code=400)
+    if not (base_url.startswith("http://") or base_url.startswith("https://")):
+        return JSONResponse({"error": "le lien doit commencer par http:// ou https://"}, status_code=400)
+    if registry and name in registry.get_bases():
+        return JSONResponse({"error": f"une IA nommee '{name}' existe deja"}, status_code=409)
+
+    cfg = {
+        "type": "api",
+        "base_url": base_url,
+        "model": str(body.get("model", "")).strip(),
+        "label": str(body.get("label", "")).strip() or name.capitalize(),
+        "color": str(body.get("color", "")).strip() or "#6b7280",
+    }
+    if body.get("api_key_env"):
+        cfg["api_key_env"] = str(body["api_key_env"]).strip()
+    if body.get("system_prompt"):
+        cfg["system_prompt"] = str(body["system_prompt"]).strip()
+    if body.get("context_messages"):
+        try:
+            cfg["context_messages"] = int(body["context_messages"])
+        except (TypeError, ValueError):
+            pass
+
+    # 1. Ecrire dans config.local.toml (jamais config.toml : la trinite y est protegee).
+    from pathlib import Path as _P
+    local = _P(__file__).parent / "config.local.toml"
+    bloc = [f"\n[agents.{name}]"]
+    for cle in ("type", "base_url", "model", "label", "color", "api_key_env", "system_prompt"):
+        if cfg.get(cle):
+            valeur = str(cfg[cle]).replace("\\", "\\\\").replace('"', '\\"')
+            bloc.append(f'{cle} = "{valeur}"')
+    if cfg.get("context_messages"):
+        bloc.append(f'context_messages = {cfg["context_messages"]}')
+    try:
+        with local.open("a", encoding="utf-8") as fh:
+            fh.write("\n".join(bloc) + "\n")
+    except OSError as exc:
+        return JSONResponse({"error": f"ecriture de config.local.toml impossible : {exc}"}, status_code=500)
+
+    # 2. Enseigner l'agent au registre en direct (couleur/label sans redemarrage).
+    if registry:
+        registry.seed({name: cfg})
+    if body.get("effort"):
+        mcp_bridge.set_effort(name, str(body["effort"]).strip().lower())
+
+    # 3. Lancer le wrapper API (il s'enregistre et bat le pouls tout seul).
+    import subprocess, sys as _sys
+    root = _P(__file__).parent
+    python = root / ".venv" / "bin" / "python"
+    try:
+        subprocess.Popen(
+            [str(python if python.exists() else _sys.executable), "wrapper_api.py", name],
+            cwd=str(root),
+            stdout=open(root / "data" / f"{name}.log", "a"),
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return JSONResponse({"error": f"agent ecrit mais lancement du wrapper impossible : {exc}"}, status_code=500)
+
+    await broadcast_agents()
+    await broadcast_status()
+    return JSONResponse({"ok": True, "name": name, "label": cfg["label"], "color": cfg["color"]})
+
+
 # --- Rules API ---
 
 @app.get("/api/rules")

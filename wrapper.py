@@ -353,6 +353,26 @@ def _ensure_gemini_folder_trusted(project_dir: Path) -> None:
         print(f"  Warning: could not update Gemini trusted folders: {exc}")
 
 
+def _effort_launch_args(agent: str, agent_cfg: dict, data_dir: Path) -> list[str]:
+    """Traduit l'effort choisi (rapide/standard/profond) en option de lancement selon le CLI.
+
+    Rendue vide quand aucun effort n'est fixe ou que le CLI n'en a pas -- le dual : rien ne change.
+    """
+    try:
+        efforts = json.loads((data_dir / "efforts.json").read_text("utf-8"))
+    except Exception:
+        return []
+    provider = agent if agent in _BUILTIN_DEFAULTS else _provider_from_command(agent_cfg.get("command", ""))
+    niveau = {"rapide": "low", "standard": "medium", "profond": "high"}.get(efforts.get(agent, ""))
+    if not niveau:
+        return []
+    if provider == "claude":
+        return ["--effort", niveau]
+    if provider == "codex":
+        return ["-c", f"model_reasoning_effort={niveau}"]
+    return []
+
+
 def _build_provider_launch(
     agent: str,
     agent_cfg: dict,
@@ -722,6 +742,10 @@ def main():
 
     strip_vars = {"CLAUDECODE"} | set(agent_cfg.get("strip_env", []))
     env = {k: v for k, v in os.environ.items() if k not in strip_vars}
+
+    # Niveau de raisonnement (Vaultia) : lu dans efforts.json, traduit en option de lancement du CLI.
+    # Un agent CLI ne change pas d'effort en cours de route -- c'est pris ici, au (re)lancement.
+    extra = list(extra) + _effort_launch_args(agent, agent_cfg, data_dir)
 
     resolved = shutil.which(command)
     if not resolved:

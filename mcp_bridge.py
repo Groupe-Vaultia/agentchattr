@@ -48,6 +48,10 @@ PRESENCE_TIMEOUT = 10  # ~2 missed heartbeats (5s interval) = offline
 _roles: dict[str, str] = {}  # agent_name → role string
 _ROLES_FILE: Path | None = None
 
+# Effort de raisonnement — par agent, persiste dans efforts.json (Vaultia, 21 sept. 2026).
+_efforts: dict[str, str] = {}  # agent_name → 'rapide' | 'standard' | 'profond' (vide = defaut)
+_EFFORTS_FILE: Path | None = None
+
 # Cursor persistence — set by run.py to enable saving cursors across restarts
 _CURSORS_FILE: Path | None = None
 
@@ -495,6 +499,46 @@ def get_role(name: str) -> str:
 def get_all_roles() -> dict[str, str]:
     """All active roles."""
     return dict(_roles)
+
+
+def _load_efforts():
+    """Charge les efforts de raisonnement persistes."""
+    global _efforts
+    if _EFFORTS_FILE is None or not _EFFORTS_FILE.exists():
+        return
+    try:
+        _efforts = json.loads(_EFFORTS_FILE.read_text("utf-8"))
+    except Exception:
+        log.warning("Failed to load efforts from %s", _EFFORTS_FILE)
+
+
+def _save_efforts():
+    if _EFFORTS_FILE is None:
+        return
+    try:
+        _EFFORTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _EFFORTS_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_efforts), "utf-8")
+        os.replace(tmp, _EFFORTS_FILE)
+    except Exception:
+        log.warning("Failed to save efforts to %s", _EFFORTS_FILE)
+
+
+def set_effort(name: str, effort: str):
+    """Fixe ou efface l'effort d'un agent. Chaine vide = defaut du modele."""
+    if effort:
+        _efforts[name] = effort
+    else:
+        _efforts.pop(name, None)
+    _save_efforts()
+
+
+def get_effort(name: str) -> str:
+    return _efforts.get(name, "")
+
+
+def get_all_efforts() -> dict[str, str]:
+    return dict(_efforts)
 
 
 def migrate_identity(old_name: str, new_name: str):

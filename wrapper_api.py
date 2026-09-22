@@ -185,6 +185,22 @@ def main():
         except Exception:
             return ""
 
+    # Niveau de raisonnement choisi pour cet agent (Vaultia). Mappe vers reasoning_effort.
+    _EFFORT_VERS_API = {"rapide": "low", "standard": "medium", "profond": "high"}
+
+    def get_my_effort():
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{server_port}/api/status",
+                headers=_auth_headers(get_token()),
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                status = json.loads(resp.read())
+            info = status.get(get_name(), {})
+            return info.get("effort", "") if isinstance(info, dict) else ""
+        except Exception:
+            return ""
+
     # Get online agents from server
     def get_online_agents():
         try:
@@ -225,13 +241,18 @@ def main():
             return json.loads(resp.read())
 
     # Call OpenAI-compatible chat completions API
-    def call_model(messages):
+    def call_model(messages, effort=""):
         url = f"{base_url}/chat/completions"
         payload = {"messages": messages}
         if model:
             payload["model"] = model
         if temperature is not None:
             payload["temperature"] = temperature
+        # L'effort de raisonnement, seulement s'il est choisi : un point qui l'ignore ne le voit pas
+        # (llama-server tolere les champs inconnus), un point qui le comprend l'applique.
+        niveau = _EFFORT_VERS_API.get(effort)
+        if niveau:
+            payload["reasoning_effort"] = niveau
         body = json.dumps(payload).encode()
 
         headers = {"Content-Type": "application/json"}
@@ -284,7 +305,7 @@ def main():
             messages = format_messages(chat_msgs)
             print(f"  [{channel}] Calling model with {len(messages)} messages...")
 
-            response = call_model(messages)
+            response = call_model(messages, get_my_effort())
             response = response.strip()
             if not response:
                 return
