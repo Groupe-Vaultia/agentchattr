@@ -17,7 +17,7 @@ build/
 .gemini/
 .claude/
 agents_lineup.svg
-docs/
+# docs/ est ignoré en amont (bcurts); le fork Groupe-Vaultia y versionne les documents d'équipe.
 goals.py
 pr-reviews/
 agentchattr-*.zip
