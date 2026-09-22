@@ -48,7 +48,7 @@ def main():
     apply_cli_overrides()
     config = load_config(ROOT)
     agent_names = list(config.get("agents", {}).keys())
-    api_agents = [n for n in agent_names if config["agents"][n].get("type") == "api"]
+    api_agents = [n for n in agent_names if config["agents"][n].get("type") in ("api", "cli_print")]
 
     if not api_agents:
         print("  No API agents found in config.\n")
@@ -78,8 +78,14 @@ def main():
     data_dir.mkdir(parents=True, exist_ok=True)
 
     # Model API config
+    agent_type = agent_cfg.get("type")
     base_url = agent_cfg.get("base_url", "").rstrip("/")
-    if not base_url:
+    cli_command = agent_cfg.get("command", "")
+    if agent_type == "cli_print":
+        if not cli_command:
+            print(f"  Error: [agents.{agent}] type=cli_print exige command (ex. cursor-agent)")
+            sys.exit(1)
+    elif not base_url:
         print(f"  Error: [agents.{agent}] must have base_url (e.g. http://localhost:8189/v1)")
         sys.exit(1)
     model = agent_cfg.get("model", "")
@@ -241,7 +247,33 @@ def main():
             return json.loads(resp.read())
 
     # Call OpenAI-compatible chat completions API
+    def call_cli(messages, effort=""):
+        # Un CLI par abonnement (cursor-agent, etc.) en mode print : on aplati la conversation en
+        # texte, on lance la commande une fois, on rend sa sortie. Le modele choisi vient de la config
+        # (ex. auto sur un plan Cursor Free ; grok-4.7-high sur un plan payant). 21 sept. 2026.
+        import shlex, subprocess
+        transcript = []
+        for m in messages:
+            if m["role"] == "system":
+                transcript.append(m["content"])
+            else:
+                transcript.append(m["content"])
+        prompt = "\n".join(transcript) + f"\n\nReponds maintenant comme {get_name()}, en une contribution utile, sans prefixer ton nom."
+        args = shlex.split(cli_command) + ["-p", "--force", "--output-format", "text"]
+        if model:
+            args += ["--model", model]
+        cwd = agent_cfg.get("cwd")
+        proc = subprocess.run(
+            args + [prompt], capture_output=True, text=True, timeout=180,
+            cwd=cwd if cwd else None,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError((proc.stderr or proc.stdout or "echec CLI").strip()[:400])
+        return proc.stdout.strip()
+
     def call_model(messages, effort=""):
+        if agent_type == "cli_print":
+            return call_cli(messages, effort)
         url = f"{base_url}/chat/completions"
         payload = {"messages": messages}
         if model:
