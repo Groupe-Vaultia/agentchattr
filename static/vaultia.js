@@ -126,12 +126,64 @@
     overlay("Projets", corps);
   }
 
+  // ---- rail des projets a gauche (visuel facon Claude) ----
+  let railOuvert = true;
+  function railProjets() {
+    if (document.getElementById("vaultia-rail")) return;
+    const rail = el("div", { id: "vaultia-rail", style: "position:fixed;top:0;left:0;bottom:0;width:230px;z-index:900;background:var(--bg-panel,#17171c);border-right:1px solid var(--border,#2a2a30);display:flex;flex-direction:column;font:13px system-ui;overflow:hidden;" });
+    const tete = el("div", { style: "padding:12px 12px 8px;display:flex;align-items:center;justify-content:space-between;" },
+      el("span", { style: "font-weight:700;opacity:.85;" }, "Projets"),
+      el("button", { title: "Nouveau projet", style: "background:none;border:1px solid var(--border,#3a3a44);color:inherit;border-radius:7px;padding:2px 9px;cursor:pointer;font-size:15px;", onclick: creerProjet }, "＋"));
+    const liste = el("div", { id: "vaultia-rail-liste", style: "flex:1;overflow:auto;padding:4px 8px;" });
+    const memZone = el("div", { id: "vaultia-rail-mem", style: "border-top:1px solid var(--border,#2a2a30);padding:10px 12px;display:none;" });
+    rail.append(tete, liste, memZone);
+    document.body.append(rail);
+    ajusterMarge();
+    rafraichirRail();
+  }
+  function ajusterMarge() {
+    const app = document.getElementById("app");
+    if (app) { app.style.marginLeft = railOuvert ? "230px" : "0"; app.style.transition = "margin-left .15s"; }
+    const rail = document.getElementById("vaultia-rail");
+    if (rail) rail.style.transform = railOuvert ? "none" : "translateX(-230px)";
+  }
+  function basculerRail() { railOuvert = !railOuvert; ajusterMarge(); }
+  async function creerProjet() {
+    const nom = prompt("Nom du nouveau projet :");
+    if (nom && nom.trim()) { await jpost("/api/projects", { name: nom.trim() }); rafraichirRail(); }
+  }
+  async function rafraichirRail() {
+    const liste = document.getElementById("vaultia-rail-liste"); if (!liste) return;
+    const d = await jget("/api/projects").catch(() => ({ projets: {}, actif: "" }));
+    liste.innerHTML = "";
+    const noms = Object.keys(d.projets || {});
+    if (!noms.length) liste.append(el("div", { style: "opacity:.55;padding:8px;font-size:12px;" }, "Aucun projet. ＋ pour en créer un."));
+    noms.forEach((nom) => {
+      const actif = d.actif === nom;
+      const item = el("div", { style: `display:flex;align-items:center;gap:6px;padding:8px 9px;margin:2px 0;border-radius:8px;cursor:pointer;${actif ? "background:var(--accent,#5b8def);color:#fff;" : ""}`,
+        onclick: async () => { await jpost(`/api/projects/${encodeURIComponent(nom)}/activate`); rafraichirRail(); ouvrirMemoire(nom, d.projets[nom].memoire || ""); } },
+        el("span", { style: "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" }, nom),
+        actif ? el("span", { title: "actif", style: "font-size:10px;" }, "●") : null);
+      liste.append(item);
+    });
+    if (d.actif) ouvrirMemoire(d.actif, (d.projets[d.actif] || {}).memoire || ""); else document.getElementById("vaultia-rail-mem").style.display = "none";
+  }
+  function ouvrirMemoire(nom, memoire) {
+    const z = document.getElementById("vaultia-rail-mem"); if (!z) return;
+    z.style.display = "block"; z.innerHTML = "";
+    const ta = el("textarea", { rows: "6", style: "width:100%;box-sizing:border-box;margin-top:6px;padding:7px;border-radius:7px;border:1px solid var(--border,#3a3a44);background:var(--bg,#141418);color:inherit;font:inherit;resize:vertical;" });
+    ta.value = memoire;
+    z.append(el("div", { style: "font-size:11px;opacity:.7;" }, `Mémoire de « ${nom} » (injectée aux IA)`), ta,
+      el("div", { style: "text-align:right;margin-top:6px;" }, btn("Enregistrer", async () => { await jpost(`/api/projects/${encodeURIComponent(nom)}/memory`, { memory: ta.value }); }, true)));
+  }
+
   // ---- boutons du header ----
+
   function boutons() {
     const droite = document.querySelector(".header-right");
     if (!droite || document.getElementById("vaultia-add")) return;
     const style = "background:none;border:1px solid var(--border,#3a3a44);color:inherit;border-radius:8px;padding:5px 10px;margin-left:6px;cursor:pointer;font:13px system-ui;";
-    [["vaultia-proj", "📁 Projets", ouvrirProjets], ["vaultia-stats", "📊 Stats", ouvrirStats], ["vaultia-brain", "🧠 Modèles", ouvrirModeles], ["vaultia-add", "＋ IA", ouvrirAjout]]
+    [["vaultia-proj", "📁 Projets", basculerRail], ["vaultia-stats", "📊 Stats", ouvrirStats], ["vaultia-brain", "🧠 Modèles", ouvrirModeles], ["vaultia-add", "＋ IA", ouvrirAjout]]
       .forEach(([id, txt, on]) => droite.insertBefore(el("button", { id, style, onclick: on }, txt), droite.firstChild));
   }
 
@@ -164,6 +216,6 @@
     new MutationObserver(peindre).observe(document.body, { childList: true, subtree: true });
   }
 
-  function init() { boutons(); bandeauReflexion(); badgesAvatars(); }
+  function init() { boutons(); railProjets(); bandeauReflexion(); badgesAvatars(); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
 })();
