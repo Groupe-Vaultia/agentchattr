@@ -19,12 +19,22 @@
   /* Messages : la bulle tient dans l'écran, le texte et les URLs reviennent à la ligne.
      CLÉ : min-width:0 sur .message ET ses enfants flex, sinon une longue ligne de code
      empêche la bulle de rétrécir et pousse toute la conversation hors écran. */
-  main#timeline { padding: 10px 6px; }
-  #messages { max-width: 100%; padding-left: 6px; padding-right: 6px; }
-  .message { min-width: 0; max-width: 100%; }
+  /* Vue lecture facon app Claude : une colonne, grande typo, marges genereuses.
+     L'avatar est masque (le nom colore de l'agent suffit) pour rendre toute la largeur au texte. */
+  main#timeline { padding: 8px 0 14px; }
+  #messages { max-width: 100%; gap: 2px; }
+  .message { flex-direction: column; align-items: stretch; min-width: 0; max-width: 100%; padding: 12px 20px; gap: 3px; }
+  .message.self { flex-direction: column; }
   .message > * { min-width: 0; }
-  .chat-bubble { max-width: 100% !important; min-width: 0 !important; overflow-wrap: anywhere; word-break: break-word; }
-  .msg-text { min-width: 0; overflow-wrap: anywhere; word-break: break-word; }
+  .message .avatar-wrap, .message .avatar { display: none !important; }
+  .bubble-header { margin-bottom: 2px; }
+  .msg-sender { font-size: 14px; font-weight: 700; }
+  /* Bulles a plat, pleine largeur : un bloc de lecture, pas une carte etroite */
+  .chat-bubble { max-width: 100% !important; min-width: 0 !important; background: transparent !important; border: 0 !important; border-radius: 0 !important; padding: 0 !important; overflow-wrap: anywhere; word-break: break-word; }
+  .msg-text { min-width: 0; font-size: 16px; line-height: 1.6; overflow-wrap: anywhere; word-break: break-word; }
+  /* La personne : un liseré discret a gauche pour la distinguer des agents, sans carte etroite */
+  .message.self .chat-bubble { border-left: 2px solid var(--accent, #5b8def) !important; padding-left: 12px !important; }
+  .message.self { align-items: stretch; }
 
   /* Blocs de code : défilent DANS la bulle au lieu de pousser la page */
   .msg-text pre { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
