@@ -81,26 +81,32 @@
   }
 
   // ---------- le menu de gauche ----------
-  let ouvert = true;
-  try { ouvert = localStorage.getItem("vaultia-rail") !== "0"; } catch (e) {}
+  const estMobile = () => window.innerWidth < 768;
+  const largeurRail = () => (estMobile() ? Math.min(300, Math.round(window.innerWidth * 0.86)) : RAIL_W);
+  let ouvert;
+  try { const v = localStorage.getItem("vaultia-rail"); ouvert = v === null ? !estMobile() : v === "1"; } catch (e) { ouvert = !estMobile(); }
   let expanded = null;
 
   function ajuster() {
-    const app = document.getElementById("app");
-    if (app) { app.style.marginLeft = ouvert ? RAIL_W + "px" : "0"; app.style.transition = "margin-left .16s"; }
+    const w = largeurRail(), mob = estMobile();
     const rail = document.getElementById("vaultia-rail");
-    if (rail) rail.style.transform = ouvert ? "none" : `translateX(-${RAIL_W}px)`;
+    if (rail) { rail.style.width = w + "px"; rail.style.transform = ouvert ? "none" : `translateX(-${w + 2}px)`; }
+    const app = document.getElementById("app");
+    if (app) { app.style.transition = "margin-left .16s"; app.style.marginLeft = (ouvert && !mob) ? w + "px" : "0"; }
+    const bd = document.getElementById("vaultia-backdrop");
+    if (bd) bd.style.display = (ouvert && mob) ? "block" : "none";
     const t = document.getElementById("vaultia-toggle");
-    if (t) t.style.left = (ouvert ? RAIL_W - 34 : 6) + "px";
+    if (t) t.style.left = (ouvert && !mob ? w - 34 : 6) + "px";
   }
   function basculer() { ouvert = !ouvert; try { localStorage.setItem("vaultia-rail", ouvert ? "1" : "0"); } catch (e) {} ajuster(); }
+  function fermerSiMobile() { if (estMobile() && ouvert) { ouvert = false; ajuster(); } }
 
   function canaux() { return Array.isArray(window.channelList) ? window.channelList.slice() : ["general"]; }
 
   function itemCanal(nom) {
     const actif = window.activeChannel === nom;
     const it = el("div", { draggable: "true", style: `display:flex;align-items:center;gap:6px;padding:6px 8px;margin:1px 0;border-radius:7px;cursor:pointer;font-size:13px;${actif ? "background:var(--accent,#5b8def);color:#fff;" : ""}`,
-      onclick: () => { if (window.switchChannel) window.switchChannel(nom); setTimeout(rendre, 60); },
+      onclick: () => { if (window.switchChannel) window.switchChannel(nom); fermerSiMobile(); setTimeout(rendre, 60); },
       ondragstart: (e) => { e.dataTransfer.setData("text/canal", nom); e.dataTransfer.effectAllowed = "move"; },
     }, el("span", { style: "opacity:.6;" }, "#"), el("span", { style: "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" }, nom));
     return it;
@@ -173,9 +179,13 @@
       actions.append(el("button", { onclick: on, style: "flex:1 0 auto;background:none;border:1px solid var(--border,#3a3a44);color:inherit;border-radius:7px;padding:5px 8px;cursor:pointer;font-size:12px;" }, t)));
     const corps = el("div", { id: "vaultia-rail-corps", style: "flex:1;overflow:auto;padding:6px 0;" });
     rail.append(tete, actions, corps);
+    rail.style.zIndex = "1002";
     document.body.append(rail);
-    const toggle = el("button", { id: "vaultia-toggle", title: "Ouvrir/fermer le menu", style: "position:fixed;top:9px;z-index:951;background:var(--bg-panel,#15151a);border:1px solid var(--border,#3a3a44);color:inherit;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:15px;", onclick: basculer }, "☰");
+    const backdrop = el("div", { id: "vaultia-backdrop", style: "display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1001;", onclick: () => { ouvert = false; ajuster(); } });
+    document.body.append(backdrop);
+    const toggle = el("button", { id: "vaultia-toggle", title: "Ouvrir/fermer le menu", style: "position:fixed;top:9px;z-index:1003;background:var(--bg-panel,#15151a);border:1px solid var(--border,#3a3a44);color:inherit;border-radius:8px;width:32px;height:32px;cursor:pointer;font-size:15px;", onclick: basculer }, "☰");
     document.body.append(toggle);
+    window.addEventListener("resize", ajuster);
     ajuster(); rendre();
     setInterval(() => { if (ouvert) rendre(); }, 4000);
   }
