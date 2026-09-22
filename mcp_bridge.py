@@ -52,6 +52,10 @@ _ROLES_FILE: Path | None = None
 _efforts: dict[str, str] = {}  # agent_name → 'rapide' | 'standard' | 'profond' (vide = defaut)
 _EFFORTS_FILE: Path | None = None
 
+# Modele choisi par agent (vide = Auto/defaut de config). 21 sept. 2026.
+_models: dict[str, str] = {}
+_MODELS_FILE: Path | None = None
+
 # Cursor persistence — set by run.py to enable saving cursors across restarts
 _CURSORS_FILE: Path | None = None
 
@@ -539,6 +543,44 @@ def get_effort(name: str) -> str:
 
 def get_all_efforts() -> dict[str, str]:
     return dict(_efforts)
+
+
+def _load_models():
+    global _models
+    if _MODELS_FILE is None or not _MODELS_FILE.exists():
+        return
+    try:
+        _models = json.loads(_MODELS_FILE.read_text("utf-8"))
+    except Exception:
+        log.warning("Failed to load models from %s", _MODELS_FILE)
+
+
+def _save_models():
+    if _MODELS_FILE is None:
+        return
+    try:
+        _MODELS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _MODELS_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(_models), "utf-8")
+        os.replace(tmp, _MODELS_FILE)
+    except Exception:
+        log.warning("Failed to save models to %s", _MODELS_FILE)
+
+
+def set_model(name: str, model: str):
+    if model:
+        _models[name] = model
+    else:
+        _models.pop(name, None)
+    _save_models()
+
+
+def get_model(name: str) -> str:
+    return _models.get(name, "")
+
+
+def get_all_models() -> dict[str, str]:
+    return dict(_models)
 
 
 def migrate_identity(old_name: str, new_name: str):

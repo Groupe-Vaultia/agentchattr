@@ -2145,6 +2145,98 @@ async def set_agent_effort(agent_name: str, request: Request):
     return JSONResponse({"ok": True, "effort": effort})
 
 
+# --- Modele choisi par agent (Vaultia) ---
+
+@app.get("/api/models_choice")
+async def get_models_choice():
+    import mcp_bridge
+    return mcp_bridge.get_all_models()
+
+
+@app.post("/api/models_choice/{agent_name}")
+async def set_agent_model(agent_name: str, request: Request):
+    """Epingle un modele pour un agent (vide = Auto/defaut). Agent API/CLI-print : au message
+    suivant. Agent CLI en terminal (claude/codex) : au prochain lancement."""
+    import mcp_bridge
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    model = str(body.get("model", "")).strip()
+    mcp_bridge.set_model(agent_name, model)
+    await broadcast_status()
+    return JSONResponse({"ok": True, "model": model})
+
+
+# --- Statistiques de consommation (Vaultia) ---
+
+@app.get("/api/stats")
+async def get_stats():
+    """Consommation estimee par agent, calculee a la demande depuis les messages produits.
+    Les CLI (claude/codex/cursor/gemini) ne rapportent pas leurs jetons : l'estimation vient
+    du texte publie (~4 caracteres par jeton). Honnete sur son approximation."""
+    msgs = store.get_recent(count=100000)
+    par_agent: dict[str, dict] = {}
+    agents_connus = set(registry.get_agent_config().keys()) if registry else set()
+    for m in msgs:
+        exp = m.get("sender", "")
+        if not exp or exp == "system":
+            continue
+        texte = m.get("text", "") or ""
+        e = par_agent.setdefault(exp, {"messages": 0, "caracteres": 0, "jetons_estimes": 0, "est_agent": exp in agents_connus})
+        e["messages"] += 1
+        e["caracteres"] += len(texte)
+        e["jetons_estimes"] += max(1, len(texte) // 4)
+    return JSONResponse({"par_agent": par_agent, "note": "Estimation ~4 caracteres/jeton d'apres le texte publie ; les CLI ne rapportent pas leurs jetons."})
+
+
+# --- Projets avec memoire propre (Vaultia) ---
+
+import projects as _projets
+
+
+@app.get("/api/projects")
+async def get_projects():
+    return JSONResponse(_projets.lister())
+
+
+@app.post("/api/projects")
+async def create_project(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    nom = str(body.get("name", "")).strip()
+    if not nom:
+        return JSONResponse({"error": "nom requis"}, status_code=400)
+    _projets.creer(nom, str(body.get("memory", "")))
+    return JSONResponse({"ok": True, **_projets.lister()})
+
+
+@app.post("/api/projects/{name}/memory")
+async def set_project_memory(name: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    if not _projets.definir_memoire(name, str(body.get("memory", ""))):
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/projects/{name}/activate")
+async def activate_project(name: str):
+    if not _projets.activer(name):
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    return JSONResponse({"ok": True, **_projets.lister()})
+
+
+@app.delete("/api/projects/{name}")
+async def delete_project(name: str):
+    _projets.supprimer(name)
+    return JSONResponse({"ok": True, **_projets.lister()})
+
+
 # --- Ajouter une IA par lien (agent API OpenAI-compatible) (Vaultia) ---
 
 import re as _re_vaultia

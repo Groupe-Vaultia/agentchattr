@@ -80,8 +80,12 @@ def main():
     mcp_bridge._load_cursors()
     mcp_bridge._ROLES_FILE = data_dir / "roles.json"
     mcp_bridge._EFFORTS_FILE = data_dir / "efforts.json"
+    mcp_bridge._MODELS_FILE = data_dir / "models.json"
     mcp_bridge._load_roles()
     mcp_bridge._load_efforts()
+    mcp_bridge._load_models()
+    import projects as _projects_mod
+    _projects_mod.configurer(data_dir / "projects.json")
 
     # Start MCP servers in background threads
     http_port = config.get("mcp", {}).get("http_port", 8200)
