@@ -2237,6 +2237,22 @@ async def delete_project(name: str):
     return JSONResponse({"ok": True, **_projets.lister()})
 
 
+@app.post("/api/projects/assign")
+async def assign_channel(request: Request):
+    """Range une conversation (canal) dans un projet, ou l'en retire (project vide)."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    canal = str(body.get("channel", "")).strip()
+    projet = str(body.get("project", "")).strip()
+    if not canal:
+        return JSONResponse({"error": "canal requis"}, status_code=400)
+    if not _projets.assigner_canal(canal, projet):
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    return JSONResponse({"ok": True, **_projets.lister()})
+
+
 # --- Ajouter une IA par lien (agent API OpenAI-compatible) (Vaultia) ---
 
 import re as _re_vaultia
