@@ -1,221 +1,213 @@
-/* vaultia.js — ajouts Vaultia (autonome, chargé après chat.js).
-   + IA (connecter par un lien) · Modèles & raisonnement par IA · Statistiques de jetons ·
-   Projets avec mémoire · bandeau « qui réfléchit » · pastilles d'initiale par marque. */
+/* vaultia.js — menu de gauche Vaultia (autonome, chargé après chat.js).
+   Repliable · actions (+ IA, Modèles, Stats) · projets CONTENANT les conversations
+   (glisser-déposer) + mémoire par projet · bandeau « qui réfléchit » · pastilles d'initiale. */
 (function () {
   "use strict";
   const TOKEN = window.__SESSION_TOKEN__ || "";
   const H = { "Content-Type": "application/json", "X-Session-Token": TOKEN };
   const HT = { "X-Session-Token": TOKEN };
   const EFFORTS = [{ v: "", l: "Défaut" }, { v: "rapide", l: "Rapide" }, { v: "standard", l: "Standard" }, { v: "profond", l: "Profond" }];
+  const RAIL_W = 250;
 
   function el(tag, attrs, ...kids) {
     const e = document.createElement(tag);
     for (const k in (attrs || {})) {
       if (k === "style") e.style.cssText = attrs[k];
-      else if (k === "onclick") e.addEventListener("click", attrs[k]);
+      else if (k.slice(0, 2) === "on" && typeof attrs[k] === "function") e.addEventListener(k.slice(2), attrs[k]);
       else if (k === "html") e.innerHTML = attrs[k];
-      else e.setAttribute(k, attrs[k]);
+      else if (attrs[k] === true) e.setAttribute(k, "");
+      else if (attrs[k] != null) e.setAttribute(k, attrs[k]);
     }
     for (const kid of kids) if (kid != null) e.append(kid);
     return e;
   }
   const fmt = (n) => (n >= 1000 ? (n / 1000).toFixed(1) + " k" : "" + n);
+  const jget = (u) => fetch(u, { headers: HT }).then((r) => r.json());
+  const jpost = (u, b) => fetch(u, { method: "POST", headers: H, body: JSON.stringify(b || {}) }).then((r) => r.json());
+  const sanitize = (s) => s.trim().toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 20);
 
   function overlay(titre, corps) {
-    const fond = el("div", { style: "position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;" });
+    const fond = el("div", { style: "position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;display:flex;align-items:center;justify-content:center;" });
     const boite = el("div", { style: "background:var(--bg-panel,#1e1e24);color:var(--text,#e8e8ea);border:1px solid var(--border,#3a3a44);border-radius:12px;padding:20px 22px;width:min(520px,94vw);max-height:88vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.5);font:14px/1.5 system-ui,sans-serif;" });
     fond.addEventListener("click", (ev) => { if (ev.target === fond) fond.remove(); });
-    boite.append(el("h2", { style: "margin:0 0 14px;font-size:17px;" }, titre));
-    boite.append(corps); fond.append(boite); document.body.append(fond); return fond;
+    boite.append(el("h2", { style: "margin:0 0 14px;font-size:17px;" }, titre)); boite.append(corps);
+    fond.append(boite); document.body.append(fond); return fond;
   }
   function champ(label, input) {
     input.style.cssText += ";display:block;width:100%;margin-top:4px;padding:7px 9px;border-radius:7px;border:1px solid var(--border,#3a3a44);background:var(--bg,#141418);color:inherit;box-sizing:border-box;font:inherit;";
     return el("label", { style: "display:block;margin:0 0 11px;font-size:12px;opacity:.8;" }, label, input);
   }
-  const btn = (txt, on, primary) => el("button", { onclick: on, style: `border:0;border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer;${primary ? "background:var(--accent,#5b8def);color:#fff;" : "background:var(--border,#3a3a44);color:inherit;"}` }, txt);
+  const btn = (t, on, primary) => el("button", { onclick: on, style: `border:0;border-radius:8px;padding:8px 14px;font:inherit;cursor:pointer;${primary ? "background:var(--accent,#5b8def);color:#fff;" : "background:var(--border,#3a3a44);color:inherit;"}` }, t);
 
-  async function jget(u) { return (await fetch(u, { headers: HT })).json(); }
-  async function jpost(u, body) { return (await fetch(u, { method: "POST", headers: H, body: JSON.stringify(body || {}) })).json(); }
-
-  // ---- + IA ----
+  // ---------- panneaux (overlays) ----------
   function ouvrirAjout() {
-    const f = {}; const mk = (ph) => (f[ph] = el("input", { placeholder: ph }));
-    const nom = mk("identifiant (@mention)"), label = mk("Nom affiché"), lien = mk("Lien (base_url, http…/v1)"),
-      modele = mk("modèle"), cle = mk("Clé — variable d'env (optionnel)");
-    const couleur = el("input", { type: "color", value: "#6b7280", style: "height:34px;" });
-    const sys = el("textarea", { rows: "2", placeholder: "Consigne système (optionnel)" });
-    const etat = el("div", { style: "min-height:18px;margin:4px 0;font-size:12px;" });
+    const nom = el("input", { placeholder: "identifiant (@mention)" }), label = el("input", { placeholder: "Nom affiché" }),
+      lien = el("input", { placeholder: "Lien (base_url, http…/v1)" }), modele = el("input", { placeholder: "modèle" }),
+      cle = el("input", { placeholder: "Clé — variable d'env (optionnel)" }), couleur = el("input", { type: "color", value: "#6b7280", style: "height:34px;" }),
+      sys = el("textarea", { rows: "2", placeholder: "Consigne système (optionnel)" }), etat = el("div", { style: "min-height:18px;font-size:12px;" });
     const go = btn("Connecter", async () => {
       etat.textContent = "Connexion…"; etat.style.color = "";
-      const d = await jpost("/api/agents/add", { name: nom.value.trim().toLowerCase(), label: label.value.trim(), base_url: lien.value.trim(), model: modele.value.trim(), api_key_env: cle.value.trim(), color: couleur.value, system_prompt: sys.value.trim() });
-      if (d.error) { etat.style.color = "#e5675f"; etat.textContent = "✗ " + d.error; }
-      else { etat.style.color = "#59b56a"; etat.textContent = `✓ ${d.label} connecté — @${d.name}.`; }
+      const d = await jpost("/api/agents/add", { name: sanitize(nom.value), label: label.value.trim(), base_url: lien.value.trim(), model: modele.value.trim(), api_key_env: cle.value.trim(), color: couleur.value, system_prompt: sys.value.trim() });
+      if (d.error) { etat.style.color = "#e5675f"; etat.textContent = "✗ " + d.error; } else { etat.style.color = "#59b56a"; etat.textContent = `✓ ${d.label} connecté.`; }
     }, true);
-    overlay("Connecter une IA", el("div", {}, champ("Identifiant", nom), champ("Nom affiché", label), champ("Lien de connexion", lien), champ("Modèle", modele), champ("Clé (variable d'env.)", cle), champ("Couleur", couleur), champ("Consigne système", sys), etat, el("div", { style: "text-align:right;" }, go)));
+    overlay("Connecter une IA", el("div", {}, champ("Identifiant", nom), champ("Nom affiché", label), champ("Lien de connexion", lien), champ("Modèle", modele), champ("Clé (variable d'env.)", cle), champ("Couleur", couleur), champ("Consigne système", sys), etat, el("div", { style: "text-align:right;margin-top:8px;" }, go)));
   }
-
-  // ---- Modèles & raisonnement ----
   async function ouvrirModeles() {
     const status = await jget("/api/status").catch(() => ({}));
     const corps = el("div", {});
-    corps.append(el("p", { style: "margin:0 0 12px;font-size:12px;opacity:.75;" }, "Modèle et niveau de raisonnement par IA. Vide = Auto/défaut. Appliqué au message suivant pour Qwen/Cursor/Gemini ; au prochain lancement pour Claude et Codex."));
+    corps.append(el("p", { style: "margin:0 0 12px;font-size:12px;opacity:.75;" }, "Modèle et niveau de raisonnement par IA. Vide = Auto/défaut. Immédiat pour Qwen/Cursor/Gemini ; au prochain lancement pour Claude/Codex."));
     Object.keys(status).filter((n) => n !== "paused").forEach((nom) => {
       const info = status[nom] || {};
       const eff = el("select", { style: "padding:5px;border-radius:7px;border:1px solid var(--border,#3a3a44);background:var(--bg,#141418);color:inherit;" });
       EFFORTS.forEach((o) => { const op = el("option", { value: o.v }, o.l); if ((info.effort || "") === o.v) op.selected = true; eff.append(op); });
       eff.addEventListener("change", () => jpost("/api/efforts/" + encodeURIComponent(nom), { effort: eff.value }));
-      const mod = el("input", { value: info.model || "", placeholder: "Auto", style: "width:150px;padding:5px 7px;border-radius:7px;border:1px solid var(--border,#3a3a44);background:var(--bg,#141418);color:inherit;font:inherit;" });
+      const mod = el("input", { value: info.model || "", placeholder: "Auto", style: "width:140px;padding:5px 7px;border-radius:7px;border:1px solid var(--border,#3a3a44);background:var(--bg,#141418);color:inherit;font:inherit;" });
       mod.addEventListener("change", () => jpost("/api/models_choice/" + encodeURIComponent(nom), { model: mod.value.trim() }));
-      const pastille = el("span", { style: `display:inline-block;width:9px;height:9px;border-radius:50%;background:${info.color || "#888"};margin-right:7px;` });
       corps.append(el("div", { style: "display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border,#2a2a30);flex-wrap:wrap;" },
-        el("span", { style: "min-width:110px;font-weight:600;" }, pastille, info.label || nom),
-        el("span", { style: "font-size:11px;opacity:.6;" }, "modèle"), mod,
-        el("span", { style: "font-size:11px;opacity:.6;" }, "raisonnement"), eff));
+        el("span", { style: "min-width:100px;font-weight:600;" }, el("span", { style: `display:inline-block;width:9px;height:9px;border-radius:50%;background:${info.color || "#888"};margin-right:7px;` }), info.label || nom),
+        el("span", { style: "font-size:11px;opacity:.6;" }, "modèle"), mod, el("span", { style: "font-size:11px;opacity:.6;" }, "raison."), eff));
     });
     overlay("Modèles & raisonnement", corps);
   }
-
-  // ---- Statistiques ----
   async function ouvrirStats() {
     const d = await jget("/api/stats").catch(() => ({ par_agent: {} }));
-    const corps = el("div", {});
-    const rows = Object.entries(d.par_agent || {}).sort((a, b) => b[1].jetons_estimes - a[1].jetons_estimes);
+    const corps = el("div", {}); const rows = Object.entries(d.par_agent || {}).sort((a, b) => b[1].jetons_estimes - a[1].jetons_estimes);
     const tbl = el("table", { style: "width:100%;border-collapse:collapse;font-size:13px;" });
     tbl.append(el("tr", { style: "text-align:left;opacity:.7;" }, el("th", { style: "padding:6px 4px;" }, "Participant"), el("th", {}, "Messages"), el("th", {}, "Jetons estimés")));
-    rows.forEach(([nom, e]) => tbl.append(el("tr", { style: "border-top:1px solid var(--border,#2a2a30);" },
-      el("td", { style: "padding:6px 4px;" }, (e.est_agent ? "🤖 " : "🧑 ") + nom),
-      el("td", { style: "font-variant-numeric:tabular-nums;" }, "" + e.messages),
-      el("td", { style: "font-variant-numeric:tabular-nums;" }, fmt(e.jetons_estimes)))));
-    if (!rows.length) corps.append(el("p", { style: "opacity:.6;" }, "Aucun message encore."));
-    else corps.append(tbl);
+    rows.forEach(([nom, e]) => tbl.append(el("tr", { style: "border-top:1px solid var(--border,#2a2a30);" }, el("td", { style: "padding:6px 4px;" }, (e.est_agent ? "🤖 " : "🧑 ") + nom), el("td", { style: "font-variant-numeric:tabular-nums;" }, "" + e.messages), el("td", { style: "font-variant-numeric:tabular-nums;" }, fmt(e.jetons_estimes)))));
+    corps.append(rows.length ? tbl : el("p", { style: "opacity:.6;" }, "Aucun message encore."));
     corps.append(el("p", { style: "margin-top:14px;font-size:11px;opacity:.6;" }, d.note || ""));
-    corps.append(el("div", { style: "text-align:right;margin-top:10px;" }, btn("Rafraîchir", () => { document.querySelector("#vaultia-ov-stats")?.remove(); ouvrirStats(); })));
-    const ov = overlay("Statistiques — consommation", corps); ov.id = "vaultia-ov-stats";
+    overlay("Statistiques — consommation", corps);
   }
 
-  // ---- Projets ----
-  async function ouvrirProjets() {
-    const d = await jget("/api/projects").catch(() => ({ projets: {}, actif: "" }));
-    const corps = el("div", {});
-    const liste = el("div", {});
-    const rerender = async () => { const nd = await jget("/api/projects"); dessine(nd); };
-    function dessine(data) {
-      liste.innerHTML = "";
-      const noms = Object.keys(data.projets || {});
-      if (!noms.length) liste.append(el("p", { style: "opacity:.6;" }, "Aucun projet. Crée-en un ci-dessous."));
-      noms.forEach((nom) => {
-        const actif = data.actif === nom;
-        const mem = el("textarea", { rows: "3", style: "width:100%;margin-top:6px;padding:7px;border-radius:7px;border:1px solid var(--border,#3a3a44);background:var(--bg,#141418);color:inherit;box-sizing:border-box;font:inherit;" });
-        mem.value = (data.projets[nom].memoire || "");
-        const bloc = el("div", { style: `padding:10px;margin-bottom:10px;border:1px solid ${actif ? "var(--accent,#5b8def)" : "var(--border,#3a3a44)"};border-radius:9px;` },
-          el("div", { style: "display:flex;align-items:center;gap:8px;" },
-            el("strong", {}, nom), actif ? el("span", { style: "font-size:11px;color:var(--accent,#5b8def);" }, "● actif") : btn("Activer", async () => { await jpost(`/api/projects/${encodeURIComponent(nom)}/activate`); rerender(); }),
-            el("span", { style: "flex:1;" }),
-            btn("Supprimer", async () => { await fetch(`/api/projects/${encodeURIComponent(nom)}`, { method: "DELETE", headers: HT }); rerender(); })),
-          el("div", { style: "font-size:11px;opacity:.7;margin-top:8px;" }, "Mémoire du projet (contexte injecté aux IA quand ce projet est actif)"),
-          mem,
-          el("div", { style: "text-align:right;margin-top:6px;" }, btn("Enregistrer la mémoire", async () => { await jpost(`/api/projects/${encodeURIComponent(nom)}/memory`, { memory: mem.value }); }, true)));
-        liste.append(bloc);
-      });
-    }
-    dessine(d);
-    const nouveau = el("input", { placeholder: "Nom du nouveau projet" });
-    corps.append(el("p", { style: "margin:0 0 12px;font-size:12px;opacity:.75;" }, "Un projet a sa propre mémoire, injectée à toutes les IA quand il est actif — comme un projet Claude."), liste,
-      el("div", { style: "display:flex;gap:8px;margin-top:8px;" }, (nouveau.style.cssText += ";flex:1;padding:8px;border-radius:7px;border:1px solid var(--border,#3a3a44);background:var(--bg,#141418);color:inherit;font:inherit;", nouveau),
-        btn("Créer", async () => { if (nouveau.value.trim()) { await jpost("/api/projects", { name: nouveau.value.trim() }); nouveau.value = ""; rerender(); } }, true)));
-    overlay("Projets", corps);
-  }
+  // ---------- le menu de gauche ----------
+  let ouvert = true;
+  try { ouvert = localStorage.getItem("vaultia-rail") !== "0"; } catch (e) {}
+  let expanded = null;
 
-  // ---- rail des projets a gauche (visuel facon Claude) ----
-  let railOuvert = true;
-  function railProjets() {
-    if (document.getElementById("vaultia-rail")) return;
-    const rail = el("div", { id: "vaultia-rail", style: "position:fixed;top:0;left:0;bottom:0;width:230px;z-index:900;background:var(--bg-panel,#17171c);border-right:1px solid var(--border,#2a2a30);display:flex;flex-direction:column;font:13px system-ui;overflow:hidden;" });
-    const tete = el("div", { style: "padding:12px 12px 8px;display:flex;align-items:center;justify-content:space-between;" },
-      el("span", { style: "font-weight:700;opacity:.85;" }, "Projets"),
-      el("button", { title: "Nouveau projet", style: "background:none;border:1px solid var(--border,#3a3a44);color:inherit;border-radius:7px;padding:2px 9px;cursor:pointer;font-size:15px;", onclick: creerProjet }, "＋"));
-    const liste = el("div", { id: "vaultia-rail-liste", style: "flex:1;overflow:auto;padding:4px 8px;" });
-    const memZone = el("div", { id: "vaultia-rail-mem", style: "border-top:1px solid var(--border,#2a2a30);padding:10px 12px;display:none;" });
-    rail.append(tete, liste, memZone);
-    document.body.append(rail);
-    ajusterMarge();
-    rafraichirRail();
-  }
-  function ajusterMarge() {
+  function ajuster() {
     const app = document.getElementById("app");
-    if (app) { app.style.marginLeft = railOuvert ? "230px" : "0"; app.style.transition = "margin-left .15s"; }
+    if (app) { app.style.marginLeft = ouvert ? RAIL_W + "px" : "0"; app.style.transition = "margin-left .16s"; }
     const rail = document.getElementById("vaultia-rail");
-    if (rail) rail.style.transform = railOuvert ? "none" : "translateX(-230px)";
+    if (rail) rail.style.transform = ouvert ? "none" : `translateX(-${RAIL_W}px)`;
+    const t = document.getElementById("vaultia-toggle");
+    if (t) t.style.left = (ouvert ? RAIL_W - 34 : 6) + "px";
   }
-  function basculerRail() { railOuvert = !railOuvert; ajusterMarge(); }
-  async function creerProjet() {
-    const nom = prompt("Nom du nouveau projet :");
-    if (nom && nom.trim()) { await jpost("/api/projects", { name: nom.trim() }); rafraichirRail(); }
+  function basculer() { ouvert = !ouvert; try { localStorage.setItem("vaultia-rail", ouvert ? "1" : "0"); } catch (e) {} ajuster(); }
+
+  function canaux() { return Array.isArray(window.channelList) ? window.channelList.slice() : ["general"]; }
+
+  function itemCanal(nom) {
+    const actif = window.activeChannel === nom;
+    const it = el("div", { draggable: "true", style: `display:flex;align-items:center;gap:6px;padding:6px 8px;margin:1px 0;border-radius:7px;cursor:pointer;font-size:13px;${actif ? "background:var(--accent,#5b8def);color:#fff;" : ""}`,
+      onclick: () => { if (window.switchChannel) window.switchChannel(nom); setTimeout(rendre, 60); },
+      ondragstart: (e) => { e.dataTransfer.setData("text/canal", nom); e.dataTransfer.effectAllowed = "move"; },
+    }, el("span", { style: "opacity:.6;" }, "#"), el("span", { style: "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" }, nom));
+    return it;
   }
-  async function rafraichirRail() {
-    const liste = document.getElementById("vaultia-rail-liste"); if (!liste) return;
-    const d = await jget("/api/projects").catch(() => ({ projets: {}, actif: "" }));
-    liste.innerHTML = "";
-    const noms = Object.keys(d.projets || {});
-    if (!noms.length) liste.append(el("div", { style: "opacity:.55;padding:8px;font-size:12px;" }, "Aucun projet. ＋ pour en créer un."));
-    noms.forEach((nom) => {
-      const actif = d.actif === nom;
-      const item = el("div", { style: `display:flex;align-items:center;gap:6px;padding:8px 9px;margin:2px 0;border-radius:8px;cursor:pointer;${actif ? "background:var(--accent,#5b8def);color:#fff;" : ""}`,
-        onclick: async () => { await jpost(`/api/projects/${encodeURIComponent(nom)}/activate`); rafraichirRail(); ouvrirMemoire(nom, d.projets[nom].memoire || ""); } },
-        el("span", { style: "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" }, nom),
-        actif ? el("span", { title: "actif", style: "font-size:10px;" }, "●") : null);
-      liste.append(item);
+  function cibleDrop(elem, projet) {
+    elem.addEventListener("dragover", (e) => { e.preventDefault(); elem.style.outline = "2px dashed var(--accent,#5b8def)"; });
+    elem.addEventListener("dragleave", () => { elem.style.outline = ""; });
+    elem.addEventListener("drop", async (e) => {
+      e.preventDefault(); elem.style.outline = "";
+      const canal = e.dataTransfer.getData("text/canal");
+      if (canal) { await jpost("/api/projects/assign", { channel: canal, project: projet }); rendre(); }
     });
-    if (d.actif) ouvrirMemoire(d.actif, (d.projets[d.actif] || {}).memoire || ""); else document.getElementById("vaultia-rail-mem").style.display = "none";
-  }
-  function ouvrirMemoire(nom, memoire) {
-    const z = document.getElementById("vaultia-rail-mem"); if (!z) return;
-    z.style.display = "block"; z.innerHTML = "";
-    const ta = el("textarea", { rows: "6", style: "width:100%;box-sizing:border-box;margin-top:6px;padding:7px;border-radius:7px;border:1px solid var(--border,#3a3a44);background:var(--bg,#141418);color:inherit;font:inherit;resize:vertical;" });
-    ta.value = memoire;
-    z.append(el("div", { style: "font-size:11px;opacity:.7;" }, `Mémoire de « ${nom} » (injectée aux IA)`), ta,
-      el("div", { style: "text-align:right;margin-top:6px;" }, btn("Enregistrer", async () => { await jpost(`/api/projects/${encodeURIComponent(nom)}/memory`, { memory: ta.value }); }, true)));
   }
 
-  // ---- boutons du header ----
+  async function rendre() {
+    const liste = document.getElementById("vaultia-rail-corps"); if (!liste) return;
+    const d = await jget("/api/projects").catch(() => ({ projets: {}, actif: "" }));
+    const projets = d.projets || {};
+    const assignes = new Set(); Object.values(projets).forEach((p) => (p.channels || []).forEach((c) => assignes.add(c)));
+    liste.innerHTML = "";
 
-  function boutons() {
-    const droite = document.querySelector(".header-right");
-    if (!droite || document.getElementById("vaultia-add")) return;
-    const style = "background:none;border:1px solid var(--border,#3a3a44);color:inherit;border-radius:8px;padding:5px 10px;margin-left:6px;cursor:pointer;font:13px system-ui;";
-    [["vaultia-proj", "📁 Projets", basculerRail], ["vaultia-stats", "📊 Stats", ouvrirStats], ["vaultia-brain", "🧠 Modèles", ouvrirModeles], ["vaultia-add", "＋ IA", ouvrirAjout]]
-      .forEach(([id, txt, on]) => droite.insertBefore(el("button", { id, style, onclick: on }, txt), droite.firstChild));
+    const secProj = el("div", { style: "display:flex;align-items:center;justify-content:space-between;padding:4px 10px 2px;" },
+      el("span", { style: "font-size:11px;text-transform:uppercase;letter-spacing:.04em;opacity:.55;" }, "Projets"),
+      el("button", { title: "Nouveau projet", style: "background:none;border:1px solid var(--border,#3a3a44);color:inherit;border-radius:6px;padding:0 8px;cursor:pointer;font-size:14px;", onclick: async () => { const n = prompt("Nom du projet :"); if (n && n.trim()) { await jpost("/api/projects", { name: n.trim() }); rendre(); } } }, "＋"));
+    liste.append(secProj);
+
+    Object.keys(projets).forEach((nom) => {
+      const p = projets[nom]; const actif = d.actif === nom; const open = expanded === nom;
+      const tete = el("div", { style: `display:flex;align-items:center;gap:6px;padding:7px 9px;margin:1px 6px;border-radius:8px;cursor:pointer;${actif ? "background:rgba(91,141,239,.18);" : ""}`,
+        onclick: async () => { expanded = open ? null : nom; if (!actif) await jpost(`/api/projects/${encodeURIComponent(nom)}/activate`); rendre(); } },
+        el("span", { style: "opacity:.6;font-size:11px;width:10px;" }, open ? "▾" : "▸"),
+        el("span", { style: "flex:1;font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" }, nom),
+        actif ? el("span", { title: "actif", style: "color:var(--accent,#5b8def);font-size:10px;" }, "●") : null);
+      cibleDrop(tete, nom);
+      liste.append(tete);
+      if (open) {
+        const sous = el("div", { style: "margin:0 6px 6px 18px;" });
+        (p.channels || []).forEach((c) => { if (canaux().includes(c)) sous.append(itemCanal(c)); });
+        sous.append(el("div", { style: "padding:5px 8px;font-size:12px;opacity:.7;cursor:pointer;", onclick: async () => {
+          const n = sanitize(prompt("Nom de la conversation :") || ""); if (!n) return;
+          if (!canaux().includes(n) && window.ws) { if (window._setPendingChannelSwitch) window._setPendingChannelSwitch(n); window.ws.send(JSON.stringify({ type: "channel_create", name: n })); }
+          setTimeout(async () => { await jpost("/api/projects/assign", { channel: n, project: nom }); rendre(); }, 400);
+        } }, "＋ Conversation"));
+        const mem = el("textarea", { rows: "4", style: "width:100%;box-sizing:border-box;margin-top:4px;padding:7px;border-radius:7px;border:1px solid var(--border,#3a3a44);background:var(--bg,#141418);color:inherit;font:inherit;resize:vertical;font-size:12px;" });
+        mem.value = p.memoire || "";
+        sous.append(el("div", { style: "font-size:11px;opacity:.6;margin-top:6px;" }, "Mémoire (injectée aux IA)"), mem,
+          el("div", { style: "text-align:right;margin-top:4px;" }, btn("Enregistrer", async () => { await jpost(`/api/projects/${encodeURIComponent(nom)}/memory`, { memory: mem.value }); }, true)));
+        liste.append(sous);
+      }
+    });
+
+    const horsTitre = el("div", { style: "padding:10px 10px 2px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;opacity:.55;" }, "Conversations");
+    cibleDrop(horsTitre, "");
+    liste.append(horsTitre);
+    const hors = el("div", { style: "padding:0 6px;" });
+    cibleDrop(hors, "");
+    canaux().filter((c) => !assignes.has(c)).forEach((c) => hors.append(itemCanal(c)));
+    hors.append(el("div", { style: "padding:5px 8px;font-size:12px;opacity:.7;cursor:pointer;", onclick: () => {
+      const n = sanitize(prompt("Nom de la conversation :") || ""); if (n && !canaux().includes(n) && window.ws) { if (window._setPendingChannelSwitch) window._setPendingChannelSwitch(n); window.ws.send(JSON.stringify({ type: "channel_create", name: n })); setTimeout(rendre, 400); }
+    } }, "＋ Conversation"));
+    liste.append(hors);
   }
 
-  // ---- bandeau « qui réfléchit » au-dessus du compositeur ----
+  function railMenu() {
+    if (document.getElementById("vaultia-rail")) return;
+    const rail = el("div", { id: "vaultia-rail", style: `position:fixed;top:0;left:0;bottom:0;width:${RAIL_W}px;z-index:950;background:var(--bg-panel,#15151a);border-right:1px solid var(--border,#2a2a30);display:flex;flex-direction:column;font:13px system-ui;overflow:hidden;` });
+    const tete = el("div", { style: "padding:12px 12px 6px;display:flex;align-items:center;gap:8px;" }, el("img", { src: "/static/logo.png", style: "height:26px;" }));
+    const actions = el("div", { style: "display:flex;flex-wrap:wrap;gap:6px;padding:4px 10px 10px;border-bottom:1px solid var(--border,#2a2a30);" });
+    [["＋ IA", ouvrirAjout], ["🧠 Modèles", ouvrirModeles], ["📊 Stats", ouvrirStats]].forEach(([t, on]) =>
+      actions.append(el("button", { onclick: on, style: "flex:1 0 auto;background:none;border:1px solid var(--border,#3a3a44);color:inherit;border-radius:7px;padding:5px 8px;cursor:pointer;font-size:12px;" }, t)));
+    const corps = el("div", { id: "vaultia-rail-corps", style: "flex:1;overflow:auto;padding:6px 0;" });
+    rail.append(tete, actions, corps);
+    document.body.append(rail);
+    const toggle = el("button", { id: "vaultia-toggle", title: "Ouvrir/fermer le menu", style: "position:fixed;top:9px;z-index:951;background:var(--bg-panel,#15151a);border:1px solid var(--border,#3a3a44);color:inherit;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:15px;", onclick: basculer }, "☰");
+    document.body.append(toggle);
+    ajuster(); rendre();
+    setInterval(() => { if (ouvert) rendre(); }, 4000);
+  }
+
+  // ---------- bandeau « qui réfléchit » ----------
   function bandeauReflexion() {
     const ancre = document.getElementById("mention-toggles-row") || document.getElementById("input-row");
     if (!ancre || document.getElementById("vaultia-reflexion")) return;
     const bar = el("div", { id: "vaultia-reflexion", style: "display:none;padding:5px 12px;font-size:12px;color:var(--accent,#5b8def);gap:8px;align-items:center;" });
     ancre.parentNode.insertBefore(bar, ancre);
+    if (!document.getElementById("vaultia-kf")) { const st = el("style", { id: "vaultia-kf" }); st.textContent = "@keyframes vaultiaSpin{to{transform:rotate(360deg)}}"; document.head.append(st); }
     async function tick() {
       try {
         const s = await jget("/api/status");
         const busy = Object.keys(s).filter((n) => n !== "paused" && s[n] && s[n].busy).map((n) => s[n].label || n);
-        if (busy.length) { bar.style.display = "flex"; bar.innerHTML = `<span class="vaultia-spin" style="display:inline-block;width:10px;height:10px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:vaultiaSpin .8s linear infinite;"></span> ${busy.join(", ")} ${busy.length > 1 ? "réfléchissent" : "réfléchit"}…`; }
+        if (busy.length) { bar.style.display = "flex"; bar.innerHTML = `<span style="display:inline-block;width:10px;height:10px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:vaultiaSpin .8s linear infinite;"></span> ${busy.join(", ")} ${busy.length > 1 ? "réfléchissent" : "réfléchit"}…`; }
         else bar.style.display = "none";
       } catch (e) {}
     }
-    if (!document.getElementById("vaultia-kf")) { const st = el("style", { id: "vaultia-kf" }); st.textContent = "@keyframes vaultiaSpin{to{transform:rotate(360deg)}}"; document.head.append(st); }
     tick(); setInterval(tick, 1500);
   }
 
-  // ---- pastilles d'initiale par marque (badge original, coloré ; pas le logo déposé) ----
+  // ---------- pastilles d'initiale (badge original, pas de logo déposé) ----------
   function badgesAvatars() {
     const peindre = () => document.querySelectorAll(".avatar").forEach((a) => {
       const wrap = a.closest(".avatar-wrap"); const nom = (wrap && wrap.dataset.agent) || a.dataset.agent || "";
       const lettre = (nom || "?").trim().charAt(0).toUpperCase();
       if (a.textContent !== lettre) { a.textContent = lettre; a.style.display = "flex"; a.style.alignItems = "center"; a.style.justifyContent = "center"; a.style.fontWeight = "700"; a.style.color = "#fff"; a.style.fontSize = "13px"; }
     });
-    peindre();
-    new MutationObserver(peindre).observe(document.body, { childList: true, subtree: true });
+    peindre(); new MutationObserver(peindre).observe(document.body, { childList: true, subtree: true });
   }
 
-  function init() { boutons(); railProjets(); bandeauReflexion(); badgesAvatars(); }
+  function init() { railMenu(); bandeauReflexion(); badgesAvatars(); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
 })();

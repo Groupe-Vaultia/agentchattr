@@ -47,7 +47,7 @@ def lister() -> dict:
 def creer(nom: str, memoire: str = "") -> None:
     import time
     with _LOCK:
-        _state["projets"][nom] = {"memoire": memoire, "cree": time.time()}
+        _state["projets"][nom] = {"memoire": memoire, "cree": time.time(), "channels": []}
         if not _state["actif"]:
             _state["actif"] = nom
         _sauver()
@@ -77,6 +77,24 @@ def supprimer(nom: str) -> None:
         if _state["actif"] == nom:
             _state["actif"] = ""
         _sauver()
+
+
+def assigner_canal(canal: str, projet: str) -> bool:
+    """Rattache un canal (conversation) a un projet ; projet vide = le detacher de tout projet.
+    Un canal n'appartient qu'a un projet a la fois."""
+    with _LOCK:
+        for nom, p in _state["projets"].items():
+            p.setdefault("channels", [])
+            if canal in p["channels"] and nom != projet:
+                p["channels"].remove(canal)
+        if projet:
+            if projet not in _state["projets"]:
+                return False
+            ch = _state["projets"][projet].setdefault("channels", [])
+            if canal not in ch:
+                ch.append(canal)
+        _sauver()
+        return True
 
 
 def memoire_active() -> str:
