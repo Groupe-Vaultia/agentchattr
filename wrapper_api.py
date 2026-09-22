@@ -207,6 +207,33 @@ def main():
         except Exception:
             return ""
 
+    def get_my_model():
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{server_port}/api/status",
+                headers=_auth_headers(get_token()),
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                status = json.loads(resp.read())
+            info = status.get(get_name(), {})
+            return (info.get("model", "") if isinstance(info, dict) else "") or model
+        except Exception:
+            return model
+
+    def get_project_memory():
+        # La memoire du projet actif (Vaultia), injectee au contexte comme un projet Claude.
+        try:
+            req = urllib.request.Request(f"http://127.0.0.1:{server_port}/api/projects")
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                data = json.loads(resp.read())
+            actif = data.get("actif", "")
+            projets = data.get("projets", {})
+            if actif and actif in projets:
+                return (projets[actif].get("memoire", "") or "").strip(), actif
+        except Exception:
+            pass
+        return "", ""
+
     # Get online agents from server
     def get_online_agents():
         try:
@@ -247,7 +274,7 @@ def main():
             return json.loads(resp.read())
 
     # Call OpenAI-compatible chat completions API
-    def call_cli(messages, effort=""):
+    def call_cli(messages, effort="", model_choisi=""):
         # Un CLI par abonnement (cursor-agent, etc.) en mode print : on aplati la conversation en
         # texte, on lance la commande une fois, on rend sa sortie. Le modele choisi vient de la config
         # (ex. auto sur un plan Cursor Free ; grok-4.7-high sur un plan payant). 21 sept. 2026.
@@ -264,8 +291,9 @@ def main():
         # -p comme un booleen + prompt positionnel, agy prend le prompt comme valeur de -p.
         args = shlex.split(cli_command) + shlex.split(agent_cfg.get("cli_flags", ""))
         args += ["--output-format", "text"]
-        if model:
-            args += ["--model", model]
+        mdl = model_choisi or model
+        if mdl:
+            args += ["--model", mdl]
         args += ["-p", prompt]
         cwd = agent_cfg.get("cwd")
         proc = subprocess.run(
@@ -276,13 +304,14 @@ def main():
             raise RuntimeError((proc.stderr or proc.stdout or "echec CLI").strip()[:400])
         return proc.stdout.strip()
 
-    def call_model(messages, effort=""):
+    def call_model(messages, effort="", model_choisi=""):
+        mdl = model_choisi or model
         if agent_type == "cli_print":
-            return call_cli(messages, effort)
+            return call_cli(messages, effort, mdl)
         url = f"{base_url}/chat/completions"
         payload = {"messages": messages}
-        if model:
-            payload["model"] = model
+        if mdl:
+            payload["model"] = mdl
         if temperature is not None:
             payload["temperature"] = temperature
         # L'effort de raisonnement, seulement s'il est choisi : un point qui l'ignore ne le voit pas
@@ -309,6 +338,9 @@ def main():
         online = get_online_agents()
         others = [n for n in online if n != my_name]
         parts = [system_prompt]
+        memoire, nom_projet = get_project_memory()
+        if memoire:
+            parts.append(f"Projet actif « {nom_projet} » — memoire du projet (contexte a respecter) :\n{memoire}")
         # Inject role if set
         my_role = get_my_role()
         if my_role:
@@ -342,7 +374,7 @@ def main():
             messages = format_messages(chat_msgs)
             print(f"  [{channel}] Calling model with {len(messages)} messages...")
 
-            response = call_model(messages, get_my_effort())
+            response = call_model(messages, get_my_effort(), get_my_model())
             response = response.strip()
             if not response:
                 return

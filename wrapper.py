@@ -364,13 +364,19 @@ def _effort_launch_args(agent: str, agent_cfg: dict, data_dir: Path) -> list[str
         return []
     provider = agent if agent in _BUILTIN_DEFAULTS else _provider_from_command(agent_cfg.get("command", ""))
     niveau = {"rapide": "low", "standard": "medium", "profond": "high"}.get(efforts.get(agent, ""))
-    if not niveau:
-        return []
-    if provider == "claude":
-        return ["--effort", niveau]
-    if provider == "codex":
-        return ["-c", f"model_reasoning_effort={niveau}"]
-    return []
+    args = []
+    if provider == "claude" and niveau:
+        args += ["--effort", niveau]
+    elif provider == "codex" and niveau:
+        args += ["-c", f"model_reasoning_effort={niveau}"]
+    try:
+        modeles = json.loads((data_dir / "models.json").read_text("utf-8"))
+    except Exception:
+        modeles = {}
+    modele = modeles.get(agent, "")
+    if modele:
+        args += ["--model", modele]
+    return args
 
 
 def _build_provider_launch(
@@ -457,6 +463,22 @@ def _fetch_role(server_port: int, agent_name: str) -> str:
         return roles.get(agent_name, "")
     except Exception:
         return ""
+
+
+def _fetch_project_memory(server_port: int) -> tuple[str, str]:
+    """La memoire du projet actif (Vaultia), a injecter dans le declenchement de l'agent."""
+    try:
+        import urllib.request
+        req = urllib.request.Request(f"http://127.0.0.1:{server_port}/api/projects")
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read())
+        actif = data.get("actif", "")
+        projets = data.get("projets", {})
+        if actif and actif in projets:
+            return (projets[actif].get("memoire", "") or "").strip(), actif
+    except Exception:
+        pass
+    return "", ""
 
 
 def _fetch_active_rules(server_port: int, token: str = "") -> dict | None:
@@ -558,6 +580,10 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
                         role = _fetch_role(server_port, agent_name)
                     if role:
                         prompt += f"\n\nROLE: {role}"
+
+                    memoire_projet, nom_projet = _fetch_project_memory(server_port)
+                    if memoire_projet:
+                        prompt += f"\n\nPROJET ACTIF « {nom_projet} » — memoire du projet (contexte a respecter) :\n{memoire_projet}"
 
                     # Smart rules injection: first trigger, epoch change, or periodic refresh
                     _token = get_token_fn() if get_token_fn else ""
