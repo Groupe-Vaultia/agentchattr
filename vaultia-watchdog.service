@@ -1,0 +1,14 @@
+[Unit]
+Description=Vaultia — gardien de la salle multi-IA (relance serveur + agents)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/charles-antoine/atelier/agentchattr
+ExecStart=/home/charles-antoine/atelier/agentchattr/vaultia-watchdog.sh
+Restart=always
+RestartSec=10
+KillMode=process
+
+[Install]
+WantedBy=default.target
