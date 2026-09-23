@@ -32,6 +32,7 @@ for a in qwenlocal cursor gemini; do : > "data/$a.log"; (setsid nohup env PATH="
 echo "== agents CLI (Claude, Codex) en tmux =="
 tmux new-session -d -s ac-claude -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py claude --dangerously-skip-permissions; read"
 tmux new-session -d -s ac-codex  -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py codex --dangerously-bypass-approvals-and-sandbox; read"
+tmux new-session -d -s ac-qwencode -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py qwencode; read"
 
 sleep 12
 TOK=$(grep -oiE "session token: *[0-9a-f]+" data/server.log | tail -1 | grep -o "[0-9a-f]\{16,\}")

@@ -38,5 +38,6 @@ while true; do
   pont qwenlocal; pont cursor; pont gemini
   cli claude --dangerously-skip-permissions
   cli codex --dangerously-bypass-approvals-and-sandbox
+  cli qwencode
   sleep 30
 done
