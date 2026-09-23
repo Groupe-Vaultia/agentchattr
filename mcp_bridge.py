@@ -14,6 +14,8 @@ from pathlib import Path
 
 from mcp.server.fastmcp import Context, FastMCP
 
+from rules import MAX_REASON_CHARS, MAX_TEXT_CHARS
+
 log = logging.getLogger(__name__)
 
 # Shared state — set by run.py before starting
@@ -94,7 +96,7 @@ _MCP_INSTRUCTIONS = (
     "Rules are the shared working style for your agents. They are short imperative instructions that all agents should follow. "
     "At session start, call chat_rules(action='list') to read active rules — treat them as authoritative guidance. "
     "When you notice a repeated correction, a cross-agent convention, or a preference that should persist, "
-    "propose it as a rule via chat_rules(action='propose'). Keep rules short and imperative (max 160 chars). "
+    f"propose it as a rule via chat_rules(action='propose'). Keep rules short and imperative (max {MAX_TEXT_CHARS} chars). "
     "Don't propose trivial or session-specific things. chat_decision is an alias for chat_rules (backward compat).\n\n"
     "Messages belong to channels (default: 'general'). Use the 'channel' parameter in chat_send and "
     "chat_read to target a specific channel. Omit channel or pass empty string to read from all channels.\n\n"
@@ -900,6 +902,11 @@ def chat_rules(
             return "Error: rule text is required."
         if not sender.strip():
             return "Error: sender is required."
+        for field, value, limit in (("rule text", rule, MAX_TEXT_CHARS), ("reason", reason, MAX_REASON_CHARS)):
+            n = len(value.strip())
+            if n > limit:
+                return (f"Error: {field} is {n} chars; the limit is {limit}. "
+                        f"Shorten it by {n - limit} and propose again. Nothing was saved.")
         result = rules.propose(rule, sender, reason)
         # Add proposal card to chat timeline
         if store:
