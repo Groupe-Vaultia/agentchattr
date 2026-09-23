@@ -30,7 +30,7 @@ echo "== ponts API (Qwen local, Cursor, Gemini) =="
 for a in qwenlocal cursor gemini; do : > "data/$a.log"; (setsid nohup env PATH="$PATH" "$PY" wrapper_api.py "$a" > "data/$a.log" 2>&1 &); done
 
 echo "== agents CLI (Claude, Codex) en tmux =="
-tmux new-session -d -s ac-claude -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py claude; read"
+tmux new-session -d -s ac-claude -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py claude --dangerously-skip-permissions; read"
 tmux new-session -d -s ac-codex  -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py codex --dangerously-bypass-approvals-and-sandbox; read"
 
 sleep 12
