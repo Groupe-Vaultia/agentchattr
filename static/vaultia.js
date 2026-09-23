@@ -109,6 +109,17 @@
       onclick: () => { if (window.switchChannel) window.switchChannel(nom); fermerSiMobile(); setTimeout(rendre, 60); },
       ondragstart: (e) => { e.dataTransfer.setData("text/canal", nom); e.dataTransfer.effectAllowed = "move"; },
     }, el("span", { style: "opacity:.6;" }, "#"), el("span", { style: "flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" }, nom));
+    if (nom !== "general") {
+      it.append(el("button", { title: "Supprimer la conversation", style: "background:none;border:0;color:inherit;opacity:.5;cursor:pointer;font-size:15px;line-height:1;padding:0 2px;",
+        onclick: (e) => {
+          e.stopPropagation();
+          if (!confirm("Supprimer la conversation \u00ab " + nom + " \u00bb ? Cette action est definitive.")) return;
+          if (window.ws) window.ws.send(JSON.stringify({ type: "channel_delete", name: nom }));
+          jpost("/api/projects/assign", { channel: nom, project: "" });
+          if (window.activeChannel === nom && window.switchChannel) window.switchChannel("general");
+          setTimeout(rendre, 400);
+        } }, "\u00d7"));
+    }
     return it;
   }
   function cibleDrop(elem, projet) {
