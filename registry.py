@@ -195,6 +195,20 @@ class RuntimeRegistry:
 
             self._expire_reserved()
 
+            # Vaultia (anti-doublons) : liberer les slots des instances MORTES de cet agent
+            # (hors-ligne au sens de la presence). Sans ca, une relance apres un crash prend le
+            # slot suivant (claude-2, codex-2, gemini-1...). Ici, le nom de base est reclame.
+            try:
+                import mcp_bridge as _mb
+                for _n, _i in list(self._instances.items()):
+                    if _i.base == base and not _mb.is_online(_n):
+                        del self._instances[_n]
+                        for _old, _new in list(self._renames.items()):
+                            if _new == _n:
+                                del self._renames[_old]
+            except Exception:
+                pass
+
             # Find next free slot
             taken = {i.slot for i in self._instances.values() if i.base == base}
             reserved = set()
