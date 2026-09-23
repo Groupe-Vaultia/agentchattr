@@ -20,6 +20,7 @@ color = "#10a37f"
 label = "Codex"
 
 [agents.gemini]
+type = "cli_print"
 cwd = "/home/charles-antoine/atelier/wt-gemini"
 command = "agy"
 cli_flags = "--dangerously-skip-permissions"
