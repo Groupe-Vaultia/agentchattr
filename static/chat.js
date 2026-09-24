@@ -4009,6 +4009,7 @@ async function resolveDecision(msgId, choice) {
     }
 }
 window.resolveDecision = resolveDecision;
+window.uploadImage = uploadImage;
 
 // --- Help Guide (row-based layout with stacked modal fallback) ---
 var _helpOpen = false;

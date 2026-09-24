@@ -53,6 +53,12 @@
 
   /* Composer epure facon Claude : on retire la ligne de conseils du bas */
   .input-hint { display: none !important; }
+  /* Cartes de decision : choix en gros boutons pleine largeur, tappables (avant : trop petits/masques) */
+  .decision-choices { display: flex; flex-direction: column; gap: 8px; position: relative; z-index: 5; margin-top: 8px; }
+  .decision-choice { display: block; width: 100%; min-height: 46px; padding: 12px 14px; font-size: 15px; border-radius: 10px; text-align: left; }
+  /* Boutons de survol (convert to job / copier) : masques sur mobile, ils recouvraient les choix */
+  .convert-job-pill, .bubble-copy { display: none !important; }
+
   /* Composer : plein largeur, boutons qui tiennent */
   #input-row { gap: 6px; }
   #mention-toggles { flex-wrap: wrap; }
