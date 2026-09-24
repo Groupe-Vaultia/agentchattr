@@ -1191,6 +1191,7 @@ async function uploadJobImage(file) {
         renderJobAttachments();
     } catch (err) {
         console.error('Job upload failed:', err);
+        showToast('Image non envoyée : erreur réseau', 'error');
     }
 }
 

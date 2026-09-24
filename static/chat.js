@@ -2635,6 +2635,7 @@ async function uploadImage(file) {
         renderAttachments();
     } catch (err) {
         console.error('Upload failed:', err);
+        showToast('Image non envoyée : erreur réseau', 'error');
     }
 }
 
