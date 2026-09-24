@@ -234,9 +234,38 @@
     const row = document.getElementById("input-row");
     if (!row || document.getElementById("vaultia-photo-btn")) return;
     const input = el("input", { type: "file", accept: "image/*", id: "vaultia-photo-input", multiple: "multiple", style: "display:none;" });
+    // Redimensionner/compresser cote navigateur : une photo de telephone (plusieurs Mo) depasse la
+    // limite serveur et etait rejetee en silence. On la ramene a 1600 px / JPEG q0.85 (<1 Mo).
+    function compresser(file) {
+      return new Promise((resolve) => {
+        if (!file.type || !file.type.startsWith("image/")) { resolve(file); return; }
+        const img = new Image(); const url = URL.createObjectURL(file);
+        img.onload = () => {
+          URL.revokeObjectURL(url);
+          const max = 1600; let w = img.width, h = img.height;
+          if (w > max || h > max) { const k = Math.min(max / w, max / h); w = Math.round(w * k); h = Math.round(h * k); }
+          const c = document.createElement("canvas"); c.width = w; c.height = h;
+          c.getContext("2d").drawImage(img, 0, 0, w, h);
+          c.toBlob((blob) => {
+            if (!blob) { resolve(file); return; }
+            resolve(new File([blob], (file.name || "photo").replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" }));
+          }, "image/jpeg", 0.85);
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+        img.src = url;
+      });
+    }
     input.addEventListener("change", async () => {
       const files = Array.from(input.files || []);
-      for (const f of files) { if (window.uploadImage) { try { await window.uploadImage(f); } catch (e) {} } }
+      const btn = document.getElementById("vaultia-photo-btn");
+      if (btn) btn.textContent = "⏳";
+      let ok = 0;
+      for (const f of files) {
+        try { const c = await compresser(f); if (window.uploadImage) { await window.uploadImage(c); ok++; } }
+        catch (e) { /* on continue */ }
+      }
+      if (btn) btn.textContent = "📷";
+      if (files.length && ok === 0) alert("La photo n'a pas pu etre jointe. Reessaie, ou choisis une image plus petite.");
       input.value = "";
     });
     const btn = el("button", { id: "vaultia-photo-btn", type: "button", title: "Ajouter une photo",
