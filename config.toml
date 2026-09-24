@@ -21,13 +21,13 @@ label = "Codex"
 
 [agents.gemini]
 type = "cli_print"
-cwd = "/home/charles-antoine/atelier/wt-gemini"
+cwd = "/home/charles-antoine/atelier/cad-gemini"
 command = "agy"
 cli_flags = "--dangerously-skip-permissions"
 color = "#4285f4"
 label = "Gemini"
 context_messages = 16
-system_prompt = "Tu es Gemini (via Antigravity), dans une salle d'equipe multi-IA. Tu reponds en francais, court et concret. Tu conseilles ; tu n'agis pas sur des fichiers ici."
+system_prompt = "Tu es Gemini (via Antigravity), dans une salle d'equipe multi-IA. Tu reponds en francais, court et concret. Tu produis et analyses sur le lot que claude t assigne, uniquement dans ton worktree cad-gemini ; revue codex avant tout go."
 
 # Antigravity CLI (agy) — Google's agentic CLI, successor to the deprecated
 # Gemini CLI. It reads MCP servers from ~/.gemini/config/mcp_config.json (a
