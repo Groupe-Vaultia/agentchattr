@@ -229,6 +229,23 @@
     peindre(); new MutationObserver(peindre).observe(document.body, { childList: true, subtree: true });
   }
 
-  function init() { railMenu(); bandeauReflexion(); badgesAvatars(); }
+  // ---------- bouton photo dans le compositeur (mobile : appareil photo + galerie) ----------
+  function boutonPhoto() {
+    const row = document.getElementById("input-row");
+    if (!row || document.getElementById("vaultia-photo-btn")) return;
+    const input = el("input", { type: "file", accept: "image/*", id: "vaultia-photo-input", multiple: "multiple", style: "display:none;" });
+    input.addEventListener("change", async () => {
+      const files = Array.from(input.files || []);
+      for (const f of files) { if (window.uploadImage) { try { await window.uploadImage(f); } catch (e) {} } }
+      input.value = "";
+    });
+    const btn = el("button", { id: "vaultia-photo-btn", type: "button", title: "Ajouter une photo",
+      style: "background:none;border:1px solid var(--border,#3a3a44);color:inherit;border-radius:10px;min-width:40px;height:40px;cursor:pointer;font-size:18px;flex:0 0 auto;",
+      onclick: () => input.click() }, "📷");
+    row.insertBefore(btn, row.firstChild);
+    row.appendChild(input);
+  }
+
+  function init() { railMenu(); bandeauReflexion(); badgesAvatars(); boutonPhoto(); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
 })();
