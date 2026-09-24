@@ -932,7 +932,12 @@ function appendMessage(msg, options = {}) {
         if (msg.attachments && msg.attachments.length > 0) {
             attachmentsHtml = '<div class="msg-attachments">';
             for (const att of msg.attachments) {
-                attachmentsHtml += `<img src="${escapeHtml(att.url)}" alt="${escapeHtml(att.name)}" onclick="openImageModal('${escapeHtml(att.url)}')">`;
+                const isImg = /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(att.url || att.name || "");
+                if (isImg) {
+                    attachmentsHtml += `<img src="${escapeHtml(att.url)}" alt="${escapeHtml(att.name)}" onclick="openImageModal('${escapeHtml(att.url)}')">`;
+                } else {
+                    attachmentsHtml += `<a class="doc-attachment" href="${escapeHtml(att.url)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;padding:8px 12px;margin:4px 4px 0 0;border:1px solid var(--border,#3a3a44);border-radius:10px;color:inherit;text-decoration:none;font-size:14px;">📎 ${escapeHtml(att.name)}</a>`;
+                }
             }
             attachmentsHtml += '</div>';
         }
