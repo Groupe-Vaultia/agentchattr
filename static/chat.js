@@ -2618,7 +2618,13 @@ async function uploadImage(file) {
 
     try {
         const resp = await fetch('/api/upload', { method: 'POST', headers: { 'X-Session-Token': SESSION_TOKEN }, body: form });
-        const data = await resp.json();
+        const data = await resp.json().catch(() => ({}));
+        // Refus serveur (403 origine/jeton, 400 type/taille) : ne pas joindre
+        // une pièce vide `{}` au message, prévenir l'utilisateur.
+        if (!resp.ok || !data.url) {
+            showToast(`Image non envoyée (${resp.status}) : ${data.error || 'refusée par le serveur'}`, 'error');
+            return;
+        }
 
         pendingAttachments.push({
             path: data.path,

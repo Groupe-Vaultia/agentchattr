@@ -1182,7 +1182,11 @@ async function uploadJobImage(file) {
     form.append('file', file);
     try {
         const resp = await fetch('/api/upload', { method: 'POST', headers: { 'X-Session-Token': window.SESSION_TOKEN }, body: form });
-        const data = await resp.json();
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok || !data.url) {
+            showToast(`Image non envoyée (${resp.status}) : ${data.error || 'refusée par le serveur'}`, 'error');
+            return;
+        }
         jobPendingAttachments.push({ path: data.path, name: data.name, url: data.url });
         renderJobAttachments();
     } catch (err) {
