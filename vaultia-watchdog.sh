@@ -39,5 +39,6 @@ while true; do
   cli claude --dangerously-skip-permissions
   cli codex --dangerously-bypass-approvals-and-sandbox
   cli qwencode
+  cli grok
   sleep 30
 done
