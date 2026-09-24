@@ -273,6 +273,24 @@
       onclick: () => input.click() }, "📷");
     row.insertBefore(btn, row.firstChild);
     row.appendChild(input);
+
+    // Bouton documents (📎) : upload direct, sans compression (pdf, txt, csv, docx, xlsx...).
+    const dinput = el("input", { type: "file", accept: ".pdf,.txt,.md,.csv,.json,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.rtf,.odt", id: "vaultia-doc-input", multiple: "multiple", style: "display:none;" });
+    dinput.addEventListener("change", async () => {
+      const files = Array.from(dinput.files || []);
+      const b = document.getElementById("vaultia-doc-btn");
+      if (b) b.textContent = "⏳";
+      let ok = 0;
+      for (const f of files) { try { if (window.uploadImage) { await window.uploadImage(f); ok++; } } catch (e) {} }
+      if (b) b.textContent = "📎";
+      if (files.length && ok === 0) alert("Le document n'a pas pu etre joint. Type non accepte ou trop volumineux ?");
+      dinput.value = "";
+    });
+    const dbtn = el("button", { id: "vaultia-doc-btn", type: "button", title: "Ajouter un document",
+      style: "background:none;border:1px solid var(--border,#3a3a44);color:inherit;border-radius:10px;min-width:40px;height:40px;cursor:pointer;font-size:18px;flex:0 0 auto;",
+      onclick: () => dinput.click() }, "📎");
+    row.insertBefore(dbtn, btn.nextSibling);
+    row.appendChild(dinput);
   }
 
   function init() { railMenu(); bandeauReflexion(); badgesAvatars(); boutonPhoto(); }
