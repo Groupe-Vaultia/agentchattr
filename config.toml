@@ -108,7 +108,7 @@ sse_port = 8201
 
 [images]
 upload_dir = "./uploads"
-max_size_mb = 10
+max_size_mb = 25
 
 # --- MCP injection modes ---
 # By default, claude/codex/gemini/kimi use built-in MCP config injection.
