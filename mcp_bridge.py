@@ -223,7 +223,11 @@ def chat_send(
     a single click:
       chat_send(sender="claude", message="Should I merge?", choices=["Yes", "No", "Show diff first"])
     For normal messages without choices, pass choices=[]:
-      chat_send(sender="claude", message="Done.", choices=[])"""
+      chat_send(sender="claude", message="Done.", choices=[])
+    A new choices card REPLACES your previous unanswered cards in the same
+    channel (they close as "replaced"): put every open question in your latest
+    card. The user may also answer in their own words instead of a listed
+    choice; that answer reaches you as "@you <their text>" replying to the card."""
     sender, err = _resolve_tool_identity(sender, ctx, field_name="sender", required=True)
     if err:
         return err

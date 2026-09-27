@@ -451,7 +451,7 @@ body.font-mono .message .msg-text { font-family: var(--v-mono); font-size: 14px;
   border-radius: 10px;
   padding: 8px 12px;
 }
-.decision-resolved strong { color: var(--v-ink); }
+.decision-resolved strong { color: var(--v-ink); white-space: pre-line; }   /* une réponse écrite garde ses retours à la ligne */
 
 /* Propositions de règle / résumés : cartes calmes. */
 .proposal-pill, .summary-card, .summary-pill {
@@ -1009,6 +1009,60 @@ body.vt-rail-ouvert #channel-bar { display: none; }   /* le menu liste déjà le
   cursor: pointer;
 }
 .decision-autrement:hover { color: var(--v-ink); text-decoration-color: currentColor; }
+/* « Autre réponse… » : la dernière option de la liste, plus légère que les choix de l'agent ;
+   elle s'ouvre sur place en champ de réponse. */
+.decision-libre {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 11px 14px;
+  text-align: left;
+  font: 500 15px/1.35 var(--v-ui);
+  color: var(--v-ink-2);
+  background: transparent;
+  border: 1px solid var(--v-line-2);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color var(--duration-normal) var(--v-ease), color var(--duration-normal) var(--v-ease), background var(--duration-normal) var(--v-ease);
+}
+.decision-libre svg { flex: 0 0 auto; }
+.decision-libre:hover { border-color: var(--v-slate); color: var(--v-ink); background: var(--v-surface); }
+.decision-libre:focus-visible { outline: none; box-shadow: var(--v-focus); }
+.decision-libre[hidden], .decision-texte[hidden] { display: none; }
+.decision-texte { display: flex; flex-direction: column; gap: 8px; align-self: stretch; width: 100%; }
+.decision-texte textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 64px;
+  max-height: 40vh;
+  padding: 10px 12px;
+  font: 400 16px/1.45 var(--v-ui);
+  color: var(--v-ink);
+  background: var(--v-surface);
+  border: 1px solid var(--v-slate-line);
+  border-radius: 12px;
+  resize: none;
+  overflow-y: auto;
+}
+.decision-texte textarea:focus { outline: none; border-color: var(--v-slate); box-shadow: var(--v-focus); }
+.decision-texte-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.decision-texte-actions .vt-btn { min-height: 40px; padding: 0 16px; }
+.decision-texte-actions .vt-btn:focus-visible { outline: none; box-shadow: var(--v-focus); }
+/* « Remplacée par … #N » : le numéro mène à la carte qui fait foi. */
+.decision-lien {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--v-slate);
+  text-decoration: underline;
+  text-decoration-color: var(--v-slate-line);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.decision-lien:hover { text-decoration-color: currentColor; }
 /* Quand le rappel est là, « revenir en bas » se range au bord droit, plus haut : il reste
    utilisable (aucune fonction perdue) sans s'empiler sur le rappel ni cacher le texte. */
 /* chat.js (repositionScrollAnchor) écrit left/bottom en ligne : on force le bord droit, on garde sa hauteur. */

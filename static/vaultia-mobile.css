@@ -46,6 +46,10 @@
   /* Une décision : l'encart tient dans l'écran, les choix restent gros et tappables. */
   .message.other .chat-bubble:has(.decision-choice) { margin-left: 0; padding: 14px; }
   .decision-choice { min-height: 48px; font-size: 15.5px; padding: 12px 14px; }
+  .decision-libre { min-height: 48px; font-size: 15.5px; padding: 12px 14px; }
+  .decision-texte-actions .vt-btn { min-height: 44px; }
+  /* Pendant qu'on écrit sa réponse, les actions du message (répondre, suppr.) restent rangées. */
+  .message:has(.decision-texte:focus-within) .msg-actions { opacity: 0; pointer-events: none; }
 
   /* Blocs de code : reviennent à la ligne dans leur bloc au lieu de pousser la page. */
   .msg-text pre { width: 100%; max-width: 100% !important; overflow-x: hidden; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }

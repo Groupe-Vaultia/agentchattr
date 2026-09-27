@@ -695,6 +695,36 @@ def _resolve_draft_lineage(text: str, channel: str) -> tuple[str, int]:
     return str(uuid.uuid4())[:8], 1
 
 
+def _remplacer_decisions(nouvelle: dict) -> list[dict]:
+    """Vaultia : la dernière carte d'un agent fait foi.
+
+    Une nouvelle carte de décision ferme les cartes encore ouvertes du MÊME agent dans le MÊME
+    canal (« Remplacée », avec le numéro de la nouvelle) : Charles n'a qu'une carte à trancher,
+    pas quatre dont seule la dernière compte. Les cartes des autres agents ou des autres canaux,
+    et celles déjà tranchées, ne bougent pas. Renvoie les cartes fermées (à diffuser).
+    """
+    if nouvelle.get("type") != "decision" or store is None:
+        return []
+    auteur = nouvelle.get("sender")
+    canal = nouvelle.get("channel", "general")
+    fermees = []
+    with store._lock:
+        for m in store._messages:
+            if m["id"] >= nouvelle["id"] or m.get("type") != "decision":
+                continue
+            if m.get("sender") != auteur or m.get("channel", "general") != canal:
+                continue
+            meta = m.get("metadata") or {}
+            if meta.get("resolved"):
+                continue
+            meta.update(resolved=True, chosen="Remplacée", remplacee_par=nouvelle["id"])
+            m["metadata"] = meta
+            fermees.append(dict(m))
+        if fermees:
+            store._rewrite()
+    return fermees
+
+
 async def _handle_new_message(msg: dict):
     """Broadcast message to web clients + check for @mention triggers."""
     # For broadcast slash commands, suppress the raw message — only the expanded
@@ -704,6 +734,10 @@ async def _handle_new_message(msg: dict):
     msg_type = msg.get("type", "chat")
     sender = msg.get("sender", "")
     channel = msg.get("channel", "general")
+
+    if msg_type == "decision":
+        for ancienne in _remplacer_decisions(msg):
+            await _broadcast(json.dumps({"type": "message_update", "message": ancienne}))
 
     # Track last active channel for leave/join messages (skip system messages)
     global _last_active_channel
@@ -1779,7 +1813,11 @@ async def resolve_decision(msg_id: int, request: Request):
     # Vaultia : « Répondu autrement » ferme la carte SANS choix de la liste et SANS publier de
     # message (Charles a répondu en texte). Sinon « @agent Répondu autrement » relançait l'agent.
     autrement = bool(body.get("autrement"))
-    chosen = "Répondu autrement" if autrement else body.get("choice", "")
+    # Vaultia : « Autre réponse… » — Charles écrit sa propre réponse au lieu d'un choix proposé ;
+    # elle part à l'agent comme un choix (« @agent sa réponse »), hors de la liste.
+    texte = str(body.get("texte") or "").strip()[:2000]
+    autre = bool(texte) and not autrement
+    chosen = "Répondu autrement" if autrement else (texte or body.get("choice", ""))
     if not chosen:
         return JSONResponse({"error": "choice is required"}, status_code=400)
     # Atomic check + resolve under lock to prevent double-click race
@@ -1802,13 +1840,15 @@ async def resolve_decision(msg_id: int, request: Request):
                 error = ("already resolved", 400)
             else:
                 valid_choices = meta.get("choices", [])
-                if not autrement and valid_choices and chosen not in valid_choices:
+                if not autrement and not autre and valid_choices and chosen not in valid_choices:
                     error = (f"invalid choice. Valid: {valid_choices}", 400)
                 else:
                     meta["resolved"] = True
                     meta["chosen"] = chosen
                     if autrement:
                         meta["autrement"] = True
+                    if autre:
+                        meta["autre"] = True
                     msg["metadata"] = meta
                     channel = msg.get("channel", "general")
                     sender = msg.get("sender", "")

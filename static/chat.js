@@ -468,7 +468,9 @@ function handleServerEvent(event) {
                 const choicesEl = existing.querySelector('.decision-choices');
                 const meta = updated.metadata || {};
                 if (choicesEl && meta.resolved) {
-                    choicesEl.innerHTML = `<div class="decision-resolved">${meta.autrement ? 'Répondu autrement' : `Ton choix : <strong>${escapeHtml(meta.chosen || '')}</strong>`}</div>`;
+                    choicesEl.innerHTML = `<div class="decision-resolved">${decisionResolueHtml(meta)}</div>`;
+                    choicesEl.style.opacity = '';          // l'estompage de l'envoi ne survit pas à la réponse
+                    choicesEl.style.pointerEvents = '';
                 }
             }
         }
@@ -992,11 +994,11 @@ function appendMessage(msg, options = {}) {
         const choicesList = meta.choices || [];
         if (msg.type === 'decision' && choicesList.length > 0) {
             if (meta.resolved) {
-                choicesHtml = `<div class="decision-choices"><div class="decision-resolved">${meta.autrement ? 'Répondu autrement' : `Ton choix : <strong>${escapeHtml(meta.chosen || '')}</strong>`}</div></div>`;
+                choicesHtml = `<div class="decision-choices"><div class="decision-resolved">${decisionResolueHtml(meta)}</div></div>`;
             } else {
                 choicesHtml = '<div class="decision-choices">' + choicesList.map(c =>
                     `<button class="decision-choice" onclick="resolveDecision(${msg.id}, '${escapeHtml(c).replace(/'/g, "\\'")}')">${escapeHtml(c)}</button>`
-                ).join('') + '<button class="decision-autrement" onclick="resolveDecisionAutrement(' + msg.id + ')" title="J\'ai déjà répondu en écrivant : fermer la carte sans choisir">Répondu autrement</button></div>';
+                ).join('') + decisionLibreHtml(msg) + '<button class="decision-autrement" onclick="resolveDecisionAutrement(' + msg.id + ')" title="J\'ai déjà répondu en écrivant : fermer la carte sans choisir">Répondu autrement</button></div>';
             }
         }
         el.innerHTML = `<div class="todo-strip"></div>${isSelf ? '' : avatarHtml}<div class="chat-bubble" style="--bubble-color: ${senderColor}">${replyHtml}<div class="bubble-header"><span class="msg-sender" style="color: ${senderColor}">${escapeHtml(msg.sender)}</span>${rolePillHtml}<span class="msg-time">${msg.time || ''}</span><span class="msg-num">#${msg.id}</span></div><div class="msg-text">${textHtml}</div>${choicesHtml}${attachmentsHtml}<button class="convert-job-pill" onclick="startJobFromMessage(${msg.id}); event.stopPropagation();" title="Convertir en job">en job</button><button class="bubble-copy" onclick="copyMessage(${msg.id}, event)" title="Copier le message"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div><div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">répondre</button><button class="todo-hint" onclick="todoCycle(${msg.id}); event.stopPropagation();">${statusLabel}</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="Supprimer">suppr.</button></div>`;
@@ -4031,6 +4033,78 @@ setInterval(() => {
 }, 10000);
 
 // --- Decision card resolve (with fade animation) ---
+// Vaultia : l'état tranché d'une carte, selon la façon dont elle s'est fermée.
+function decisionResolueHtml(meta) {
+    if (meta.remplacee_par) {
+        const n = Number(meta.remplacee_par);
+        return `Remplacée par une question plus récente <button type="button" class="decision-lien" onclick="scrollToMessage(${n})">#${n}</button>`;
+    }
+    if (meta.autrement) return 'Répondu autrement';
+    if (meta.autre) return `Ta réponse : <strong>${escapeHtml(meta.chosen || '')}</strong>`;
+    return `Ton choix : <strong>${escapeHtml(meta.chosen || '')}</strong>`;
+}
+
+// Vaultia : « Autre réponse… » — écrire sa propre réponse au lieu des choix proposés.
+const _CRAYON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>';
+function decisionLibreHtml(msg) {
+    const id = Number(msg.id);
+    return `<button type="button" class="decision-libre" onclick="ouvrirReponseLibre(${id})">${_CRAYON}<span>Autre réponse…</span></button>`
+        + `<form class="decision-texte" hidden onsubmit="return envoyerReponseLibre(event, ${id})">`
+        + `<textarea rows="2" maxlength="2000" placeholder="Ta réponse à ${escapeHtml(msg.sender || 'l’agent')}…" aria-label="Ta réponse" onkeydown="toucheReponseLibre(event, ${id})" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>`
+        + `<div class="decision-texte-actions"><button type="button" class="vt-btn decision-annuler" onclick="fermerReponseLibre(${id})">Annuler</button>`
+        + `<button type="submit" class="vt-btn principal decision-envoyer">Envoyer</button></div></form>`;
+}
+function _zoneLibre(msgId) {
+    const msgEl = document.querySelector(`.message[data-id="${msgId}"]`);
+    return msgEl ? { bouton: msgEl.querySelector('.decision-libre'), form: msgEl.querySelector('.decision-texte') } : {};
+}
+function ouvrirReponseLibre(msgId) {
+    const { bouton, form } = _zoneLibre(msgId);
+    if (!form) return;
+    bouton.hidden = true;
+    form.hidden = false;
+    form.querySelector('textarea').focus();
+}
+function fermerReponseLibre(msgId) {
+    const { bouton, form } = _zoneLibre(msgId);
+    if (!form) return;
+    form.hidden = true;
+    bouton.hidden = false;
+    bouton.focus();
+}
+function toucheReponseLibre(event, msgId) {
+    if (event.key === 'Escape') { event.preventDefault(); fermerReponseLibre(msgId); return; }
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+        event.preventDefault();
+        event.target.form.requestSubmit();
+    }
+}
+async function envoyerReponseLibre(event, msgId) {
+    event.preventDefault();
+    const form = event.target;
+    const zone = form.closest('.decision-choices');
+    const champ = form.querySelector('textarea');
+    const texte = champ.value.trim();
+    if (!texte) { champ.focus(); return false; }
+    if (zone) { zone.style.opacity = '0.5'; zone.style.pointerEvents = 'none'; }
+    try {
+        const res = await fetch(`/api/messages/${msgId}/resolve_decision`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Session-Token': SESSION_TOKEN },
+            body: JSON.stringify({ texte }),
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.status);
+    } catch (err) {
+        if (zone) { zone.style.opacity = ''; zone.style.pointerEvents = ''; }
+        if (typeof showToast === 'function') showToast('Ta réponse n’est pas partie : ' + err.message, 'error');
+    }
+    return false;
+}
+window.ouvrirReponseLibre = ouvrirReponseLibre;
+window.fermerReponseLibre = fermerReponseLibre;
+window.toucheReponseLibre = toucheReponseLibre;
+window.envoyerReponseLibre = envoyerReponseLibre;
+
 // Vaultia : ferme une carte de décision sans choisir ni publier de message (réponse déjà donnée en texte).
 async function resolveDecisionAutrement(msgId) {
     const msgEl = document.querySelector(`.message[data-id="${msgId}"]`);
