@@ -20,9 +20,10 @@ for d in glob.glob('/proc/[0-9]*'):
 PYKILL
 sleep 2; fuser -k 8300/tcp 2>/dev/null; sleep 2
 rm -f data/registry.json data/renames.json   # repart de noms propres
+rm -f data/provider-config/*.json              # configs d'instances mortes (jetons perimes) ; chaque agent regenere la sienne
 
 echo "== serveur =="
-: > data/server.log
+rm -f data/server.log; (umask 077; : > data/server.log)   # le journal affiche le jeton de session : prive
 (setsid nohup "$PY" run.py > data/server.log 2>&1 &)
 for i in $(seq 1 20); do curl -s -o /dev/null 127.0.0.1:8300/ && break; sleep 0.5; done
 
@@ -31,7 +32,7 @@ for a in qwenlocal cursor gemini; do : > "data/$a.log"; (setsid nohup env PATH="
 
 echo "== agents CLI (Claude, Codex) en tmux =="
 tmux new-session -d -s ac-claude -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py claude --dangerously-skip-permissions; read"
-tmux new-session -d -s ac-codex  -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py codex --dangerously-bypass-approvals-and-sandbox; read"
+tmux new-session -d -s ac-codex  -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py codex --dangerously-bypass-approvals-and-sandbox --config=check_for_update_on_startup=false; read"
 tmux new-session -d -s ac-qwencode -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py qwencode; read"
 tmux new-session -d -s ac-grok -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py grok; read"
 

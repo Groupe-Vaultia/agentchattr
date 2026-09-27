@@ -8,6 +8,7 @@ Thread-safe: a single threading.Lock guards all mutations.
 
 import colorsys
 import json
+import os
 import secrets
 import threading
 import time
@@ -33,6 +34,10 @@ class Instance:
 
 class RuntimeRegistry:
     GRACE_PERIOD = 30  # seconds — name reserved after deregister
+    # Une instance n'est evincee comme « morte » que si elle est inscrite depuis plus que ce delai
+    # ET silencieuse (presence > 10 s). Une instance qui VIENT de s'inscrire n'a pas encore battu :
+    # l'evincer cassait le multi-instance et les jetons vivants (5 tests en echec depuis 6399407).
+    EVICT_GRACE = 15  # seconds — aligne sur le delai de crash du serveur (app.py)
 
     def __init__(self, data_dir: str = "./data"):
         self._lock = threading.Lock()
@@ -110,6 +115,7 @@ class RuntimeRegistry:
                 }
             tmp = self._instances_path().with_suffix(".tmp")
             tmp.write_text(json.dumps(data), "utf-8")
+            os.chmod(tmp, 0o600)   # Vaultia : contient les jetons de TOUS les agents -> prive
             tmp.replace(self._instances_path())
         except Exception:
             pass
@@ -200,12 +206,22 @@ class RuntimeRegistry:
             # slot suivant (claude-2, codex-2, gemini-1...). Ici, le nom de base est reclame.
             try:
                 import mcp_bridge as _mb
+                _maintenant = time.time()
                 for _n, _i in list(self._instances.items()):
-                    if _i.base == base and not _mb.is_online(_n):
+                    if (_i.base == base and not _mb.is_online(_n)
+                            and _maintenant - (_i.registered_at or 0) > self.EVICT_GRACE):
                         del self._instances[_n]
                         for _old, _new in list(self._renames.items()):
                             if _new == _n:
                                 del self._renames[_old]
+                # Et si plus AUCUN exemplaire de cet agent n'est vivant, lever les reservations de
+                # son nom (posees a la desinscription pour GRACE_PERIOD) : le nouveau venu est la
+                # relance de l'ancien par le watchdog, pas un second exemplaire. Sans ca, une relance
+                # plus lente que le delai de crash (15 s) prend <base>-2 (grok-2, 26 sept. 2026).
+                if not any(_i.base == base for _i in self._instances.values()):
+                    for _rn in list(self._reserved):
+                        if self._parse_name(_rn)[0] == base:
+                            del self._reserved[_rn]
             except Exception:
                 pass
 

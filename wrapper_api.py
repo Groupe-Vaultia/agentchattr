@@ -389,7 +389,15 @@ def main():
             send_message(response, channel=channel)
             print(f"  [{channel}] Responded ({len(response)} chars)")
         except Exception as exc:
-            print(f"  Error handling trigger: {exc}")
+            print(f"  Error handling trigger: {exc}", flush=True)
+            # Rendre l'echec VISIBLE : sinon un agent bloque (limite d'usage) ou en timeout reste
+            # "en ligne" mais muet et la personne croit qu'il est en panne. On poste une ligne courte.
+            try:
+                brut = str(exc).strip()
+                raison = brut.splitlines()[-1][:180] if brut else "erreur inconnue"
+                send_message(f"\u26a0\ufe0f je n'ai pas pu repondre : {raison}", channel=channel)
+            except Exception:
+                pass
         finally:
             set_working(False)
 
