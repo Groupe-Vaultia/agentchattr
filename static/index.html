@@ -1,13 +1,18 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#f8f7f4" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#1e1e1c" media="(prefers-color-scheme: dark)">
     <title>Vaultia</title>
-    <link rel="stylesheet" href="/static/style.css?v=255">
-    <link rel="stylesheet" href="/static/vaultia-mobile.css?v=6">
+    <link rel="preload" href="/static/fonts/source-serif-4-normal.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="/static/style.css?v=257">
     <link rel="stylesheet" href="/static/sessions.css?v=223">
     <link rel="stylesheet" href="/static/jobs.css?v=223">
+    <link rel="stylesheet" href="/static/vaultia-theme.css?v=10">
+    <link rel="stylesheet" href="/static/vaultia-mobile.css?v=10">
     <link rel="icon" href="/static/favicon.ico">
 </head>
 <body>
@@ -104,7 +109,7 @@
                 </select>
             </div>
             <div class="settings-field">
-                <label for="setting-channel-sidebar">Channels</label>
+                <label for="setting-channel-sidebar">Canaux</label>
                 <select id="setting-channel-sidebar" title="Show channels in a sidebar (Discord/Slack-style) instead of a top bar">
                     <option value="top">Top bar</option>
                     <option value="sidebar">Sidebar</option>
@@ -150,7 +155,7 @@
             </div>
             <div class="channel-bar-right">
                 <a id="update-pill" class="update-pill hidden" href="" target="_blank" rel="noopener"></a>
-                <a class="channel-support" href="https://buymeacoffee.com/bcurts" target="_blank" rel="noopener" title="Support development">&#9829;<span class="support-label"> Support development</span></a>
+                <a class="channel-support" href="https://buymeacoffee.com/bcurts" target="_blank" rel="noopener" title="Soutenir le projet agentchattr">&#9829;<span class="support-label"> Soutenir agentchattr</span></a>
             </div>
         </div>
 
@@ -170,7 +175,7 @@
             <aside id="channel-sidebar" class="hidden">
                 <div id="channel-sidebar-top"></div>
                 <div class="channel-sidebar-header">
-                    <span>Channels</span>
+                    <span>Canaux</span>
                     <button id="channel-sidebar-add" class="channel-sidebar-header-add" onclick="showChannelCreateDialog()" title="Add channel">+</button>
                 </div>
                 <div id="channel-sidebar-list"></div>
@@ -248,29 +253,29 @@
                     </svg>
                     <span class="schedules-count" id="schedules-count"></span>
                     <span class="schedules-next" id="schedules-next"></span>
-                    <a class="schedules-see-all" onclick="toggleSchedulesExpand()">See all</a>
+                    <a class="schedules-see-all" onclick="toggleSchedulesExpand()">Tout voir</a>
                 </div>
                 <div class="schedules-bar-list hidden" id="schedules-list"></div>
             </div>
             <div id="mention-toggles-row">
                 <div id="mention-toggles"></div>
-                <button id="clear-chat-btn" class="ghost-btn" onclick="clearChat()" title="Clear chat in this channel">Clear Chat</button>
+                <button id="clear-chat-btn" class="ghost-btn" onclick="clearChat()" title="Effacer le fil de ce canal">Effacer</button>
             </div>
             <div id="slash-menu" class="hidden"></div>
             <div id="mention-menu" class="hidden"></div>
             <div id="attachments"></div>
             <div id="input-row">
                 <span id="sender-label" class="sender-label">user</span>
-                <button id="session-launch-btn" onclick="showSessionLauncher()" title="Start a session">
+                <button id="session-launch-btn" onclick="showSessionLauncher()" title="Lancer une session" aria-label="Lancer une session">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <polygon points="5 3 19 12 5 21 5 3"/>
                     </svg>
                 </button>
                 <textarea id="input"
-                    placeholder="Type a message... (use @name to mention agents)"
+                    placeholder="Écris à l'équipe… (@ pour mentionner)"
                     rows="1"
                     autofocus></textarea>
-                <button id="mic" type="button" onmousedown="event.preventDefault()" onclick="toggleVoice()" title="Voice typing (local speech-to-text)" aria-label="Voice typing" aria-pressed="false">
+                <button id="mic" type="button" onmousedown="event.preventDefault()" onclick="toggleVoice()" title="Dictée vocale (reconnaissance locale)" aria-label="Dictée vocale" aria-pressed="false">
                     <svg id="mic-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
                         <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
@@ -279,8 +284,8 @@
                     </svg>
                 </button>
                 <div class="send-group">
-                    <button id="send" onclick="sendMessage()">Send</button>
-                    <button id="schedule-btn" class="send-clock" onclick="toggleSchedulePopover(event)" title="Schedule message">
+                    <button id="send" onclick="sendMessage()" aria-label="Envoyer" title="Envoyer (Entrée)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5"/><path d="M5.5 11.5L12 5l6.5 6.5"/></svg></button>
+                    <button id="schedule-btn" class="send-clock" onclick="toggleSchedulePopover(event)" title="Programmer l'envoi" aria-label="Programmer l'envoi">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                             <circle cx="12" cy="12" r="10"/>
                             <path d="M12 6v6.5l4 2"/>
@@ -359,7 +364,7 @@
                 </div>
             </div>
             <div class="input-hint">
-                Enter to send &middot; Shift+Enter for newline &middot; Paste/drop images &middot; Mic for voice &middot; Type / or @ for autocomplete
+                Entrée pour envoyer &middot; Maj+Entrée pour une nouvelle ligne &middot; Colle ou dépose une image &middot; / ou @ pour compléter
             </div>
         </footer>
     </div>
@@ -373,10 +378,10 @@
     <script src="/static/store.js?v=223"></script>
     <script src="/static/sessions.js?v=224"></script>
     <script src="/static/jobs.js?v=224"></script>
-    <script src="/static/channels.js?v=226"></script>
+    <script src="/static/channels.js?v=227"></script>
     <script src="/static/rules-panel.js?v=224"></script>
-    <script src="/static/chat.js?v=274"></script>
-    <script src="/static/vaultia.js?v=10"></script>
+    <script src="/static/chat.js?v=281"></script>
+    <script src="/static/vaultia.js?v=18"></script>
 </body>
 </html>
 
