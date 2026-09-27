@@ -205,6 +205,12 @@ def _install_security_middleware(token: str, cfg: dict):
         f"http://127.0.0.1:{port}",
         f"http://localhost:{port}",
     }
+    # Origines de confiance propres a cette machine (ex. le tunnel Tailscale prive de la personne,
+    # pour la salle au telephone) : lues de config.local.toml [server] allowed_origins, hors de git
+    # car le depot est public. Correspondance exacte seulement ; le token de session reste exige apres.
+    for _origine in cfg.get("server", {}).get("allowed_origins", []) or []:
+        if isinstance(_origine, str) and _origine.strip():
+            allowed_origins.add(_origine.strip().rstrip("/"))
 
     class SecurityMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
@@ -1770,7 +1776,10 @@ async def demote_proposal(msg_id: int):
 async def resolve_decision(msg_id: int, request: Request):
     """Resolve an inline decision card by recording the chosen option."""
     body = await request.json()
-    chosen = body.get("choice", "")
+    # Vaultia : « Répondu autrement » ferme la carte SANS choix de la liste et SANS publier de
+    # message (Charles a répondu en texte). Sinon « @agent Répondu autrement » relançait l'agent.
+    autrement = bool(body.get("autrement"))
+    chosen = "Répondu autrement" if autrement else body.get("choice", "")
     if not chosen:
         return JSONResponse({"error": "choice is required"}, status_code=400)
     # Atomic check + resolve under lock to prevent double-click race
@@ -1793,24 +1802,27 @@ async def resolve_decision(msg_id: int, request: Request):
                 error = ("already resolved", 400)
             else:
                 valid_choices = meta.get("choices", [])
-                if valid_choices and chosen not in valid_choices:
+                if not autrement and valid_choices and chosen not in valid_choices:
                     error = (f"invalid choice. Valid: {valid_choices}", 400)
                 else:
                     meta["resolved"] = True
                     meta["chosen"] = chosen
+                    if autrement:
+                        meta["autrement"] = True
                     msg["metadata"] = meta
                     channel = msg.get("channel", "general")
                     sender = msg.get("sender", "")
                     store._rewrite()
     if error:
         return JSONResponse({"error": error[0]}, status_code=error[1])
-    # Post the chosen answer as a regular chat message tagged @sender
-    username = room_settings.get("username", "user")
-    reply_text = f"@{sender} {chosen}" if sender else chosen
-    try:
-        store.add(username, reply_text, reply_to=msg_id, channel=channel)
-    except Exception:
-        import traceback; traceback.print_exc()
+    # Post the chosen answer as a regular chat message tagged @sender (pas pour « Répondu autrement »)
+    if not autrement:
+        username = room_settings.get("username", "user")
+        reply_text = f"@{sender} {chosen}" if sender else chosen
+        try:
+            store.add(username, reply_text, reply_to=msg_id, channel=channel)
+        except Exception:
+            import traceback; traceback.print_exc()
     # Broadcast updated decision card so the UI swaps buttons to resolved state
     updated = store.get_by_id(msg_id)
     if updated:
@@ -2914,6 +2926,14 @@ async def version_check():
     })
 
 
+# Vaultia : un fichier televerse n'est jamais une page de la salle. `nosniff` empeche le navigateur de
+# deviner du HTML dans un .txt/.csv ; un SVG ouvert DIRECTEMENT pouvait executer du script avec les
+# droits de la salle (et lire le jeton injecte dans « / ») -> CSP sandbox sans script. Les miniatures
+# ne sont pas touchees : un SVG affiche dans un <img> n'execute jamais de script.
+UPLOAD_HEADERS = {"X-Content-Type-Options": "nosniff"}
+UPLOAD_SVG_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox"
+
+
 @app.get("/uploads/{filename}")
 async def serve_upload(filename: str):
     upload_dir = Path(config.get("images", {}).get("upload_dir", "./uploads"))
@@ -2921,5 +2941,8 @@ async def serve_upload(filename: str):
     if not filepath.is_relative_to(upload_dir.resolve()):
         return JSONResponse({"error": "invalid path"}, status_code=400)
     if filepath.exists():
-        return FileResponse(filepath)
+        headers = dict(UPLOAD_HEADERS)
+        if filepath.suffix.lower() == ".svg":
+            headers["Content-Security-Policy"] = UPLOAD_SVG_CSP
+        return FileResponse(filepath, headers=headers)
     return JSONResponse({"error": "not found"}, status_code=404)

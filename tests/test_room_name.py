@@ -91,8 +91,11 @@ class RoomSubtitleTests(unittest.TestCase):
         self.assertEqual(len(app.room_settings["subtitle"]), app.ROOM_SUBTITLE_MAX)
 
     def test_the_product_name_is_not_replaced_by_the_new_setting(self):
-        """Control: `title` still means a full rename and is untouched."""
-        self.assertEqual(app.room_settings.get("title"), "agentchattr")
+        """Control: `title` still means a full rename and is untouched.
+
+        Le fork Groupe-Vaultia a renomme le produit (commit 0c9a8af « rebrand Vaultia ») :
+        le titre par defaut est « Vaultia », et le sous-titre ne doit toujours pas le remplacer."""
+        self.assertEqual(app.room_settings.get("title"), "Vaultia")
 
 
 if __name__ == "__main__":
