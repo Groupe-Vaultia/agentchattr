@@ -223,7 +223,11 @@ def chat_send(
     a single click:
       chat_send(sender="claude", message="Should I merge?", choices=["Yes", "No", "Show diff first"])
     For normal messages without choices, pass choices=[]:
-      chat_send(sender="claude", message="Done.", choices=[])"""
+      chat_send(sender="claude", message="Done.", choices=[])
+    A new choices card REPLACES your previous unanswered cards in the same
+    channel (they close as "replaced"): put every open question in your latest
+    card. The user may also answer in their own words instead of a listed
+    choice; that answer reaches you as "@you <their text>" replying to the card."""
     sender, err = _resolve_tool_identity(sender, ctx, field_name="sender", required=True)
     if err:
         return err
@@ -412,6 +416,44 @@ def _resolve_attachments(attachments: list[dict]) -> list[dict]:
             a["file_path"] = str(upload_dir / filename)
         resolved.append(a)
     return resolved
+
+
+_EXTS_IMAGE = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".heic", ".heif")
+
+
+def _hint_pieces_jointes(msgs: list[dict], lecteur: str = "") -> str:
+    """Le texte qui dit a l'agent d'OUVRIR les fichiers joints. Sans lui, l'agent ne voit qu'une
+    URL dans le JSON et ne percoit jamais l'image. On liste chaque `file_path` local resolu."""
+    images: list[str] = []
+    docs: list[str] = []
+    # Seulement les pieces jointes qui concernent le lecteur : messages qui le mentionnent, et les
+    # 2 derniers (photo envoyee, puis « @claude regarde »). Sinon un agent relance relisait les 20
+    # derniers messages et ouvrait de vieilles images sans rapport (qwencode, 26 sept. 2026).
+    if lecteur:
+        motif = f"@{lecteur.lower()}"
+        derniers = {id(m) for m in msgs[-2:]}
+        msgs = [m for m in msgs if id(m) in derniers or motif in (m.get("text") or "").lower()]
+    for m in msgs:
+        for a in _resolve_attachments(m.get("attachments") or []):
+            fp = a.get("file_path")
+            if not fp:
+                continue
+            (images if fp.lower().endswith(_EXTS_IMAGE) else docs).append(fp)
+    lignes: list[str] = []
+    if images:
+        lignes.append(
+            "PIECES JOINTES - IMAGES : le fil contient des images que tu ne vois PAS dans le texte. "
+            "Ouvre CHAQUE fichier ci-dessous avec ton outil de lecture de fichier (Read) pour VOIR "
+            "l'image AVANT de repondre :"
+        )
+        lignes += [f"  - {c}" for c in images]
+    if docs:
+        lignes.append(
+            "PIECES JOINTES - DOCUMENTS : ouvre chaque fichier ci-dessous avec ton outil de lecture "
+            "pour en lire le contenu avant de repondre :"
+        )
+        lignes += [f"  - {c}" for c in docs]
+    return "\n".join(lignes)
 
 
 def _serialize_messages(msgs: list[dict]) -> str:
@@ -720,7 +762,9 @@ def chat_read(
             if m.get("resolved"):
                 entry["resolved"] = m["resolved"]
             out.append(entry)
-        return json.dumps(out, ensure_ascii=False)
+        _note_pj = _hint_pieces_jointes(msgs)
+        base = json.dumps(out, ensure_ascii=False)
+        return f"{base}\n\n{_note_pj}" if _note_pj else base
 
     ch = channel if channel else None
     # Remember the channel this agent just read so chat_send without an
@@ -748,6 +792,9 @@ def chat_read(
     msgs = msgs[-limit:]
     _update_cursor(sender, msgs, ch)
     serialized = _serialize_messages(msgs)
+    _note_pj = _hint_pieces_jointes(msgs, sender)
+    if _note_pj:
+        serialized = f"{serialized}\n\n{_note_pj}" if serialized else _note_pj
 
     # Escalating empty-read hints to discourage polling loops
     if not serialized and sender:

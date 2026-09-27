@@ -1,0 +1,1331 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-27T02:38:39+00:00",
+  "title": "Design System: Vaultia",
+  "extensions": {
+    "colorMeta": {
+      "paper": {
+        "role": "neutral",
+        "displayName": "Papier (jour)",
+        "canonical": "#f8f7f4",
+        "cssVar": "--v-paper",
+        "theme": "light",
+        "oklch": "oklch(97.6% 0.004 91.4)",
+        "tonalRamp": [
+          "#0c0b09",
+          "#262523",
+          "#434240",
+          "#62615f",
+          "#838280",
+          "#a6a5a2",
+          "#cac9c6",
+          "#efeeeb"
+        ],
+        "pairedWith": "paper-dark"
+      },
+      "rail": {
+        "role": "neutral",
+        "displayName": "Rail (jour)",
+        "canonical": "#f1efea",
+        "cssVar": "--v-rail",
+        "theme": "light",
+        "oklch": "oklch(95.2% 0.007 88.6)",
+        "tonalRamp": [
+          "#0c0b08",
+          "#262521",
+          "#43423e",
+          "#63615d",
+          "#84827e",
+          "#a7a5a0",
+          "#cbc9c4",
+          "#f0eee9"
+        ],
+        "pairedWith": "rail-dark"
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Surface (jour)",
+        "canonical": "#ffffff",
+        "cssVar": "--v-surface",
+        "theme": "light",
+        "oklch": "oklch(100.0% 0.000 89.9)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ],
+        "pairedWith": "surface-dark"
+      },
+      "raised": {
+        "role": "neutral",
+        "displayName": "Relief (jour)",
+        "canonical": "#ffffff",
+        "cssVar": "--v-raised",
+        "theme": "light",
+        "oklch": "oklch(100.0% 0.000 89.9)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ],
+        "pairedWith": "raised-dark"
+      },
+      "bubble": {
+        "role": "neutral",
+        "displayName": "Bulle de Charles (jour)",
+        "canonical": "#edebe6",
+        "cssVar": "--v-bubble",
+        "theme": "light",
+        "oklch": "oklch(94.0% 0.007 88.6)",
+        "tonalRamp": [
+          "#0c0b08",
+          "#262521",
+          "#43423e",
+          "#63615d",
+          "#84827e",
+          "#a7a5a0",
+          "#cbc9c4",
+          "#f0eee9"
+        ],
+        "pairedWith": "bubble-dark"
+      },
+      "code": {
+        "role": "neutral",
+        "displayName": "Fond de code (jour)",
+        "canonical": "#f0eee9",
+        "cssVar": "--v-code",
+        "theme": "light",
+        "oklch": "oklch(94.9% 0.007 88.6)",
+        "tonalRamp": [
+          "#0c0b08",
+          "#262521",
+          "#43423e",
+          "#63615d",
+          "#84827e",
+          "#a7a5a0",
+          "#cbc9c4",
+          "#f0eee9"
+        ],
+        "pairedWith": "code-dark"
+      },
+      "hover": {
+        "role": "neutral",
+        "displayName": "Survol (jour)",
+        "canonical": "rgba(29, 33, 39, 0.05)",
+        "cssVar": "--v-hover",
+        "theme": "light",
+        "oklch": "oklch(24.6% 0.013 258.4 / 0.05)",
+        "tonalRamp": [
+          "#080b11",
+          "#21252b",
+          "#3e4249",
+          "#5d6269",
+          "#7e838a",
+          "#a0a5ad",
+          "#c4cad2",
+          "#e9eff7"
+        ],
+        "note": "Voile à 5 % d'opacité ; la rampe suit la teinte de base.",
+        "pairedWith": "hover-dark"
+      },
+      "active": {
+        "role": "neutral",
+        "displayName": "Actif (jour)",
+        "canonical": "rgba(29, 33, 39, 0.085)",
+        "cssVar": "--v-active",
+        "theme": "light",
+        "oklch": "oklch(24.6% 0.013 258.4 / 0.085)",
+        "tonalRamp": [
+          "#080b11",
+          "#21252b",
+          "#3e4249",
+          "#5d6269",
+          "#7e838a",
+          "#a0a5ad",
+          "#c4cad2",
+          "#e9eff7"
+        ],
+        "note": "Voile à 8.5 % d'opacité ; la rampe suit la teinte de base.",
+        "pairedWith": "active-dark"
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Encre (jour)",
+        "canonical": "#1d2127",
+        "cssVar": "--v-ink",
+        "theme": "light",
+        "oklch": "oklch(24.6% 0.013 258.4)",
+        "tonalRamp": [
+          "#080b11",
+          "#21252b",
+          "#3e4249",
+          "#5d6269",
+          "#7e838a",
+          "#a0a5ad",
+          "#c4cad2",
+          "#e9eff7"
+        ],
+        "pairedWith": "ink-dark"
+      },
+      "ink-2": {
+        "role": "neutral",
+        "displayName": "Encre douce (jour)",
+        "canonical": "#4f5661",
+        "cssVar": "--v-ink-2",
+        "theme": "light",
+        "oklch": "oklch(45.1% 0.020 259.4)",
+        "tonalRamp": [
+          "#060b14",
+          "#1f252f",
+          "#3c424d",
+          "#5b626d",
+          "#7b838f",
+          "#9ea6b2",
+          "#c2cad7",
+          "#e7effc"
+        ],
+        "pairedWith": "ink-2-dark"
+      },
+      "ink-3": {
+        "role": "neutral",
+        "displayName": "Encre discrète (jour)",
+        "canonical": "#666d78",
+        "cssVar": "--v-ink-3",
+        "theme": "light",
+        "oklch": "oklch(53.3% 0.019 259.4)",
+        "tonalRamp": [
+          "#070b13",
+          "#20252f",
+          "#3c424c",
+          "#5b626c",
+          "#7c838e",
+          "#9ea6b1",
+          "#c2cad6",
+          "#e7effc"
+        ],
+        "pairedWith": "ink-3-dark"
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Filet (jour)",
+        "canonical": "#e6e3dc",
+        "cssVar": "--v-line",
+        "theme": "light",
+        "oklch": "oklch(91.6% 0.010 87.5)",
+        "tonalRamp": [
+          "#0d0b07",
+          "#272520",
+          "#44423c",
+          "#64615b",
+          "#85827c",
+          "#a8a59e",
+          "#ccc9c2",
+          "#f1eee7"
+        ],
+        "pairedWith": "line-dark"
+      },
+      "line-2": {
+        "role": "neutral",
+        "displayName": "Filet appuyé (jour)",
+        "canonical": "#d5d1c8",
+        "cssVar": "--v-line-2",
+        "theme": "light",
+        "oklch": "oklch(86.1% 0.013 86.8)",
+        "tonalRamp": [
+          "#0e0b06",
+          "#28251e",
+          "#45423a",
+          "#646159",
+          "#86827a",
+          "#a8a59c",
+          "#cdc9c0",
+          "#f2eee5"
+        ],
+        "pairedWith": "line-2-dark"
+      },
+      "slate": {
+        "role": "primary",
+        "displayName": "Ardoise Vaultia (jour)",
+        "canonical": "#465775",
+        "cssVar": "--v-slate",
+        "theme": "light",
+        "oklch": "oklch(45.5% 0.054 261.5)",
+        "tonalRamp": [
+          "#010921",
+          "#16253f",
+          "#32425f",
+          "#506280",
+          "#7183a3",
+          "#93a6c7",
+          "#b6caed",
+          "#e6effe"
+        ],
+        "pairedWith": "slate-dark"
+      },
+      "slate-hover": {
+        "role": "primary",
+        "displayName": "Ardoise appuyée (jour)",
+        "canonical": "#3a4964",
+        "cssVar": "--v-slate-hover",
+        "theme": "light",
+        "oklch": "oklch(40.4% 0.050 261.9)",
+        "tonalRamp": [
+          "#020a20",
+          "#17253d",
+          "#33425d",
+          "#52627e",
+          "#7283a1",
+          "#94a6c5",
+          "#b8caea",
+          "#e6efff"
+        ],
+        "pairedWith": "slate-hover-dark"
+      },
+      "slate-soft": {
+        "role": "primary",
+        "displayName": "Voile d'ardoise (jour)",
+        "canonical": "rgba(70, 87, 117, 0.09)",
+        "cssVar": "--v-slate-soft",
+        "theme": "light",
+        "oklch": "oklch(45.5% 0.054 261.5 / 0.09)",
+        "tonalRamp": [
+          "#010921",
+          "#16253f",
+          "#32425f",
+          "#506280",
+          "#7183a3",
+          "#93a6c7",
+          "#b6caed",
+          "#e6effe"
+        ],
+        "note": "Voile à 9 % d'opacité ; la rampe suit la teinte de base.",
+        "pairedWith": "slate-soft-dark"
+      },
+      "slate-line": {
+        "role": "primary",
+        "displayName": "Contour d'ardoise (jour)",
+        "canonical": "rgba(70, 87, 117, 0.3)",
+        "cssVar": "--v-slate-line",
+        "theme": "light",
+        "oklch": "oklch(45.5% 0.054 261.5 / 0.3)",
+        "tonalRamp": [
+          "#010921",
+          "#16253f",
+          "#32425f",
+          "#506280",
+          "#7183a3",
+          "#93a6c7",
+          "#b6caed",
+          "#e6effe"
+        ],
+        "note": "Voile à 30 % d'opacité ; la rampe suit la teinte de base.",
+        "pairedWith": "slate-line-dark"
+      },
+      "slate-select": {
+        "role": "primary",
+        "displayName": "Sélection d'ardoise (jour)",
+        "canonical": "rgba(70, 87, 117, 0.2)",
+        "cssVar": "--v-slate-select",
+        "theme": "light",
+        "oklch": "oklch(45.5% 0.054 261.5 / 0.2)",
+        "tonalRamp": [
+          "#010921",
+          "#16253f",
+          "#32425f",
+          "#506280",
+          "#7183a3",
+          "#93a6c7",
+          "#b6caed",
+          "#e6effe"
+        ],
+        "note": "Voile à 20 % d'opacité ; la rampe suit la teinte de base.",
+        "pairedWith": "slate-select-dark"
+      },
+      "slate-inset": {
+        "role": "primary",
+        "displayName": "Encart d'ardoise (jour)",
+        "canonical": "rgba(70, 87, 117, 0.15)",
+        "cssVar": "--v-slate-inset",
+        "theme": "light",
+        "oklch": "oklch(45.5% 0.054 261.5 / 0.15)",
+        "tonalRamp": [
+          "#010921",
+          "#16253f",
+          "#32425f",
+          "#506280",
+          "#7183a3",
+          "#93a6c7",
+          "#b6caed",
+          "#e6effe"
+        ],
+        "note": "Voile à 15 % d'opacité ; la rampe suit la teinte de base.",
+        "pairedWith": "slate-inset-dark"
+      },
+      "on-slate": {
+        "role": "primary",
+        "displayName": "Encre sur ardoise (jour)",
+        "canonical": "#ffffff",
+        "cssVar": "--v-on-slate",
+        "theme": "light",
+        "oklch": "oklch(100.0% 0.000 89.9)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ],
+        "pairedWith": "on-slate-dark"
+      },
+      "danger": {
+        "role": "status",
+        "displayName": "Erreur (jour)",
+        "canonical": "#b0413a",
+        "cssVar": "--v-danger",
+        "theme": "light",
+        "oklch": "oklch(52.8% 0.146 26.9)",
+        "tonalRamp": [
+          "#1f0001",
+          "#4d0003",
+          "#7e0b0f",
+          "#a43630",
+          "#cb5a51",
+          "#f37d72",
+          "#feb3aa",
+          "#ffe9e6"
+        ],
+        "pairedWith": "danger-dark"
+      },
+      "danger-soft": {
+        "role": "status",
+        "displayName": "Voile d'erreur (jour)",
+        "canonical": "rgba(176, 65, 58, 0.1)",
+        "cssVar": "--v-danger-soft",
+        "theme": "light",
+        "oklch": "oklch(52.8% 0.146 26.9 / 0.1)",
+        "tonalRamp": [
+          "#1f0001",
+          "#4d0003",
+          "#7e0b0f",
+          "#a43630",
+          "#cb5a51",
+          "#f37d72",
+          "#feb3aa",
+          "#ffe9e6"
+        ],
+        "note": "Voile à 10 % d'opacité ; la rampe suit la teinte de base.",
+        "pairedWith": "danger-soft-dark"
+      },
+      "success": {
+        "role": "status",
+        "displayName": "Réussite (jour)",
+        "canonical": "#2e7a58",
+        "cssVar": "--v-success",
+        "theme": "light",
+        "oklch": "oklch(52.2% 0.093 161.1)",
+        "tonalRamp": [
+          "#000f07",
+          "#022d1c",
+          "#044f33",
+          "#247150",
+          "#499470",
+          "#6db792",
+          "#91dcb6",
+          "#c4fedf"
+        ],
+        "pairedWith": "success-dark"
+      },
+      "warning": {
+        "role": "status",
+        "displayName": "Attention (jour)",
+        "canonical": "#946512",
+        "cssVar": "--v-warning",
+        "theme": "light",
+        "oklch": "oklch(54.3% 0.109 75.0)",
+        "tonalRamp": [
+          "#130900",
+          "#342001",
+          "#5a3b00",
+          "#825705",
+          "#a8782c",
+          "#cd9b52",
+          "#f3bf76",
+          "#ffebd1"
+        ],
+        "pairedWith": "warning-dark"
+      },
+      "online": {
+        "role": "status",
+        "displayName": "En ligne (jour)",
+        "canonical": "#3f9d6e",
+        "cssVar": "--v-online",
+        "theme": "light",
+        "oklch": "oklch(62.7% 0.115 158.6)",
+        "tonalRamp": [
+          "#000f06",
+          "#032d1a",
+          "#074f31",
+          "#13734a",
+          "#389768",
+          "#5fbb8a",
+          "#84e0ad",
+          "#c5fedc"
+        ],
+        "pairedWith": "online-dark"
+      },
+      "overlay": {
+        "role": "neutral",
+        "displayName": "Voile de fenêtre (jour)",
+        "canonical": "rgba(24, 24, 22, 0.42)",
+        "cssVar": "--bg-overlay",
+        "theme": "light",
+        "oklch": "oklch(20.8% 0.004 106.7 / 0.42)",
+        "tonalRamp": [
+          "#0b0b09",
+          "#252523",
+          "#424240",
+          "#61615f",
+          "#828280",
+          "#a5a5a2",
+          "#c9c9c6",
+          "#efefec"
+        ],
+        "note": "Voile à 42 % d'opacité ; la rampe suit la teinte de base.",
+        "pairedWith": "overlay-dark"
+      },
+      "paper-dark": {
+        "role": "neutral",
+        "displayName": "Papier (soir)",
+        "canonical": "#1e1e1c",
+        "cssVar": "--v-paper",
+        "theme": "dark",
+        "oklch": "oklch(23.4% 0.004 106.7)",
+        "tonalRamp": [
+          "#0b0b09",
+          "#252523",
+          "#424240",
+          "#61615f",
+          "#828280",
+          "#a5a5a2",
+          "#c9c9c6",
+          "#efefec"
+        ],
+        "pairedWith": "paper"
+      },
+      "rail-dark": {
+        "role": "neutral",
+        "displayName": "Rail (soir)",
+        "canonical": "#191917",
+        "cssVar": "--v-rail",
+        "theme": "dark",
+        "oklch": "oklch(21.3% 0.004 106.7)",
+        "tonalRamp": [
+          "#0b0b09",
+          "#252523",
+          "#424240",
+          "#61615f",
+          "#828280",
+          "#a5a5a2",
+          "#c9c9c6",
+          "#efefec"
+        ],
+        "pairedWith": "rail"
+      },
+      "surface-dark": {
+        "role": "neutral",
+        "displayName": "Surface (soir)",
+        "canonical": "#2a2a27",
+        "cssVar": "--v-surface",
+        "theme": "dark",
+        "oklch": "oklch(28.4% 0.005 106.7)",
+        "tonalRamp": [
+          "#0b0b09",
+          "#252522",
+          "#42423f",
+          "#61615e",
+          "#82827f",
+          "#a5a5a1",
+          "#c9c9c5",
+          "#efefeb"
+        ],
+        "pairedWith": "surface"
+      },
+      "raised-dark": {
+        "role": "neutral",
+        "displayName": "Relief (soir)",
+        "canonical": "#2f2f2c",
+        "cssVar": "--v-raised",
+        "theme": "dark",
+        "oklch": "oklch(30.4% 0.005 106.7)",
+        "tonalRamp": [
+          "#0b0b09",
+          "#252522",
+          "#42423f",
+          "#61615e",
+          "#82827f",
+          "#a5a5a1",
+          "#c9c9c5",
+          "#efefeb"
+        ],
+        "pairedWith": "raised"
+      },
+      "bubble-dark": {
+        "role": "neutral",
+        "displayName": "Bulle de Charles (soir)",
+        "canonical": "#32322e",
+        "cssVar": "--v-bubble",
+        "theme": "dark",
+        "oklch": "oklch(31.6% 0.007 106.8)",
+        "tonalRamp": [
+          "#0b0b08",
+          "#252521",
+          "#42423e",
+          "#61615d",
+          "#83837e",
+          "#a5a5a0",
+          "#c9c9c4",
+          "#efefea"
+        ],
+        "pairedWith": "bubble"
+      },
+      "code-dark": {
+        "role": "neutral",
+        "displayName": "Fond de code (soir)",
+        "canonical": "#252523",
+        "cssVar": "--v-code",
+        "theme": "dark",
+        "oklch": "oklch(26.4% 0.004 106.6)",
+        "tonalRamp": [
+          "#0b0b0a",
+          "#252523",
+          "#424240",
+          "#61615f",
+          "#828280",
+          "#a5a5a3",
+          "#c9c9c7",
+          "#efefec"
+        ],
+        "pairedWith": "code"
+      },
+      "hover-dark": {
+        "role": "neutral",
+        "displayName": "Survol (soir)",
+        "canonical": "rgba(236, 234, 229, 0.06)",
+        "cssVar": "--v-hover",
+        "theme": "dark",
+        "oklch": "oklch(93.7% 0.007 88.6 / 0.06)",
+        "tonalRamp": [
+          "#0c0b08",
+          "#262521",
+          "#43423e",
+          "#63615d",
+          "#84827e",
+          "#a7a5a0",
+          "#cbc9c4",
+          "#f0eee9"
+        ],
+        "note": "Voile à 6 % d'opacité ; la rampe suit la teinte de base.",
+        "pairedWith": "hover"
+      },
+      "active-dark": {
+        "role": "neutral",
+        "displayName": "Actif (soir)",
+        "canonical": "rgba(236, 234, 229, 0.1)",
+        "cssVar": "--v-active",
+        "theme": "dark",
+        "oklch": "oklch(93.7% 0.007 88.6 / 0.1)",
+        "tonalRamp": [
+          "#0c0b08",
+          "#262521",
+          "#43423e",
+          "#63615d",
+          "#84827e",
+          "#a7a5a0",
+          "#cbc9c4",
+          "#f0eee9"
+        ],
+        "note": "Voile à 10 % d'opacité ; la rampe suit la teinte de base.",
+        "pairedWith": "active"
+      },
+      "ink-dark": {
+        "role": "neutral",
+        "displayName": "Encre (soir)",
+        "canonical": "#ecebe6",
+        "cssVar": "--v-ink",
+        "theme": "dark",
+        "oklch": "oklch(93.9% 0.007 97.4)",
+        "tonalRamp": [
+          "#0c0b08",
+          "#262521",
+          "#43423e",
+          "#62615d",
+          "#83827e",
+          "#a6a5a0",
+          "#cac9c4",
+          "#f0eee9"
+        ],
+        "pairedWith": "ink"
+      },
+      "ink-2-dark": {
+        "role": "neutral",
+        "displayName": "Encre douce (soir)",
+        "canonical": "#bab6ae",
+        "cssVar": "--v-ink-2",
+        "theme": "dark",
+        "oklch": "oklch(77.7% 0.012 84.6)",
+        "tonalRamp": [
+          "#0e0b06",
+          "#28251e",
+          "#45423b",
+          "#64615a",
+          "#86827a",
+          "#a8a59d",
+          "#cdc9c0",
+          "#f2eee6"
+        ],
+        "pairedWith": "ink-2"
+      },
+      "ink-3-dark": {
+        "role": "neutral",
+        "displayName": "Encre discrète (soir)",
+        "canonical": "#9c9891",
+        "cssVar": "--v-ink-3",
+        "theme": "dark",
+        "oklch": "oklch(68.1% 0.011 81.8)",
+        "tonalRamp": [
+          "#0e0b06",
+          "#28251f",
+          "#45413b",
+          "#64615a",
+          "#86827b",
+          "#a8a49d",
+          "#cdc9c1",
+          "#f2eee6"
+        ],
+        "pairedWith": "ink-3"
+      },
+      "line-dark": {
+        "role": "neutral",
+        "displayName": "Filet (soir)",
+        "canonical": "#34342f",
+        "cssVar": "--v-line",
+        "theme": "dark",
+        "oklch": "oklch(32.3% 0.009 106.9)",
+        "tonalRamp": [
+          "#0b0b07",
+          "#252521",
+          "#42423d",
+          "#62625c",
+          "#83837d",
+          "#a5a59f",
+          "#c9cac3",
+          "#efefe8"
+        ],
+        "pairedWith": "line"
+      },
+      "line-2-dark": {
+        "role": "neutral",
+        "displayName": "Filet appuyé (soir)",
+        "canonical": "#45443f",
+        "cssVar": "--v-line-2",
+        "theme": "dark",
+        "oklch": "oklch(38.6% 0.008 97.5)",
+        "tonalRamp": [
+          "#0c0b07",
+          "#262521",
+          "#43423d",
+          "#62615c",
+          "#83827d",
+          "#a6a59f",
+          "#cac9c3",
+          "#f0efe8"
+        ],
+        "pairedWith": "line-2"
+      },
+      "slate-dark": {
+        "role": "primary",
+        "displayName": "Ardoise Vaultia (soir)",
+        "canonical": "#aebbd7",
+        "cssVar": "--v-slate",
+        "theme": "dark",
+        "oklch": "oklch(79.1% 0.042 265.6)",
+        "tonalRamp": [
+          "#040a1d",
+          "#1b243a",
+          "#374259",
+          "#56617a",
+          "#76829c",
+          "#98a5c0",
+          "#bcc9e6",
+          "#e7effe"
+        ],
+        "pairedWith": "slate"
+      },
+      "slate-hover-dark": {
+        "role": "primary",
+        "displayName": "Ardoise appuyée (soir)",
+        "canonical": "#c2cde3",
+        "cssVar": "--v-slate-hover",
+        "theme": "dark",
+        "oklch": "oklch(84.7% 0.033 264.4)",
+        "tonalRamp": [
+          "#050b19",
+          "#1d2535",
+          "#394254",
+          "#586175",
+          "#788397",
+          "#9ba5ba",
+          "#bec9df",
+          "#e7effe"
+        ],
+        "pairedWith": "slate-hover"
+      },
+      "slate-soft-dark": {
+        "role": "primary",
+        "displayName": "Voile d'ardoise (soir)",
+        "canonical": "rgba(174, 187, 215, 0.11)",
+        "cssVar": "--v-slate-soft",
+        "theme": "dark",
+        "oklch": "oklch(79.1% 0.042 265.6 / 0.11)",
+        "tonalRamp": [
+          "#040a1d",
+          "#1b243a",
+          "#374259",
+          "#56617a",
+          "#76829c",
+          "#98a5c0",
+          "#bcc9e6",
+          "#e7effe"
+        ],
+        "note": "Voile à 11 % d'opacité ; la rampe suit la teinte de base.",
+        "pairedWith": "slate-soft"
+      },
+      "slate-line-dark": {
+        "role": "primary",
+        "displayName": "Contour d'ardoise (soir)",
+        "canonical": "rgba(174, 187, 215, 0.32)",
+        "cssVar": "--v-slate-line",
+        "theme": "dark",
+        "oklch": "oklch(79.1% 0.042 265.6 / 0.32)",
+        "tonalRamp": [
+          "#040a1d",
+          "#1b243a",
+          "#374259",
+          "#56617a",
+          "#76829c",
+          "#98a5c0",
+          "#bcc9e6",
+          "#e7effe"
+        ],
+        "note": "Voile à 32 % d'opacité ; la rampe suit la teinte de base.",
+        "pairedWith": "slate-line"
+      },
+      "slate-select-dark": {
+        "role": "primary",
+        "displayName": "Sélection d'ardoise (soir)",
+        "canonical": "rgba(174, 187, 215, 0.24)",
+        "cssVar": "--v-slate-select",
+        "theme": "dark",
+        "oklch": "oklch(79.1% 0.042 265.6 / 0.24)",
+        "tonalRamp": [
+          "#040a1d",
+          "#1b243a",
+          "#374259",
+          "#56617a",
+          "#76829c",
+          "#98a5c0",
+          "#bcc9e6",
+          "#e7effe"
+        ],
+        "note": "Voile à 24 % d'opacité ; la rampe suit la teinte de base.",
+        "pairedWith": "slate-select"
+      },
+      "slate-inset-dark": {
+        "role": "primary",
+        "displayName": "Encart d'ardoise (soir)",
+        "canonical": "rgba(174, 187, 215, 0.14)",
+        "cssVar": "--v-slate-inset",
+        "theme": "dark",
+        "oklch": "oklch(79.1% 0.042 265.6 / 0.14)",
+        "tonalRamp": [
+          "#040a1d",
+          "#1b243a",
+          "#374259",
+          "#56617a",
+          "#76829c",
+          "#98a5c0",
+          "#bcc9e6",
+          "#e7effe"
+        ],
+        "note": "Voile à 14 % d'opacité ; la rampe suit la teinte de base.",
+        "pairedWith": "slate-inset"
+      },
+      "on-slate-dark": {
+        "role": "primary",
+        "displayName": "Encre sur ardoise (soir)",
+        "canonical": "#161b26",
+        "cssVar": "--v-on-slate",
+        "theme": "dark",
+        "oklch": "oklch(22.2% 0.023 265.6)",
+        "tonalRamp": [
+          "#070b15",
+          "#202530",
+          "#3c424f",
+          "#5b616f",
+          "#7c8291",
+          "#9ea5b4",
+          "#c2c9d9",
+          "#e7efff"
+        ],
+        "pairedWith": "on-slate"
+      },
+      "danger-dark": {
+        "role": "status",
+        "displayName": "Erreur (soir)",
+        "canonical": "#e5857c",
+        "cssVar": "--v-danger",
+        "theme": "dark",
+        "oklch": "oklch(71.8% 0.119 26.1)",
+        "tonalRamp": [
+          "#1f0001",
+          "#4c0105",
+          "#751f1d",
+          "#9a413c",
+          "#bf635c",
+          "#e6867d",
+          "#fdb3ab",
+          "#fee9e6"
+        ],
+        "pairedWith": "danger"
+      },
+      "danger-soft-dark": {
+        "role": "status",
+        "displayName": "Voile d'erreur (soir)",
+        "canonical": "rgba(229, 133, 124, 0.12)",
+        "cssVar": "--v-danger-soft",
+        "theme": "dark",
+        "oklch": "oklch(71.8% 0.119 26.1 / 0.12)",
+        "tonalRamp": [
+          "#1f0001",
+          "#4c0105",
+          "#751f1d",
+          "#9a413c",
+          "#bf635c",
+          "#e6867d",
+          "#fdb3ab",
+          "#fee9e6"
+        ],
+        "note": "Voile à 12 % d'opacité ; la rampe suit la teinte de base.",
+        "pairedWith": "danger-soft"
+      },
+      "success-dark": {
+        "role": "status",
+        "displayName": "Réussite (soir)",
+        "canonical": "#7cc3a0",
+        "cssVar": "--v-success",
+        "theme": "dark",
+        "oklch": "oklch(76.0% 0.088 161.9)",
+        "tonalRamp": [
+          "#000f07",
+          "#012d1c",
+          "#014f34",
+          "#287152",
+          "#4c9372",
+          "#70b794",
+          "#94dcb8",
+          "#c3ffe0"
+        ],
+        "pairedWith": "success"
+      },
+      "warning-dark": {
+        "role": "status",
+        "displayName": "Attention (soir)",
+        "canonical": "#e1b65b",
+        "cssVar": "--v-warning",
+        "theme": "dark",
+        "oklch": "oklch(79.7% 0.120 84.1)",
+        "tonalRamp": [
+          "#110a00",
+          "#312200",
+          "#553e00",
+          "#7c5b04",
+          "#a47b12",
+          "#c89e42",
+          "#eec368",
+          "#ffecc9"
+        ],
+        "pairedWith": "warning"
+      },
+      "online-dark": {
+        "role": "status",
+        "displayName": "En ligne (soir)",
+        "canonical": "#6cc598",
+        "cssVar": "--v-online",
+        "theme": "dark",
+        "oklch": "oklch(75.5% 0.109 160.2)",
+        "tonalRamp": [
+          "#000f07",
+          "#012d1b",
+          "#014f32",
+          "#08744b",
+          "#3b966c",
+          "#61ba8e",
+          "#86dfb1",
+          "#c3ffde"
+        ],
+        "pairedWith": "online"
+      },
+      "overlay-dark": {
+        "role": "neutral",
+        "displayName": "Voile de fenêtre (soir)",
+        "canonical": "rgba(0, 0, 0, 0.55)",
+        "cssVar": "--bg-overlay",
+        "theme": "dark",
+        "oklch": "oklch(0.0% 0.000 0.0 / 0.55)",
+        "tonalRamp": [
+          "#0b0b0b",
+          "#252525",
+          "#424242",
+          "#616161",
+          "#828282",
+          "#a5a5a5",
+          "#c9c9c9",
+          "#eeeeee"
+        ],
+        "note": "Voile à 55 % d'opacité ; la rampe suit la teinte de base.",
+        "pairedWith": "overlay"
+      }
+    },
+    "typographyMeta": {
+      "prose": {
+        "displayName": "Prose des agents",
+        "purpose": "Le texte des agents (Source Serif 4, font-optical-sizing auto), colonne de 48rem au plus ; gras à 650."
+      },
+      "prose-phone": {
+        "displayName": "Prose au téléphone",
+        "purpose": "La même prose à 17px / 1,62 sous 768 px."
+      },
+      "body": {
+        "displayName": "Messages de Charles",
+        "purpose": "La bulle de Charles, en sans système (16px au téléphone)."
+      },
+      "input": {
+        "displayName": "Champ de saisie",
+        "purpose": "Le champ de la carte de saisie, 16px partout (pas de zoom automatique au téléphone)."
+      },
+      "ui": {
+        "displayName": "Interface",
+        "purpose": "Le corps de base de l'interface ; rail et champs de fenêtre à 14px."
+      },
+      "headline": {
+        "displayName": "Titre de fenêtre",
+        "purpose": "Les titres des fenêtres Vaultia."
+      },
+      "title": {
+        "displayName": "Titre de conversation",
+        "purpose": "« # conversation » dans l'en-tête du téléphone."
+      },
+      "control": {
+        "displayName": "Choix",
+        "purpose": "Les choix d'une décision (15,5px au téléphone) et les rangées du menu « ⋯ »."
+      },
+      "sender": {
+        "displayName": "Expéditeur",
+        "purpose": "Le nom de l'expéditeur (14px au téléphone) ; onglets de canal à la même taille en 500."
+      },
+      "label": {
+        "displayName": "Étiquette",
+        "purpose": "Pastilles de présence, bascules de mention, actions du rail, étiquettes de champ."
+      },
+      "meta": {
+        "displayName": "Méta",
+        "purpose": "Heure, séparateurs de date, #id (11,5px) ; chiffres tabulaires ; 13px au téléphone."
+      },
+      "mono": {
+        "displayName": "Code",
+        "purpose": "Blocs de code ; code en ligne à 0,84em."
+      }
+    },
+    "shadows": [
+      {
+        "name": "shadow-sm",
+        "cssVar": "--v-shadow-sm",
+        "value": "0 1px 2px rgba(29, 33, 39, 0.05)",
+        "valueDark": "0 1px 2px rgba(0, 0, 0, 0.3)",
+        "purpose": "Posée : choix de décision, pièces jointes, actions de survol, bouton Envoyer, bascule du rail."
+      },
+      {
+        "name": "shadow",
+        "cssVar": "--v-shadow",
+        "value": "0 1px 2px rgba(29, 33, 39, 0.05), 0 2px 6px -2px rgba(29, 33, 39, 0.09)",
+        "valueDark": "0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 8px -2px rgba(0, 0, 0, 0.4)",
+        "purpose": "Serrée, toujours avec un liseré : carte de saisie, bouton « revenir en bas »."
+      },
+      {
+        "name": "shadow-lg",
+        "cssVar": "--v-shadow-lg",
+        "value": "0 2px 6px rgba(29, 33, 39, 0.06), 0 18px 48px -12px rgba(29, 33, 39, 0.22)",
+        "valueDark": "0 2px 6px rgba(0, 0, 0, 0.3), 0 20px 50px -12px rgba(0, 0, 0, 0.6)",
+        "purpose": "Flottante, sans bordure : fenêtres, popovers, menu « ⋯ », toasts, panneaux du téléphone."
+      },
+      {
+        "name": "focus",
+        "cssVar": "--v-focus",
+        "value": "0 0 0 3px rgba(70, 87, 117, 0.28)",
+        "valueDark": "0 0 0 3px rgba(174, 187, 215, 0.3)",
+        "purpose": "Anneau de :focus-visible (rayon 8 px) et focus des champs de fenêtre."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease",
+        "cssVar": "--v-ease",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Sortie exponentielle : la seule courbe des transitions d'état."
+      },
+      {
+        "name": "duration-fast",
+        "cssVar": "--duration-fast",
+        "value": "140ms",
+        "purpose": "Couleur, fond, opacité des boutons et rangées ; appui du bouton Envoyer."
+      },
+      {
+        "name": "duration-normal",
+        "cssVar": "--duration-normal",
+        "value": "200ms",
+        "purpose": "Bordures, ombres, chevron du projet, pastilles."
+      },
+      {
+        "name": "rail-slide",
+        "value": "transform 220ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Ouverture et fermeture du rail ; marge de l'application au bureau."
+      },
+      {
+        "name": "vt-arrive",
+        "value": "240ms cubic-bezier(0.16, 1, 0.3, 1) — opacity 0.55→1, translateY(4px)→0",
+        "purpose": "Arrivée douce du dernier message du fil."
+      },
+      {
+        "name": "vt-souffle",
+        "value": "1.6s ease-in-out infinite — scale(0.72)/opacity 0.45 ↔ scale(1)/opacity 1",
+        "purpose": "Le point qui respire de la ligne « réfléchit » ; seul élément qui respire (1.1s sur l'icône d'un envoi en cours)."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "@media (prefers-reduced-motion: reduce) — animation: none ; scroll-behavior: auto",
+        "purpose": "Coupe l'arrivée, le souffle, les icônes occupées et le défilement doux."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "phone",
+        "value": "768px",
+        "note": "CSS max-width: 768px (vaultia-mobile.css) ; vaultia.js teste la même requête par matchMedia."
+      },
+      {
+        "name": "grid-narrow",
+        "value": "520px",
+        "note": "Grille de la fenêtre Modèles : 3 → 2 colonnes."
+      },
+      {
+        "name": "touch",
+        "value": "(hover: none)",
+        "note": "Gestes du rail à 60–70 % d'opacité au lieu de cachés."
+      }
+    ],
+    "themes": {
+      "light": {
+        "selector": ":root",
+        "themeColor": "#f8f7f4"
+      },
+      "dark": {
+        "selector": "@media (prefers-color-scheme: dark) :root",
+        "themeColor": "#1e1e1c",
+        "note": "Mêmes noms de jetons --v-* ; les clés *-dark du frontmatter en donnent les valeurs."
+      },
+      "switching": "Suit l'appareil ; aucune bascule manuelle."
+    },
+    "sources": [
+      "static/vaultia-theme.css",
+      "static/vaultia-mobile.css",
+      "static/vaultia.js",
+      "static/index.html"
+    ]
+  },
+  "components": [
+    {
+      "name": "Bouton principal",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Action principale d'une fenêtre ou du rail : Terminé, Enregistrer, Connecter.",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\">Enregistrer</button>",
+      "css": ".ds-btn-primary { font: 600 13.5px/1 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; background: var(--v-slate, #465775); color: var(--v-on-slate, #ffffff); border: 1px solid var(--v-slate, #465775); border-radius: 10px; padding: 8px 14px; cursor: pointer; transition: background 140ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)), border-color 140ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)); } .ds-btn-primary:hover { background: var(--v-slate-hover, #3a4964); border-color: var(--v-slate-hover, #3a4964); } .ds-btn-primary:focus-visible { outline: none; box-shadow: var(--v-focus, 0 0 0 3px rgba(70, 87, 117, 0.28)); } .ds-btn-primary:active { transform: scale(0.98); }"
+    },
+    {
+      "name": "Bouton secondaire",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Action secondaire posée sur surface ; son filet s'appuie au survol.",
+      "html": "<button class=\"ds-btn-secondary\" type=\"button\">Annuler</button>",
+      "css": ".ds-btn-secondary { font: 600 13.5px/1 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; background: var(--v-surface, #ffffff); color: var(--v-ink, #1d2127); border: 1px solid var(--v-line-2, #d5d1c8); border-radius: 10px; padding: 8px 14px; cursor: pointer; transition: background 140ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)), border-color 140ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)); } .ds-btn-secondary:hover { border-color: var(--v-ink-3, #666d78); } .ds-btn-secondary:focus-visible { outline: none; box-shadow: var(--v-focus, 0 0 0 3px rgba(70, 87, 117, 0.28)); }"
+    },
+    {
+      "name": "Champ",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "Champ de fenêtre (.vt-champ) avec son étiquette au-dessus ; contour ardoise et anneau au focus.",
+      "html": "<label class=\"ds-label\">Modèle<input class=\"ds-field\" placeholder=\"Auto\"></label>",
+      "css": ".ds-label { display: block; font: 500 12.5px/1.3 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; color: var(--v-ink-2, #4f5661); } .ds-field { display: block; width: 100%; box-sizing: border-box; margin-top: 5px; padding: 9px 11px; border-radius: 10px; border: 1px solid var(--v-line-2, #d5d1c8); background: var(--v-surface, #ffffff); color: var(--v-ink, #1d2127); font: 400 14px/1.45 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; } .ds-field::placeholder { color: var(--v-ink-3, #666d78); } .ds-field:hover { border-color: var(--v-ink-3, #666d78); } .ds-field:focus { outline: none; border-color: var(--v-slate-line, rgba(70, 87, 117, 0.3)); box-shadow: var(--v-focus, 0 0 0 3px rgba(70, 87, 117, 0.28)); }"
+    },
+    {
+      "name": "Carte de saisie",
+      "kind": "custom",
+      "refersTo": "composer",
+      "description": "La carte arrondie du pied : champ en haut, outils dessous, horloge et bouton Envoyer rond ardoise à droite.",
+      "html": "<div class=\"ds-composer\"><textarea class=\"ds-composer-input\" rows=\"1\" placeholder=\"Écris à l'équipe… (@ pour mentionner)\"></textarea><button class=\"ds-tool\" type=\"button\" aria-label=\"Joindre une photo\"><svg viewBox=\"0 0 24 24\" width=\"19\" height=\"19\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M4 9a2.5 2.5 0 0 1 2.5-2.5h1.6l1.5-2h4.8l1.5 2h1.6A2.5 2.5 0 0 1 20 9v7.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z\"/><circle cx=\"12\" cy=\"12.6\" r=\"3.4\"/></svg></button><button class=\"ds-tool\" type=\"button\" aria-label=\"Joindre un document\"><svg viewBox=\"0 0 24 24\" width=\"19\" height=\"19\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M20 11.4l-8.1 8.1a5.2 5.2 0 0 1-7.4-7.4l8.4-8.4a3.4 3.4 0 0 1 4.8 4.8l-8.2 8.2a1.7 1.7 0 0 1-2.4-2.4l7.6-7.6\"/></svg></button><button class=\"ds-tool\" type=\"button\" aria-label=\"Mentionner des agents\" aria-pressed=\"true\"><svg viewBox=\"0 0 24 24\" width=\"19\" height=\"19\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"3.8\"/><path d=\"M15.8 8.2v5.1a2.7 2.7 0 0 0 5.4 0V12a9.2 9.2 0 1 0-3.6 7.3\"/></svg></button><button class=\"ds-tool\" type=\"button\" aria-label=\"Lancer une session\"><svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M5 3l14 9-14 9z\"/></svg></button><button class=\"ds-tool\" type=\"button\" aria-label=\"Dictée vocale\"><svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z\"/><path d=\"M19 10v2a7 7 0 0 1-14 0v-2\"/><path d=\"M12 19v4\"/><path d=\"M8 23h8\"/></svg></button><span class=\"ds-composer-end\"><button class=\"ds-tool ds-tool-clock\" type=\"button\" aria-label=\"Programmer l'envoi\"><svg viewBox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 6v6.5l4 2\"/></svg></button><button class=\"ds-send\" type=\"button\" aria-label=\"Envoyer\"><svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12 19V5\"/><path d=\"M5.5 11.5L12 5l6.5 6.5\"/></svg></button></span></div>",
+      "css": ".ds-composer { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; max-width: 48rem; background: var(--v-surface, #ffffff); border: 1px solid var(--v-line-2, #d5d1c8); border-radius: 22px; padding: 10px 10px 8px 12px; box-shadow: var(--v-shadow, 0 1px 2px rgba(29, 33, 39, 0.05), 0 2px 6px -2px rgba(29, 33, 39, 0.09)); transition: border-color 200ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)); } .ds-composer:focus-within { border-color: var(--v-slate-line, rgba(70, 87, 117, 0.3)); } .ds-composer-input { order: -1; flex: 1 1 100%; min-width: 0; background: transparent; border: 0; outline: none; resize: none; color: var(--v-ink, #1d2127); font: 400 16px/1.5 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; padding: 4px 4px 10px; } .ds-composer-input::placeholder { color: var(--v-ink-3, #666d78); opacity: 1; } .ds-tool { width: 36px; height: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; background: transparent; border: 0; border-radius: 10px; color: var(--v-ink-2, #4f5661); cursor: pointer; transition: background 140ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)), color 140ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)); } .ds-tool:hover { background: var(--v-hover, rgba(29, 33, 39, 0.05)); color: var(--v-ink, #1d2127); } .ds-tool:focus-visible, .ds-send:focus-visible { outline: none; box-shadow: var(--v-focus, 0 0 0 3px rgba(70, 87, 117, 0.28)); } .ds-tool[aria-pressed=\"true\"] { background: var(--v-slate-soft, rgba(70, 87, 117, 0.09)); color: var(--v-slate, #465775); } .ds-tool-clock { width: 32px; color: var(--v-ink-3, #666d78); } .ds-composer-end { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; } .ds-send { width: 36px; height: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 999px; background: var(--v-slate, #465775); color: var(--v-on-slate, #ffffff); box-shadow: var(--v-shadow-sm, 0 1px 2px rgba(29, 33, 39, 0.05)); cursor: pointer; transition: background 140ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)), transform 140ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)); } .ds-send:hover { background: var(--v-slate-hover, #3a4964); } .ds-send:active { transform: scale(0.94); } .ds-send:disabled { opacity: 0.3; box-shadow: none; cursor: default; }"
+    },
+    {
+      "name": "Pastilles de présence",
+      "kind": "chip",
+      "refersTo": "status-pill",
+      "description": "En-tête du bureau : « travaille » teinté d'ardoise, « disponible » sans aucun signe, « hors ligne » en anneau creux.",
+      "html": "<div class=\"ds-pills\"><span class=\"ds-pill ds-pill-working\"><span class=\"ds-pill-dot\"></span>Claude</span><span class=\"ds-pill\">Codex</span><span class=\"ds-pill ds-pill-offline\"><span class=\"ds-pill-dot\"></span>Grok · hors ligne</span></div>",
+      "css": ".ds-pills { display: flex; gap: 6px; flex-wrap: wrap; } .ds-pill { display: inline-flex; align-items: center; gap: 7px; background: transparent; border: 1px solid var(--v-line, #e6e3dc); color: var(--v-ink-2, #4f5661); font: 500 12.5px/1.2 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; padding: 5px 11px; border-radius: 999px; cursor: default; transition: border-color 200ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)), color 200ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)), background 200ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)); } .ds-pill:hover { background: var(--v-hover, rgba(29, 33, 39, 0.05)); color: var(--v-ink, #1d2127); border-color: var(--v-line-2, #d5d1c8); } .ds-pill-dot { width: 7px; height: 7px; border-radius: 50%; box-sizing: border-box; } .ds-pill-working, .ds-pill-offline { padding-left: 9px; } .ds-pill-working { color: var(--v-ink, #1d2127); border-color: var(--v-slate-line, rgba(70, 87, 117, 0.3)); background: var(--v-slate-soft, rgba(70, 87, 117, 0.09)); } .ds-pill-working .ds-pill-dot { background: var(--v-slate, #465775); } .ds-pill-offline { color: var(--v-ink-3, #666d78); } .ds-pill-offline .ds-pill-dot { border: 1.5px solid var(--v-ink-3, #666d78); }"
+    },
+    {
+      "name": "Fil : bulle de Charles et voix d'agent",
+      "kind": "custom",
+      "refersTo": "agent-message",
+      "description": "Charles écrit dans une bulle neutre à droite ; l'agent parle sans bulle, en serif, avec son logo rond et son nom mêlé à l'encre.",
+      "html": "<div class=\"ds-thread\"><div class=\"ds-self\"><div class=\"ds-meta ds-meta-right\">21:46 · #1301</div><div class=\"ds-bubble\"><span class=\"ds-mention\">@claude</span> Tu peux relire la page d'accueil ?</div></div><div class=\"ds-agent\" style=\"--agent: #da7756\"><span class=\"ds-avatar\">C</span><div class=\"ds-agent-body\"><div class=\"ds-agent-head\"><span class=\"ds-sender\">claude</span><span class=\"ds-meta\">21:48 · #1302</span></div><div class=\"ds-prose\"><p>C'est fait. Trois corrections : le titre passe sur <strong>une ligne</strong>, le bouton reprend l'ardoise, et la table des tarifs perd ses filets verticaux.</p><p>Le détail est dans <code>accueil.md</code>.</p></div></div></div></div>",
+      "css": ".ds-thread { max-width: 48rem; display: flex; flex-direction: column; gap: 26px; } .ds-self { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; } .ds-bubble { background: var(--v-bubble, #edebe6); color: var(--v-ink, #1d2127); border-radius: 20px; padding: 10px 16px; max-width: min(82%, 36rem); font: 400 15.5px/1.55 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; } .ds-mention { background: var(--v-slate-soft, rgba(70, 87, 117, 0.09)); color: var(--v-slate, #465775); border-radius: 6px; padding: 0.05em 0.35em; font: 600 0.92em -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; } .ds-meta { color: var(--v-ink-3, #666d78); font: 400 12px/1.2 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; font-variant-numeric: tabular-nums; } .ds-meta-right { padding-right: 16px; } .ds-agent { display: flex; gap: 12px; } .ds-avatar { flex: 0 0 26px; width: 26px; height: 26px; margin-top: 1px; border-radius: 50%; background: var(--agent); color: #ffffff; display: flex; align-items: center; justify-content: center; font: 700 12px/1 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; } .ds-agent-body { min-width: 0; flex: 1 1 auto; } .ds-agent-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 5px; } .ds-sender { font: 600 13.5px/1.2 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; color: color-mix(in srgb, var(--agent) 58%, var(--v-ink, #1d2127)); } .ds-prose { font-family: \"Source Serif 4\", \"Iowan Old Style\", Charter, Georgia, \"Noto Serif\", serif; font-size: 16.5px; line-height: 1.64; color: var(--v-ink, #1d2127); font-optical-sizing: auto; } .ds-prose p { margin: 0.55em 0; } .ds-prose p:first-child { margin-top: 0; } .ds-prose strong { font-weight: 650; } .ds-prose code { font-family: var(--v-mono, ui-monospace, Menlo, Consolas, monospace); font-size: 0.84em; background: var(--v-code, #f0eee9); border: 1px solid var(--v-line, #e6e3dc); border-radius: 6px; padding: 0.08em 0.36em; }"
+    },
+    {
+      "name": "Encart de décision",
+      "kind": "card",
+      "refersTo": "decision-inset",
+      "description": "Signature : une question d'agent devient un encart ardoise ; choix pleine largeur de 44 px (48 au téléphone) et « Répondu autrement » discret.",
+      "html": "<div class=\"ds-decision\"><div class=\"ds-decision-q\">Le rendu v2.1 est prêt. Je publie sur le serveur de démo ?</div><div class=\"ds-choices\"><button class=\"ds-choice\" type=\"button\">Oui, publie</button><button class=\"ds-choice\" type=\"button\">Pas encore, je relis d'abord</button><button class=\"ds-autrement\" type=\"button\">Répondu autrement</button></div></div>",
+      "css": ".ds-decision { max-width: 36rem; background: var(--v-slate-inset, rgba(70, 87, 117, 0.15)); border: 1px solid color-mix(in srgb, var(--v-slate, #465775) 50%, transparent); border-radius: 16px; padding: 14px 16px 16px; } .ds-decision-q { font-family: \"Source Serif 4\", \"Iowan Old Style\", Charter, Georgia, \"Noto Serif\", serif; font-size: 16.5px; line-height: 1.64; color: var(--v-ink, #1d2127); } .ds-choices { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; } .ds-choice { display: block; width: 100%; text-align: left; font: 500 15px/1.35 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; color: var(--v-ink, #1d2127); background: var(--v-surface, #ffffff); border: 1px solid var(--v-line-2, #d5d1c8); border-radius: 12px; padding: 11px 14px; min-height: 44px; cursor: pointer; box-shadow: var(--v-shadow-sm, 0 1px 2px rgba(29, 33, 39, 0.05)); transition: border-color 200ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)), transform 140ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)); } .ds-choice:hover { border-color: var(--v-slate, #465775); } .ds-choice:active { transform: scale(0.99); } .ds-choice:focus-visible { outline: none; box-shadow: var(--v-focus, 0 0 0 3px rgba(70, 87, 117, 0.28)); } .ds-autrement { align-self: flex-start; min-height: 36px; padding: 6px 4px; background: none; border: 0; color: var(--v-ink-2, #4f5661); font: 500 13.5px/1.2 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; text-decoration: underline; text-decoration-color: var(--v-line-2, #d5d1c8); text-underline-offset: 3px; cursor: pointer; } .ds-autrement:hover { color: var(--v-ink, #1d2127); text-decoration-color: currentColor; } .ds-autrement:focus-visible { outline: none; box-shadow: var(--v-focus, 0 0 0 3px rgba(70, 87, 117, 0.28)); border-radius: 8px; }"
+    },
+    {
+      "name": "Ligne « réfléchit » et rappel de décision",
+      "kind": "custom",
+      "refersTo": "reasoning-strip",
+      "description": "Signature : au-dessus de la saisie, le rappel des décisions hors de vue puis les agents occupés, chacun avec son point qui respire.",
+      "html": "<div class=\"ds-strip\" role=\"status\" aria-live=\"polite\"><button class=\"ds-attente\" type=\"button\"><svg viewBox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12 5v13\"/><path d=\"M6.5 12.5L12 18l5.5-5.5\"/></svg>2 décisions en attente</button><span class=\"ds-busy\"><span class=\"ds-souffle\" style=\"--c: #da7756\"></span>Claude</span><span class=\"ds-busy\"><span class=\"ds-souffle\" style=\"--c: #10a37f\"></span>Codex</span><span class=\"ds-verbe\">réfléchissent…</span></div>",
+      "css": ".ds-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; max-width: 48rem; padding: 0 4px 10px; font: 500 13px/1.3 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; color: var(--v-ink-2, #4f5661); } .ds-busy { display: inline-flex; align-items: center; gap: 6px; color: var(--v-ink, #1d2127); font-weight: 600; } .ds-souffle { width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--v-slate, #465775)); animation: ds-souffle 1.6s ease-in-out infinite; } .ds-verbe { color: var(--v-ink-3, #666d78); } @keyframes ds-souffle { 0%, 100% { transform: scale(0.72); opacity: 0.45; } 50% { transform: scale(1); opacity: 1; } } .ds-attente { display: inline-flex; align-items: center; gap: 6px; background: var(--v-slate-inset, rgba(70, 87, 117, 0.15)); border: 1px solid color-mix(in srgb, var(--v-slate, #465775) 50%, transparent); color: var(--v-ink, #1d2127); font: 600 13px/1 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; border-radius: 999px; padding: 7px 12px 7px 10px; cursor: pointer; transition: background 140ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)); } .ds-attente:hover { background: var(--v-slate-soft, rgba(70, 87, 117, 0.09)); } .ds-attente:focus-visible { outline: none; box-shadow: var(--v-focus, 0 0 0 3px rgba(70, 87, 117, 0.28)); } .ds-attente svg { color: var(--v-slate, #465775); } @media (prefers-reduced-motion: reduce) { .ds-souffle { animation: none; } }"
+    },
+    {
+      "name": "Rail des projets",
+      "kind": "nav",
+      "refersTo": "rail",
+      "description": "Menu de gauche repliable : logo, actions IA / Modèles / Stats, projets contenant leurs conversations, non-lus en capsule ardoise.",
+      "html": "<nav class=\"ds-rail\" aria-label=\"Projets et conversations\"><div class=\"ds-rail-head\"><span class=\"ds-logo\">V</span></div><div class=\"ds-rail-actions\"><button class=\"ds-rail-action\" type=\"button\"><svg viewBox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12 5v14\"/><path d=\"M5 12h14\"/></svg>IA</button><button class=\"ds-rail-action\" type=\"button\"><svg viewBox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M4 7h9\"/><path d=\"M19 7h1\"/><circle cx=\"16\" cy=\"7\" r=\"2.2\"/><path d=\"M4 17h3\"/><path d=\"M13 17h7\"/><circle cx=\"10\" cy=\"17\" r=\"2.2\"/></svg>Modèles</button><button class=\"ds-rail-action\" type=\"button\"><svg viewBox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M6 20v-6\"/><path d=\"M12 20V5\"/><path d=\"M18 20v-10\"/></svg>Stats</button></div><div class=\"ds-rail-body\"><div class=\"ds-rail-title\"><span>Projets</span><button class=\"ds-rail-plus\" type=\"button\" aria-label=\"Nouveau projet\"><svg viewBox=\"0 0 24 24\" width=\"15\" height=\"15\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12 5v14\"/><path d=\"M5 12h14\"/></svg></button></div><div class=\"ds-rail-item ds-rail-proj\" role=\"button\" tabindex=\"0\"><span class=\"ds-chev\"><svg viewBox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M9.5 6.5l5.5 5.5-5.5 5.5\"/></svg></span><span class=\"ds-rail-name\">Vaultia MVP</span><span class=\"ds-rail-point\"></span></div><div class=\"ds-rail-title\"><span>Conversations</span></div><div class=\"ds-rail-item ds-rail-active\" role=\"button\" tabindex=\"0\" aria-current=\"page\"><span class=\"ds-diese\">#</span><span class=\"ds-rail-name\">general</span></div><div class=\"ds-rail-item ds-rail-unread\" role=\"button\" tabindex=\"0\"><span class=\"ds-diese\">#</span><span class=\"ds-rail-name\">projeterp</span><span class=\"ds-nonlu\">3</span></div><div class=\"ds-rail-item\" role=\"button\" tabindex=\"0\"><span class=\"ds-diese\">#</span><span class=\"ds-rail-name\">recherche</span></div></div></nav>",
+      "css": ".ds-rail { width: 256px; background: var(--v-rail, #f1efea); border-right: 1px solid var(--v-line, #e6e3dc); color: var(--v-ink, #1d2127); font: 400 14px/1.35 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; } .ds-rail-head { padding: 14px 14px 10px 16px; } .ds-logo { display: inline-flex; width: 24px; height: 24px; align-items: center; justify-content: center; font: 700 18px/1 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; color: var(--v-slate, #465775); } .ds-rail-actions { display: flex; gap: 6px; padding: 0 12px 12px; } .ds-rail-action { flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; background: transparent; border: 1px solid var(--v-line-2, #d5d1c8); color: var(--v-ink-2, #4f5661); font: 500 12.5px/1 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; border-radius: 10px; padding: 8px 6px; cursor: pointer; transition: background 140ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)), color 140ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)); } .ds-rail-action:hover { background: var(--v-surface, #ffffff); color: var(--v-ink, #1d2127); box-shadow: var(--v-shadow-sm, 0 1px 2px rgba(29, 33, 39, 0.05)); } .ds-rail-body { border-top: 1px solid var(--v-line, #e6e3dc); padding: 4px 0 16px; } .ds-rail-title { display: flex; align-items: center; justify-content: space-between; padding: 16px 12px 6px 18px; font: 600 12px/1 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; color: var(--v-ink-3, #666d78); } .ds-rail-plus { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: transparent; border: 0; color: var(--v-ink-3, #666d78); border-radius: 7px; cursor: pointer; } .ds-rail-plus:hover { background: var(--v-hover, rgba(29, 33, 39, 0.05)); color: var(--v-ink, #1d2127); } .ds-rail-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; margin: 1px 8px; border-radius: 9px; color: var(--v-ink-2, #4f5661); cursor: pointer; transition: background 140ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)), color 140ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)); } .ds-rail-item:hover { background: var(--v-hover, rgba(29, 33, 39, 0.05)); color: var(--v-ink, #1d2127); } .ds-rail-item:focus-visible, .ds-rail-action:focus-visible, .ds-rail-plus:focus-visible { outline: none; box-shadow: var(--v-focus, 0 0 0 3px rgba(70, 87, 117, 0.28)); } .ds-rail-active { background: var(--v-active, rgba(29, 33, 39, 0.085)); color: var(--v-ink, #1d2127); font-weight: 600; } .ds-rail-proj { font-weight: 600; color: var(--v-ink, #1d2127); } .ds-chev { display: inline-flex; color: var(--v-ink-3, #666d78); } .ds-rail-point { width: 6px; height: 6px; border-radius: 50%; background: var(--v-slate, #465775); } .ds-diese { color: var(--v-ink-3, #666d78); } .ds-rail-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ds-rail-unread { color: var(--v-ink, #1d2127); font-weight: 600; } .ds-nonlu { min-width: 20px; height: 20px; padding: 0 6px; box-sizing: border-box; border-radius: 999px; background: var(--v-slate, #465775); color: var(--v-on-slate, #ffffff); font: 600 11.5px/20px -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; text-align: center; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Fenêtre",
+      "kind": "card",
+      "refersTo": "dialog",
+      "description": "Fenêtre Vaultia : titre et Fermer en tête, note, champs étiquetés, statut par ligne, « Terminé » en bas ; flottante, sans bordure.",
+      "html": "<div class=\"ds-dialog\" role=\"dialog\" aria-label=\"Modèles et raisonnement\"><div class=\"ds-dialog-head\"><h2>Modèles et raisonnement</h2><button class=\"ds-close\" type=\"button\" aria-label=\"Fermer\"><svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M7 7l10 10\"/><path d=\"M17 7L7 17\"/></svg></button></div><p class=\"ds-note\">Le modèle et le niveau de raisonnement de chaque IA. Vide = automatique.</p><div class=\"ds-row\"><span class=\"ds-row-name\">Claude</span><span class=\"ds-ok\">Enregistré</span></div><div class=\"ds-dialog-foot\"><button class=\"ds-done\" type=\"button\">Terminé</button></div></div>",
+      "css": ".ds-dialog { background: var(--v-surface, #ffffff); color: var(--v-ink, #1d2127); border: 0; border-radius: 18px; box-shadow: var(--v-shadow-lg, 0 2px 6px rgba(29, 33, 39, 0.06), 0 18px 48px -12px rgba(29, 33, 39, 0.22)); padding: 22px 24px 20px; width: min(520px, 94vw); box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; } .ds-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 14px; } .ds-dialog-head h2 { margin: 0; font: 650 17px/1.25 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; letter-spacing: -0.005em; } .ds-close { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; margin: -6px -8px 0 0; background: none; border: 0; color: var(--v-ink-3, #666d78); border-radius: 8px; cursor: pointer; transition: background 140ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)), color 140ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)); } .ds-close:hover { background: var(--v-hover, rgba(29, 33, 39, 0.05)); color: var(--v-ink, #1d2127); } .ds-close:focus-visible, .ds-done:focus-visible { outline: none; box-shadow: var(--v-focus, 0 0 0 3px rgba(70, 87, 117, 0.28)); } .ds-note { margin: 0 0 14px; font-size: 13px; line-height: 1.45; color: var(--v-ink-3, #666d78); } .ds-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-top: 1px solid var(--v-line, #e6e3dc); font-size: 14px; } .ds-row-name { font-weight: 600; } .ds-ok { font: 500 11.5px/1.2 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; color: var(--v-success, #2e7a58); } .ds-dialog-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; } .ds-done { font: 600 13.5px/1 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; background: var(--v-slate, #465775); color: var(--v-on-slate, #ffffff); border: 1px solid var(--v-slate, #465775); border-radius: 10px; padding: 8px 14px; cursor: pointer; } .ds-done:hover { background: var(--v-slate-hover, #3a4964); border-color: var(--v-slate-hover, #3a4964); }"
+    },
+    {
+      "name": "En-tête du téléphone et menu « ⋯ »",
+      "kind": "nav",
+      "refersTo": "phone-header",
+      "description": "Une rangée de 52 px : bascule du rail, « # conversation », Jobs, « ⋯ » avec le total en attente ; le menu range Règles, Épingles et Aide avec leurs compteurs.",
+      "html": "<div class=\"ds-phone\"><div class=\"ds-phone-head\"><button class=\"ds-bascule\" type=\"button\" aria-label=\"Menu des projets\"><svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect x=\"3.5\" y=\"4.5\" width=\"17\" height=\"15\" rx=\"3\"/><path d=\"M9.5 4.5v15\"/></svg></button><span class=\"ds-phone-title\"># general</span><button class=\"ds-head-btn\" type=\"button\" aria-label=\"Jobs\"><svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect x=\"5\" y=\"3\" width=\"14\" height=\"18\" rx=\"2.2\"/><path d=\"M9 8h6\"/><path d=\"M9 12h6\"/><path d=\"M9 16h3\"/></svg></button><button class=\"ds-head-btn ds-plus\" type=\"button\" aria-label=\"Plus d'options (4 en attente)\" aria-haspopup=\"menu\" aria-expanded=\"true\"><svg viewBox=\"0 0 24 24\" width=\"18\" height=\"18\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><circle cx=\"5.5\" cy=\"12\" r=\"1.3\"/><circle cx=\"12\" cy=\"12\" r=\"1.3\"/><circle cx=\"18.5\" cy=\"12\" r=\"1.3\"/></svg><span class=\"ds-plus-badge\">4</span></button></div><div class=\"ds-menu\" role=\"menu\"><button class=\"ds-menu-item\" role=\"menuitem\" type=\"button\"><span>Règles de la salle</span><span class=\"ds-menu-count\">4</span></button><button class=\"ds-menu-item\" role=\"menuitem\" type=\"button\"><span>Épingles</span></button><button class=\"ds-menu-item\" role=\"menuitem\" type=\"button\"><span>Aide</span></button></div></div>",
+      "css": ".ds-phone { position: relative; max-width: 412px; background: var(--v-paper, #f8f7f4); font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; padding-bottom: 12px; } .ds-phone-head { display: flex; align-items: center; gap: 4px; height: 52px; padding: 0 8px 0 10px; border-bottom: 1px solid var(--v-line, #e6e3dc); } .ds-bascule { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; margin-right: 10px; background: var(--v-paper, #f8f7f4); border: 1px solid var(--v-line-2, #d5d1c8); color: var(--v-ink-2, #4f5661); border-radius: 10px; box-shadow: var(--v-shadow-sm, 0 1px 2px rgba(29, 33, 39, 0.05)); cursor: pointer; } .ds-bascule:hover { background: var(--v-surface, #ffffff); color: var(--v-ink, #1d2127); } .ds-phone-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 15.5px/1.2 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; color: var(--v-ink, #1d2127); } .ds-head-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; padding: 0; background: transparent; border: 1px solid transparent; color: var(--v-ink-2, #4f5661); border-radius: 9px; cursor: pointer; transition: background 140ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)), color 140ms var(--v-ease, cubic-bezier(0.16, 1, 0.3, 1)); } .ds-head-btn:hover { background: var(--v-hover, rgba(29, 33, 39, 0.05)); color: var(--v-ink, #1d2127); } .ds-head-btn:focus-visible, .ds-bascule:focus-visible, .ds-menu-item:focus-visible { outline: none; box-shadow: var(--v-focus, 0 0 0 3px rgba(70, 87, 117, 0.28)); } .ds-plus-badge { position: absolute; top: -4px; right: -5px; min-width: 17px; height: 17px; padding: 0 4px; box-sizing: border-box; border-radius: 999px; background: var(--v-slate, #465775); color: var(--v-on-slate, #ffffff); font: 700 11px/17px -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; text-align: center; font-variant-numeric: tabular-nums; } .ds-menu { margin: 8px 10px 0 auto; width: max-content; min-width: 200px; padding: 6px; background: var(--v-surface, #ffffff); border-radius: 14px; box-shadow: var(--v-shadow-lg, 0 2px 6px rgba(29, 33, 39, 0.06), 0 18px 48px -12px rgba(29, 33, 39, 0.22)); display: flex; flex-direction: column; } .ds-menu-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; text-align: left; background: none; border: 0; color: var(--v-ink, #1d2127); font: 500 15px/1.2 -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; padding: 12px; border-radius: 9px; cursor: pointer; } .ds-menu-item:hover { background: var(--v-hover, rgba(29, 33, 39, 0.05)); } .ds-menu-count { min-width: 22px; height: 22px; padding: 0 7px; box-sizing: border-box; border-radius: 999px; background: var(--v-slate, #465775); color: var(--v-on-slate, #ffffff); font: 600 12px/22px -apple-system, BlinkMacSystemFont, \"Segoe UI Variable Text\", \"Segoe UI\", system-ui, Roboto, \"Noto Sans\", sans-serif; text-align: center; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "La salle de lecture",
+    "overview": "La salle Vaultia se lit comme une conversation avec Claude, pas comme une messagerie. La référence est imposée par Charles : l'application Claude (claude.ai et l'app mobile), son calme, ses proportions de lecture, son niveau de finition. Elle est exécutée avec l'identité Vaultia (le logo V, l'ardoise bleu-gris), jamais avec la marque d'Anthropic. Chaque agent est une *voix typographique* : sa prose en serif de lecture, sans bulle, avec son nom et son logo rond pour seule couleur. Seuls les messages de Charles ont une bulle, neutre et alignée à droite.\n\nL'état passe avant le détail. Dans l'ordre : ce qui attend la décision de Charles (l'encart ardoise dans le fil et le rappel « N décisions en attente »), qui travaille (la ligne « réfléchit » qui respire au-dessus de la saisie), puis les derniers messages. La salle a deux postures. Au bureau, un rail repliable de 256 px et une colonne de 48rem, pour le pilotage. Au téléphone, une colonne pleine largeur, de la prose à 17 px, un en-tête d'une seule rangée de 52 px, et tout se fait au pouce.\n\nLe matériau est sobre : des fonds neutres à peine chauds (papier le jour, anthracite le soir), des filets de 1 px, des ombres douces et rares, des coins de 6 à 22 px et des icônes SVG au trait régulier. Le thème suit l'appareil (`prefers-color-scheme`) et il n'y a pas de bascule manuelle. Rejets confirmés : le « chat sombre à bulles, violet néon, pastilles partout », trop de couleurs ou de gadgets, et un texte trop petit au téléphone.",
+    "keyCharacteristics": [
+      "Un seul accent, l'ardoise ; tout le reste est neutre, sauf les couleurs d'état et l'identité des agents.",
+      "Deux voix : Source Serif 4 pour les agents, sans système pour Charles et l'interface, mono pour le code.",
+      "Une colonne de lecture de 48rem, partagée par le fil, la ligne « réfléchit » et la carte de saisie.",
+      "Aucun signe pour l'état normal : un agent disponible n'a pas de point, seul celui qui travaille est teinté.",
+      "Le mouvement tient en peu de choses : le point qui respire (et l'icône d'un envoi en cours), l'arrivée douce du dernier message et des transitions d'état de 140 à 240 ms.",
+      "La couche Vaultia (`vaultia-theme.css`, `vaultia-mobile.css`, `vaultia.js`) se pose sur agentchattr sans étape de build : les jetons d'origine (`--bg`, `--accent`, `--radius-*`…) sont rebranchés sur les jetons `--v-*`."
+    ],
+    "rules": [
+      {
+        "name": "La règle de l'ardoise unique",
+        "body": "L'interface n'a qu'une couleur d'accent : l'ardoise. Un badge, un lien, un état actif ou un bouton principal est ardoise ou neutre, jamais d'une autre teinte ; les couleurs d'état ne servent qu'à l'erreur, la réussite et l'attention. L'argile de Claude (#da7756), qui colorait les badges d'origine, a été remplacée ; elle ne subsiste que comme couleur d'identité de l'agent claude.",
+        "section": "colors"
+      },
+      {
+        "name": "La règle des couleurs d'agent tempérées",
+        "body": "Un nom d'expéditeur n'est jamais peint dans la couleur brute de l'agent. Il est mêlé à l'encre : `color-mix(in srgb, <couleur d'agent> 58%, var(--v-ink))`. Ainsi mêlés, les noms de l'équipe atteignent 4,7 à 8,1:1 sur papier le jour et 5,7 à 9,1:1 le soir. Toute nouvelle couleur d'agent doit garder ce nom mêlé à 4,5:1 au moins (le jaune #f7f677 et le vert #2fe898 des agents amont Kilo et MiniMax échouent le jour).",
+        "section": "colors"
+      },
+      {
+        "name": "La règle du disponible muet",
+        "body": "L'état normal ne porte aucun signe. Une pastille « disponible » n'a pas de point. Une pastille « travaille » prend le voile et le contour ardoise, avec un point ardoise fixe. Une pastille « hors ligne » a un anneau creux et le texte « · hors ligne ».",
+        "section": "colors"
+      },
+      {
+        "name": "La règle des deux voix",
+        "body": "La serif appartient aux agents et à rien d'autre. Noms, heures, boutons, titres de message, tableaux, fenêtres et menus sont en sans système. Le réglage « Font : Monospace » d'agentchattr passe toute la prose en mono 14px.",
+        "section": "typography"
+      },
+      {
+        "name": "La règle du plancher au pouce",
+        "body": "Aucun texte fonctionnel sous 11 px (le build pose un plancher à 11,5px sur les pastilles et panneaux d'origine). La prose monte à 17px au téléphone et tout champ de saisie reste à 16px au moins (ce qui évite le zoom automatique).",
+        "section": "typography"
+      },
+      {
+        "name": "La règle de la colonne",
+        "body": "Tout ce qui se lit ou s'écrit partage la même colonne de 48rem : le fil, la ligne « réfléchit », la carte de saisie. Aucun élément de lecture ne s'étale sur toute la largeur du bureau.",
+        "section": "layout"
+      },
+      {
+        "name": "La règle du flottant sans liseré",
+        "body": "Ce qui flotte (fenêtre, menu, popover, toast) porte l'ombre flottante et aucune bordure. Ce qui est posé sur le papier (carte de saisie, choix, champ, pièce jointe) porte un filet de 1 px et, au plus, l'ombre posée ou serrée. Les deux ne se cumulent jamais.",
+        "section": "elevation"
+      },
+      {
+        "name": "La règle du focus silencieux à l'ouverture",
+        "body": "La carte de saisie a le focus dès l'ouverture : elle le signale par un contour `slate-line`, pas par l'anneau. L'anneau de 3 px est réservé au focus clavier (`:focus-visible`).",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** faire passer toute couleur neuve par un jeton `--v-*`, et ne consommer les jetons d'agentchattr (`--bg`, `--accent`, `--text-dim`…) que comme des alias de `--v-*`.",
+      "**Do** redéfinir chaque nouveau jeton dans le bloc `@media (prefers-color-scheme: dark)`, et vérifier ses paires de texte à 4,5:1 le jour et le soir.",
+      "**Do** écrire la prose des agents en `var(--v-read)` à 16,5px / 1,64 (17px / 1,62 au téléphone), dans la colonne `--v-col` de 48rem.",
+      "**Do** donner l'ombre flottante sans bordure à ce qui flotte, et un filet de 1 px avec au plus l'ombre posée à ce qui est posé.",
+      "**Do** dessiner les icônes en SVG en ligne : grille de 24×24, trait de 1,75, bouts arrondis, `currentColor`.",
+      "**Do** garder les choix de décision en pleine largeur, à 44 px de haut au moins (48 px au téléphone).",
+      "**Do** inscrire toute nouvelle animation dans le bloc `prefers-reduced-motion`, et régler toute transition d'état sur `--v-ease`, entre 140 et 240 ms.",
+      "**Do** écrire l'interface en français (Québec), en gardant les termes techniques d'usage (job, PR, token, MCP)."
+    ],
+    "donts": [
+      "**Don't** mettre les messages d'agent dans une bulle ou sur un fond coloré : seule la bulle de Charles existe, et elle est neutre (`bubble`). Seule exception : l'encart ardoise d'une décision, qui signale ce qui attend Charles.",
+      "**Don't** introduire une deuxième teinte d'accent, ni peindre un badge, un lien ou un état actif avec la couleur d'un agent.",
+      "**Don't** faire respirer un indicateur d'agent ailleurs que dans la ligne « réfléchit » (la pastille « travaille » garde un point fixe). La seule autre respiration admise est celle de l'icône photo ou document pendant un envoi (`aria-busy`, 1,1 s).",
+      "**Don't** signaler l'état normal : pas de point « disponible », pas de pastille ajoutée pour ce qui va bien.",
+      "**Don't** utiliser un émoji comme icône.",
+      "**Don't** descendre un texte fonctionnel sous 11 px, ni un champ de saisie sous 16 px au téléphone.",
+      "**Don't** reprendre la marque d'Anthropic ou l'argile de Claude comme identité : le logo V et l'ardoise seulement."
+    ]
+  }
+}

@@ -2,7 +2,23 @@
 
 // Session token injected by the server into the HTML page.
 // Sent with every API call and WebSocket connection to authenticate.
-const SESSION_TOKEN = window.__SESSION_TOKEN__ || "";
+let SESSION_TOKEN = window.__SESSION_TOKEN__ || "";  // let: rafraichissable apres un redemarrage serveur
+async function refreshSessionToken() {
+    // Le token est injecte dans "/" (page publique, no-store). Un onglet deja ouvert garde
+    // l'ancien token en memoire apres un redemarrage -> 403. On va relire le token courant
+    // SANS recharger la page (fiable meme sur un vieil onglet mobile en veille).
+    try {
+        const html = await (await fetch("/", { cache: "no-store" })).text();
+        const m = html.match(/__SESSION_TOKEN__\s*=\s*"([0-9a-f]+)"/);
+        if (m && m[1] && m[1] !== SESSION_TOKEN) {
+            SESSION_TOKEN = m[1];
+            window.__SESSION_TOKEN__ = m[1];
+            console.log("session token refreshed");
+            return true;
+        }
+    } catch (e) { console.error("refreshSessionToken failed", e); }
+    return false;
+}
 
 let ws = null;
 let pendingAttachments = [];
@@ -452,7 +468,9 @@ function handleServerEvent(event) {
                 const choicesEl = existing.querySelector('.decision-choices');
                 const meta = updated.metadata || {};
                 if (choicesEl && meta.resolved) {
-                    choicesEl.innerHTML = `<div class="decision-resolved">You chose: <strong>${escapeHtml(meta.chosen || '')}</strong></div>`;
+                    choicesEl.innerHTML = `<div class="decision-resolved">${decisionResolueHtml(meta)}</div>`;
+                    choicesEl.style.opacity = '';          // l'estompage de l'envoi ne survit pas à la réponse
+                    choicesEl.style.pointerEvents = '';
                 }
             }
         }
@@ -692,8 +710,11 @@ function connectWebSocket() {
         // Server sends 4003 when session token is invalid (server restarted).
         // Auto-reload to pick up the fresh token from the new HTML page.
         if (e.code === 4003) {
-            console.warn('Session token rejected (server restarted?) — reloading page...');
-            location.reload();
+            console.warn('Session token rejected (server restarted?) — refreshing token in place...');
+            refreshSessionToken().then((ok) => {
+                // reconnecte avec le token courant, sans recharger (bfcache/onglets mobiles fiables)
+                reconnectTimer = setTimeout(connectWebSocket, ok ? 300 : 2000);
+            });
             return;
         }
         console.log('Disconnected, reconnecting in 2s...');
@@ -732,10 +753,10 @@ function formatDateDivider(dateStr) {
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);
 
-    if (date.toDateString() === today.toDateString()) return 'Today';
-    if (date.toDateString() === yesterday.toDateString()) return 'Yesterday';
+    if (date.toDateString() === today.toDateString()) return "Aujourd'hui";
+    if (date.toDateString() === yesterday.toDateString()) return 'Hier';
 
-    return date.toLocaleDateString('en-GB', {
+    return date.toLocaleDateString('fr-CA', {
         weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
     });
 }
@@ -841,7 +862,7 @@ function appendMessage(msg, options = {}) {
     if (msg.type === 'join' || msg.type === 'leave') {
         el.classList.add('join-msg');
         const color = getColor(msg.sender);
-        el.innerHTML = `<span class="join-dot" style="background: ${color}"></span><span class="join-text"><strong style="color: ${color}">${escapeHtml(msg.sender)}</strong> ${msg.type === 'join' ? 'joined' : 'left'}</span>`;
+        el.innerHTML = `<span class="join-dot" style="background: ${color}"></span><span class="join-text"><strong style="color: ${color}">${escapeHtml(msg.sender)}</strong> ${msg.type === 'join' ? 'a rejoint la salle' : 'a quitté la salle'}</span>`;
     } else if (msg.type === 'summary') {
         el.classList.add('summary-msg');
         const color = getColor(msg.sender);
@@ -875,7 +896,7 @@ function appendMessage(msg, options = {}) {
                     <div class="proposal-status-resolved">${status === 'accepted' ? 'Accepted' : 'Dismissed'}</div>
                 `}
             </div>
-            ${!isPending ? `<div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">reply</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="Delete">del</button></div>` : ''}`;
+            ${!isPending ? `<div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">répondre</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="Supprimer">suppr.</button></div>` : ''}`;
     } else if (msg.type === 'rule_proposal') {
         el.classList.add('proposal-msg');
         const meta = msg.metadata || {};
@@ -900,7 +921,7 @@ function appendMessage(msg, options = {}) {
                     <div class="proposal-status-resolved">${status === 'activated' ? 'Activated' : status === 'drafted' ? 'Added to drafts' : 'Dismissed'}</div>
                 `}
             </div>
-            ${!isPending ? `<div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">reply</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="Delete">del</button></div>` : ''}`;
+            ${!isPending ? `<div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">répondre</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="Supprimer">suppr.</button></div>` : ''}`;
     } else if (window._messageRenderers && window._messageRenderers[msg.type]) {
         window._messageRenderers[msg.type](el, msg);
     } else if (msg.type === 'system' || msg.sender === 'system') {
@@ -966,21 +987,21 @@ function appendMessage(msg, options = {}) {
         el.dataset.rawText = msg.text;
         const senderRole = _agentRoles[msg.sender] || '';
         const roleClass = senderRole ? 'bubble-role has-role' : 'bubble-role';
-        const rolePillHtml = !isSelf ? `<button class="${roleClass}" onclick="showBubbleRolePicker(this, '${escapeHtml(msg.sender)}')" title="${senderRole ? escapeHtml(senderRole) : 'Set role'}">${senderRole || 'choose a role'}</button>` : '';
+        const rolePillHtml = !isSelf ? `<button class="${roleClass}" onclick="showBubbleRolePicker(this, '${escapeHtml(msg.sender)}')" title="${senderRole ? escapeHtml(senderRole) : 'Définir le rôle'}">${senderRole || 'choisir un rôle'}</button>` : '';
         // Inline decision choices (if present)
         let choicesHtml = '';
         const meta = msg.metadata || {};
         const choicesList = meta.choices || [];
         if (msg.type === 'decision' && choicesList.length > 0) {
             if (meta.resolved) {
-                choicesHtml = `<div class="decision-choices"><div class="decision-resolved">You chose: <strong>${escapeHtml(meta.chosen || '')}</strong></div></div>`;
+                choicesHtml = `<div class="decision-choices"><div class="decision-resolved">${decisionResolueHtml(meta)}</div></div>`;
             } else {
                 choicesHtml = '<div class="decision-choices">' + choicesList.map(c =>
                     `<button class="decision-choice" onclick="resolveDecision(${msg.id}, '${escapeHtml(c).replace(/'/g, "\\'")}')">${escapeHtml(c)}</button>`
-                ).join('') + '</div>';
+                ).join('') + decisionLibreHtml(msg) + '<button class="decision-autrement" onclick="resolveDecisionAutrement(' + msg.id + ')" title="J\'ai déjà répondu en écrivant : fermer la carte sans choisir">Répondu autrement</button></div>';
             }
         }
-        el.innerHTML = `<div class="todo-strip"></div>${isSelf ? '' : avatarHtml}<div class="chat-bubble" style="--bubble-color: ${senderColor}">${replyHtml}<div class="bubble-header"><span class="msg-sender" style="color: ${senderColor}">${escapeHtml(msg.sender)}</span>${rolePillHtml}<span class="msg-time">${msg.time || ''}</span><span class="msg-num">#${msg.id}</span></div><div class="msg-text">${textHtml}</div>${choicesHtml}${attachmentsHtml}<button class="convert-job-pill" onclick="startJobFromMessage(${msg.id}); event.stopPropagation();" title="Convert to job">convert to job</button><button class="bubble-copy" onclick="copyMessage(${msg.id}, event)" title="Copy message"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div><div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">reply</button><button class="todo-hint" onclick="todoCycle(${msg.id}); event.stopPropagation();">${statusLabel}</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="Delete">del</button></div>`;
+        el.innerHTML = `<div class="todo-strip"></div>${isSelf ? '' : avatarHtml}<div class="chat-bubble" style="--bubble-color: ${senderColor}">${replyHtml}<div class="bubble-header"><span class="msg-sender" style="color: ${senderColor}">${escapeHtml(msg.sender)}</span>${rolePillHtml}<span class="msg-time">${msg.time || ''}</span><span class="msg-num">#${msg.id}</span></div><div class="msg-text">${textHtml}</div>${choicesHtml}${attachmentsHtml}<button class="convert-job-pill" onclick="startJobFromMessage(${msg.id}); event.stopPropagation();" title="Convertir en job">en job</button><button class="bubble-copy" onclick="copyMessage(${msg.id}, event)" title="Copier le message"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button></div><div class="msg-actions"><button class="reply-btn" onclick="startReply(${msg.id}, event)">répondre</button><button class="todo-hint" onclick="todoCycle(${msg.id}); event.stopPropagation();">${statusLabel}</button><button class="delete-btn" onclick="deleteClick(${msg.id}, event)" title="Supprimer">suppr.</button></div>`;
         if (todoStatus) el.classList.add('msg-todo', `msg-todo-${todoStatus}`);
         if (msg.metadata?.session_output) el.classList.add('session-output');
 
@@ -1785,7 +1806,7 @@ function showBubbleRolePicker(btn, agentName) {
 
 function _syncBubbleRolePills(agentName) {
     const role = String(_agentRoles[agentName] || '').trim();
-    const pillText = role || 'choose a role';
+    const pillText = role || 'choisir un rôle';
     document.querySelectorAll('.message').forEach(msg => {
         const senderEl = msg.querySelector('.msg-sender');
         const btn = msg.querySelector('.bubble-role');
@@ -2529,7 +2550,6 @@ function sendMessage() {
         sender: username,
         channel: activeChannel,
         attachments: pendingAttachments.map(a => ({
-            path: a.path,
             name: a.name,
             url: a.url,
         })),
@@ -2569,7 +2589,7 @@ function setupPaste() {
                 if (isJobFocused) {
                     await uploadJobImage(file);
                 } else {
-                    await uploadImage(file);
+                    try { await uploadImage(file); } catch (err) { /* echec deja signale par un toast */ }
                 }
             }
         }
@@ -2611,7 +2631,7 @@ function setupDragDrop() {
 
         for (const file of files) {
             if (file.type.startsWith('image/')) {
-                await uploadImage(file);
+                try { await uploadImage(file); } catch (err) { /* echec deja signale par un toast */ }
             }
         }
     });
@@ -2621,12 +2641,27 @@ async function uploadImage(file) {
     const form = new FormData();
     form.append('file', file);
 
+    const post = () => fetch('/api/upload', { method: 'POST', headers: { 'X-Session-Token': SESSION_TOKEN }, body: form });
     try {
-        const resp = await fetch('/api/upload', { method: 'POST', headers: { 'X-Session-Token': SESSION_TOKEN }, body: form });
-        const data = await resp.json();
+        let resp = await post();
+        // Token perime apres un redemarrage serveur : on recupere le token courant et on reessaie une fois.
+        if (resp.status === 403 && await refreshSessionToken()) {
+            resp = await post();
+        }
+        const data = await resp.json().catch(() => ({}));
+
+        // Ne JAMAIS empiler une piece jointe vide : sans url, l'agent recoit {} et ne voit rien.
+        if (!resp.ok || !data.url) {
+            const why = data.error || (resp.status === 403
+                ? 'session expiree — ouvre le lien dans un nouvel onglet'
+                : `echec du televersement (${resp.status})`);
+            const nom = (file && file.name) ? file.name : 'fichier';
+            if (typeof showToast === 'function') showToast(`${nom} : ${why}`, 'error');
+            else console.error('Upload failed:', why);
+            throw new Error(why);   // remonte a l'appelant (compteur ok) et evite l'attache vide
+        }
 
         pendingAttachments.push({
-            path: data.path,
             name: data.name,
             url: data.url,
         });
@@ -2634,6 +2669,7 @@ async function uploadImage(file) {
         renderAttachments();
     } catch (err) {
         console.error('Upload failed:', err);
+        throw err;
     }
 }
 
@@ -2644,8 +2680,14 @@ function renderAttachments() {
     pendingAttachments.forEach((att, i) => {
         const wrap = document.createElement('div');
         wrap.className = 'attachment-preview';
+        // Un document (pdf, docx, heic que le navigateur ne sait pas afficher…) n'est pas une image :
+        // avant, <img> sur un PDF donnait une vignette cassee. Meme test que l'affichage des messages.
+        const estImage = /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(att.url || '');
+        const apercu = estImage
+            ? `<img src="${escapeHtml(att.url)}" alt="${escapeHtml(att.name)}" onclick="openImageModal('${escapeHtml(att.url)}')" title="Click to preview">`
+            : `<span class="attachment-doc" title="${escapeHtml(att.name)}">📎<span>${escapeHtml((att.name || 'document').slice(0, 16))}</span></span>`;
         wrap.innerHTML = `
-            <img src="${att.url}" alt="${escapeHtml(att.name)}" onclick="openImageModal('${escapeHtml(att.url)}')" title="Click to preview">
+            ${apercu}
             <button class="remove-btn" onclick="removeAttachment(${i})">x</button>
         `;
         container.appendChild(wrap);
@@ -3749,7 +3791,7 @@ function populateScheduleDropdowns() {
 
     // Date options: Today, Tomorrow, then next 5 weekdays
     dateEl.innerHTML = '';
-    const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const days = ['dimanche','lundi','mardi','mercredi','jeudi','vendredi','samedi'];
     const now = new Date();
     for (let i = 0; i < 7; i++) {
         const d = new Date(now);
@@ -3762,7 +3804,7 @@ function populateScheduleDropdowns() {
         opt.value = d.getFullYear() + '-' +
             String(d.getMonth() + 1).padStart(2, '0') + '-' +
             String(d.getDate()).padStart(2, '0');
-        opt.textContent = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : days[d.getDay()];
+        opt.textContent = i === 0 ? "Aujourd'hui" : i === 1 ? 'Demain' : days[d.getDay()];
         dateEl.appendChild(opt);
     }
 
@@ -3991,6 +4033,97 @@ setInterval(() => {
 }, 10000);
 
 // --- Decision card resolve (with fade animation) ---
+// Vaultia : l'état tranché d'une carte, selon la façon dont elle s'est fermée.
+function decisionResolueHtml(meta) {
+    if (meta.remplacee_par) {
+        const n = Number(meta.remplacee_par);
+        return `Remplacée par une question plus récente <button type="button" class="decision-lien" onclick="scrollToMessage(${n})">#${n}</button>`;
+    }
+    if (meta.autrement) return 'Répondu autrement';
+    if (meta.autre) return `Ta réponse : <strong>${escapeHtml(meta.chosen || '')}</strong>`;
+    return `Ton choix : <strong>${escapeHtml(meta.chosen || '')}</strong>`;
+}
+
+// Vaultia : « Autre réponse… » — écrire sa propre réponse au lieu des choix proposés.
+const _CRAYON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>';
+function decisionLibreHtml(msg) {
+    const id = Number(msg.id);
+    return `<button type="button" class="decision-libre" onclick="ouvrirReponseLibre(${id})">${_CRAYON}<span>Autre réponse…</span></button>`
+        + `<form class="decision-texte" hidden onsubmit="return envoyerReponseLibre(event, ${id})">`
+        + `<textarea rows="2" maxlength="2000" placeholder="Ta réponse à ${escapeHtml(msg.sender || 'l’agent')}…" aria-label="Ta réponse" onkeydown="toucheReponseLibre(event, ${id})" oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>`
+        + `<div class="decision-texte-actions"><button type="button" class="vt-btn decision-annuler" onclick="fermerReponseLibre(${id})">Annuler</button>`
+        + `<button type="submit" class="vt-btn principal decision-envoyer">Envoyer</button></div></form>`;
+}
+function _zoneLibre(msgId) {
+    const msgEl = document.querySelector(`.message[data-id="${msgId}"]`);
+    return msgEl ? { bouton: msgEl.querySelector('.decision-libre'), form: msgEl.querySelector('.decision-texte') } : {};
+}
+function ouvrirReponseLibre(msgId) {
+    const { bouton, form } = _zoneLibre(msgId);
+    if (!form) return;
+    bouton.hidden = true;
+    form.hidden = false;
+    form.querySelector('textarea').focus();
+}
+function fermerReponseLibre(msgId) {
+    const { bouton, form } = _zoneLibre(msgId);
+    if (!form) return;
+    form.hidden = true;
+    bouton.hidden = false;
+    bouton.focus();
+}
+function toucheReponseLibre(event, msgId) {
+    if (event.key === 'Escape') { event.preventDefault(); fermerReponseLibre(msgId); return; }
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+        event.preventDefault();
+        event.target.form.requestSubmit();
+    }
+}
+async function envoyerReponseLibre(event, msgId) {
+    event.preventDefault();
+    const form = event.target;
+    const zone = form.closest('.decision-choices');
+    const champ = form.querySelector('textarea');
+    const texte = champ.value.trim();
+    if (!texte) { champ.focus(); return false; }
+    if (zone) { zone.style.opacity = '0.5'; zone.style.pointerEvents = 'none'; }
+    try {
+        const res = await fetch(`/api/messages/${msgId}/resolve_decision`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Session-Token': SESSION_TOKEN },
+            body: JSON.stringify({ texte }),
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.status);
+    } catch (err) {
+        if (zone) { zone.style.opacity = ''; zone.style.pointerEvents = ''; }
+        if (typeof showToast === 'function') showToast('Ta réponse n’est pas partie : ' + err.message, 'error');
+    }
+    return false;
+}
+window.ouvrirReponseLibre = ouvrirReponseLibre;
+window.fermerReponseLibre = fermerReponseLibre;
+window.toucheReponseLibre = toucheReponseLibre;
+window.envoyerReponseLibre = envoyerReponseLibre;
+
+// Vaultia : ferme une carte de décision sans choisir ni publier de message (réponse déjà donnée en texte).
+async function resolveDecisionAutrement(msgId) {
+    const msgEl = document.querySelector(`.message[data-id="${msgId}"]`);
+    const zone = msgEl ? msgEl.querySelector('.decision-choices') : null;
+    if (zone) { zone.style.opacity = '0.5'; zone.style.pointerEvents = 'none'; }
+    try {
+        const res = await fetch(`/api/messages/${msgId}/resolve_decision`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Session-Token': SESSION_TOKEN },
+            body: JSON.stringify({ autrement: true }),
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.status);
+    } catch (err) {
+        if (zone) { zone.style.opacity = ''; zone.style.pointerEvents = ''; }
+        if (typeof showToast === 'function') showToast('La carte n\'a pas pu être fermée : ' + err.message, 'error');
+    }
+}
+window.resolveDecisionAutrement = resolveDecisionAutrement;
+
 async function resolveDecision(msgId, choice) {
     // Fade out buttons immediately
     const msgEl = document.querySelector(`.message[data-id="${msgId}"]`);

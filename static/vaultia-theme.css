@@ -1,0 +1,1097 @@
+/* vaultia-theme.css — le monde visuel de la salle Vaultia.
+   Référence imposée par Charles : l'application Claude (calme, proportions de lecture, finition).
+   Identité : l'ardoise bleu-gris du logo Vaultia remplace l'argile de Claude comme seul accent.
+   Chargé APRÈS style.css / sessions.css / jobs.css : redéfinit leurs jetons et habille la surface
+   principale. Clair par défaut, sombre quand l'appareil l'est. vaultia-mobile.css vient après. */
+
+@font-face {
+  font-family: "Source Serif 4";
+  src: url("/static/fonts/source-serif-4-normal.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 200 900;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Source Serif 4";
+  src: url("/static/fonts/source-serif-4-italic.woff2") format("woff2");
+  font-style: italic;
+  font-weight: 200 900;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ---------------------------------------------------------------- jetons : jour (défaut) */
+:root {
+  color-scheme: light;
+  --v-ui: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto, "Noto Sans", Ubuntu, Cantarell, sans-serif;
+  --v-read: "Source Serif 4", "Iowan Old Style", Charter, Georgia, "Noto Serif", serif;
+  --v-mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+
+  --v-paper: #f8f7f4;        /* le fond : papier à peine chaud */
+  --v-rail: #f1efea;         /* le menu de gauche, un ton sous le papier */
+  --v-surface: #ffffff;      /* ce qui se pose sur le papier : saisie, cartes, panneaux */
+  --v-raised: #ffffff;
+  --v-hover: rgba(29, 33, 39, 0.05);
+  --v-active: rgba(29, 33, 39, 0.085);
+  --v-ink: #1d2127;
+  --v-ink-2: #4f5661;
+  --v-ink-3: #666d78;
+  --v-line: #e6e3dc;
+  --v-line-2: #d5d1c8;
+  --v-slate: #465775;        /* l'ardoise du logo, assez profonde pour 7:1 sur blanc */
+  --v-slate-hover: #3a4964;
+  --v-slate-soft: rgba(70, 87, 117, 0.09);
+  --v-slate-line: rgba(70, 87, 117, 0.3);
+  --v-slate-select: rgba(70, 87, 117, 0.2);
+  --v-slate-inset: rgba(70, 87, 117, 0.15);
+  --v-on-slate: #ffffff;
+  --v-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23666d78' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6.5 9.5L12 15l5.5-5.5'/%3E%3C/svg%3E");
+  --v-bubble: #edebe6;       /* tes messages */
+  --v-code: #f0eee9;
+  --v-danger: #b0413a;
+  --v-danger-soft: rgba(176, 65, 58, 0.1);
+  --v-success: #2e7a58;
+  --v-warning: #946512;
+  --v-shadow-sm: 0 1px 2px rgba(29, 33, 39, 0.05);
+  --v-shadow: 0 1px 2px rgba(29, 33, 39, 0.05), 0 2px 6px -2px rgba(29, 33, 39, 0.09);   /* serrée : va avec un liseré */
+  --v-shadow-lg: 0 2px 6px rgba(29, 33, 39, 0.06), 0 18px 48px -12px rgba(29, 33, 39, 0.22);
+  --v-focus: 0 0 0 3px rgba(70, 87, 117, 0.28);
+  --v-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --v-col: 48rem;            /* la colonne de lecture */
+
+  /* jetons d'agentchattr, rebranchés sur le monde Vaultia */
+  --bg: var(--v-paper);
+  --bg-header: var(--v-paper);
+  --bg-input: var(--v-surface);
+  --bg-msg: var(--v-paper);
+  --bg-msg-hover: var(--v-hover);
+  --bg-elevated: var(--v-raised);
+  --bg-subtle: var(--v-hover);
+  --bg-overlay: rgba(24, 24, 22, 0.42);
+  --bg-panel: var(--v-surface);
+  --border: var(--v-line);
+  --border-strong: var(--v-line-2);
+  --border-subtle: var(--v-line);
+  --text: var(--v-ink);
+  --text-dim: var(--v-ink-3);
+  --text-system: var(--v-ink-3);
+  --text-on-accent: var(--v-on-slate);
+  --text-muted: var(--v-ink-2);
+  --accent: var(--v-slate);
+  --accent-soft: var(--v-slate-soft);
+  --accent-hover: var(--v-slate-soft);
+  --user-color: var(--v-slate);
+  --system-color: var(--v-ink-3);
+  --success: var(--v-success);
+  --success-soft: rgba(46, 122, 88, 0.12);
+  --online: #3f9d6e;
+  --danger: var(--v-danger);
+  --danger-soft: var(--v-danger-soft);
+  --error-color: var(--v-danger);
+  --error-soft: var(--v-danger-soft);
+  --warning: var(--v-warning);
+  --pending: var(--v-slate);      /* était #da7756, l'argile de Claude, sur les badges de l'en-tête */
+  --info: var(--v-slate);
+  --white-02: var(--v-hover);
+  --white-03: var(--v-hover);
+  --white-08: var(--v-active);
+  --white-10: var(--v-active);
+  --white-12: var(--v-line);
+  --white-15: var(--v-line-2);
+  --radius-sm: 6px;
+  --radius-md: 9px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --shadow-sm: var(--v-shadow-sm);
+  --shadow-md: var(--v-shadow);
+  --shadow-lg: var(--v-shadow-lg);
+  --sb-card-border-color: var(--v-line);
+  --duration-fast: 140ms;
+  --duration-normal: 200ms;
+}
+
+/* ---------------------------------------------------------------- jetons : soir */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --v-paper: #1e1e1c;
+    --v-rail: #191917;
+    --v-surface: #2a2a27;
+    --v-raised: #2f2f2c;
+    --v-hover: rgba(236, 234, 229, 0.06);
+    --v-active: rgba(236, 234, 229, 0.1);
+    --v-ink: #ecebe6;
+    --v-ink-2: #bab6ae;
+    --v-ink-3: #9c9891;
+    --v-line: #34342f;
+    --v-line-2: #45443f;
+    --v-slate: #aebbd7;
+    --v-slate-hover: #c2cde3;
+    --v-slate-soft: rgba(174, 187, 215, 0.11);
+    --v-slate-line: rgba(174, 187, 215, 0.32);
+    --v-slate-select: rgba(174, 187, 215, 0.24);
+    --v-slate-inset: rgba(174, 187, 215, 0.14);
+    --v-on-slate: #161b26;
+    --v-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239c9891' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6.5 9.5L12 15l5.5-5.5'/%3E%3C/svg%3E");
+    --v-bubble: #32322e;
+    --v-code: #252523;
+    --v-danger: #e5857c;
+    --v-danger-soft: rgba(229, 133, 124, 0.12);
+    --v-success: #7cc3a0;
+    --v-warning: #e1b65b;
+    --v-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --v-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 8px -2px rgba(0, 0, 0, 0.4);
+    --v-shadow-lg: 0 2px 6px rgba(0, 0, 0, 0.3), 0 20px 50px -12px rgba(0, 0, 0, 0.6);
+    --v-focus: 0 0 0 3px rgba(174, 187, 215, 0.3);
+    --bg-overlay: rgba(0, 0, 0, 0.55);
+    --online: #6cc598;
+    --success-soft: rgba(124, 195, 160, 0.14);
+  }
+}
+
+/* Le réglage « contraste élevé » d'agentchattr supposait un fond noir : on le rebranche. */
+body.high-contrast {
+  --text-dim: var(--v-ink-2);
+  --text-system: var(--v-ink-2);
+  --text-muted: var(--v-ink);
+  --border: var(--v-line-2);
+  --border-subtle: var(--v-line-2);
+  --bg-subtle: var(--v-active);
+}
+
+/* ---------------------------------------------------------------- base & surfaces du navigateur */
+html { background: var(--v-paper); }
+body, body.font-sans {
+  font-family: var(--v-ui);
+  font-size: 14.5px;
+  background: var(--v-paper);
+  color: var(--v-ink);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  caret-color: var(--v-slate);
+  accent-color: var(--v-slate);
+}
+body.font-mono { font-family: var(--v-mono); }
+::selection { background: var(--v-slate-select); color: inherit; }
+* { scrollbar-width: thin; scrollbar-color: var(--v-line-2) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--v-line-2); border-radius: 10px; border: 3px solid var(--v-paper); }
+::-webkit-scrollbar-thumb:hover { background: var(--v-ink-3); }
+:focus-visible { outline: none; box-shadow: var(--v-focus); border-radius: 8px; }
+a { color: var(--v-slate); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+
+/* ---------------------------------------------------------------- en-tête : les présences */
+header {
+  background: var(--v-paper);
+  box-shadow: none;
+  border-bottom: 1px solid var(--v-line);
+  padding: 10px 18px;
+  gap: 16px;
+}
+.header-logo { height: 24px; max-height: 24px; }
+body.vt-rail-ouvert .header-left .header-logo { display: none; }   /* le menu porte déjà le logo */
+.header-left .discord-pill { display: none !important; }            /* lien communautaire amont */
+#agent-status { gap: 6px; }
+.status-pill {
+  background: transparent;
+  border: 1px solid var(--v-line);
+  color: var(--v-ink-2);
+  font: 500 12.5px/1.2 var(--v-ui);
+  padding: 5px 11px 5px 9px;
+  border-radius: 999px;
+  gap: 7px;
+  box-shadow: none;
+  transition: border-color var(--duration-normal) var(--v-ease), color var(--duration-normal) var(--v-ease), background var(--duration-normal) var(--v-ease);
+}
+.status-pill:hover { background: var(--v-hover); color: var(--v-ink); border-color: var(--v-line-2); }
+.status-pill .status-dot { width: 7px; height: 7px; box-shadow: none; }
+.status-pill.available .status-dot { display: none; }          /* disponible = l'état normal : aucun signe */
+.status-pill.available { padding-left: 11px; }
+.status-pill.offline { opacity: 1; color: var(--v-ink-3); }
+.status-pill.offline .status-dot { background: transparent; border: 1.5px solid var(--v-ink-3); box-sizing: border-box; }
+.status-pill.offline .status-label::after { content: " · hors ligne"; }
+.status-pill.working { color: var(--v-ink); border-color: var(--v-slate-line); background: var(--v-slate-soft); }
+.status-pill.working .status-dot { background: var(--v-slate); animation: none; }   /* le souffle vit à un seul endroit : la ligne « réfléchit » */
+.status-pill.working::before, .status-pill.working::after { display: none !important; }   /* la bordure qui tournait */
+.settings-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--v-ink-2);
+  border-radius: 9px;
+  transition: background var(--duration-fast) var(--v-ease), color var(--duration-fast) var(--v-ease);
+}
+.settings-btn:hover { background: var(--v-hover); color: var(--v-ink); border-color: transparent; }
+
+/* ---------------------------------------------------------------- onglets de canaux */
+#channel-bar {
+  background: var(--v-paper);
+  border-bottom: 1px solid var(--v-line);
+  box-shadow: none;
+}
+.channel-tab {
+  background: transparent !important;
+  color: var(--v-ink-3);
+  font: 500 13.5px/1.2 var(--v-ui);
+  border-radius: 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 11px 12px 10px;
+  box-shadow: none;
+  transition: color var(--duration-fast) var(--v-ease), border-color var(--duration-normal) var(--v-ease);
+}
+.channel-tab:hover { color: var(--v-ink); }
+.channel-tab.active, .channel-tab.active:hover { color: var(--v-ink); border-bottom-color: var(--v-slate); font-weight: 600; }
+.channel-support { display: none !important; }   /* crédit déplacé dans les réglages, en texte */
+.channel-support:hover { color: var(--v-ink-2) !important; opacity: 1; }
+.channel-support, .channel-support:hover { box-shadow: none !important; text-shadow: none !important; }   /* halo rose d'origine */
+
+/* Plancher de lisibilité : aucun texte fonctionnel sous 11 px (panneaux et pastilles d'origine). */
+.channel-sidebar-header, .job-reply-target-prefix, .suggestion-pill, .proposal-pill, .summary-pill { font-size: 11.5px !important; }
+
+/* ---------------------------------------------------------------- le fil : une colonne de lecture */
+main#timeline { padding: 28px 20px 18px; scroll-behavior: smooth; }
+#messages { max-width: var(--v-col); margin: 0 auto; gap: 26px; }
+.message { padding: 0; gap: 12px; line-height: 1.55; }
+
+/* Les agents : une voix, pas une bulle. */
+.message.other .chat-bubble {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  max-width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.message.other:hover .chat-bubble { background: transparent; }
+.avatar-wrap { width: 26px; }
+.avatar {
+  width: 26px;
+  height: 26px;
+  margin-top: 1px;
+  box-shadow: none;
+  font: 700 12px/1 var(--v-ui) !important;
+}
+.bubble-header { gap: 8px; margin-bottom: 5px; align-items: baseline; }
+.message.other .msg-sender {
+  font: 600 13.5px/1.2 var(--v-ui);
+  color: color-mix(in srgb, var(--bubble-color, var(--v-ink)) 58%, var(--v-ink)) !important;
+  letter-spacing: 0;
+}
+.msg-time { color: var(--v-ink-3); font: 400 12px/1.2 var(--v-ui); font-variant-numeric: tabular-nums; }
+.msg-num { color: var(--v-ink-3); font: 400 11.5px/1.2 var(--v-ui); font-variant-numeric: tabular-nums; }
+.msg-num::before { background: var(--v-line-2); }
+
+.message.other .msg-text {
+  font-family: var(--v-read);
+  font-size: 16.5px;
+  line-height: 1.64;
+  color: var(--v-ink);
+  font-optical-sizing: auto;
+}
+body.font-mono .message .msg-text { font-family: var(--v-mono); font-size: 14px; }
+
+/* Toi : une bulle neutre à droite, comme dans l'app Claude. */
+.message.self .chat-bubble {
+  background: var(--v-bubble);
+  border: 0;
+  border-radius: 20px;
+  padding: 10px 16px;
+  max-width: min(82%, 36rem);
+  min-width: 0;
+}
+.message.self:hover .chat-bubble { background: var(--v-bubble); }
+.message.self .bubble-header { justify-content: flex-end; margin-bottom: 2px; }
+.message.self .msg-text { font: 400 15.5px/1.55 var(--v-ui); color: var(--v-ink); }
+.message.self .msg-time, .message.self .msg-num { color: var(--v-ink-2); }   /* ink-3 sur la bulle : 4,4:1 */
+
+/* Messages système / arrivées / départs : en retrait. */
+.system-msg, .join-msg { color: var(--v-ink-3); font-size: 12.5px; }
+.join-msg .join-dot { background: var(--v-line-2) !important; box-shadow: none !important; }
+.message.join-msg { opacity: 1; flex-direction: row !important; align-items: center !important; justify-content: center; gap: 6px; }
+.join-text { color: var(--v-ink-3); font: 400 12.5px/1.3 var(--v-ui); }
+.join-text strong { color: var(--v-ink-2) !important; font-weight: 600; }
+#messages > .join-msg + .join-msg { margin-top: -16px; }   /* arrivées et départs à la suite : resserrés */
+.error-msg .msg-text, .system-msg.error-msg { color: var(--v-danger); }
+
+/* Le texte d'un message. */
+.msg-text p { margin: 0.55em 0; }
+.msg-text strong { color: inherit; font-weight: 650; }
+.msg-text a { color: var(--v-slate); text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; text-decoration-color: var(--v-slate-line); }
+.msg-text a:hover { text-decoration-color: currentColor; }
+.msg-text h1, .msg-text h2, .msg-text h3, .msg-text h4, .msg-text h5, .msg-text h6 {
+  font-family: var(--v-ui);
+  font-weight: 650;
+  color: var(--v-ink);
+  line-height: 1.3;
+  letter-spacing: -0.005em;
+  margin: 1.15em 0 0.4em;
+  text-wrap: balance;
+}
+.msg-text h1 { font-size: 1.2em; } .msg-text h2 { font-size: 1.1em; } .msg-text h3 { font-size: 1.02em; }
+.msg-text h4, .msg-text h5, .msg-text h6 { font-size: 0.95em; color: var(--v-ink-2); }
+.msg-text ul, .msg-text ol { padding-left: 1.35em; margin: 0.5em 0; }
+.msg-text li { margin: 0.22em 0; }
+.msg-text li::marker { color: var(--v-ink-3); }
+.msg-text blockquote {
+  margin: 0.8em 0;
+  padding: 0.1em 0 0.1em 1em;
+  border-left: 1px solid var(--v-line-2);
+  color: var(--v-ink-2);
+  background: none;
+  font-style: italic;
+}
+.msg-text hr { border: 0; border-top: 1px solid var(--v-line); margin: 1.2em 0; }
+.msg-text code {
+  font-family: var(--v-mono);
+  font-size: 0.84em;
+  background: var(--v-code);
+  color: var(--v-ink);
+  border: 1px solid var(--v-line);
+  border-radius: 6px;
+  padding: 0.08em 0.36em;
+}
+.msg-text pre {
+  background: var(--v-code);
+  border: 1px solid var(--v-line);
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin: 0.8em 0;
+  font-size: 13px;
+  line-height: 1.55;
+  box-shadow: none;
+}
+.msg-text pre code { background: none; border: 0; padding: 0; font-size: inherit; color: var(--v-ink); }
+.msg-text table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 0.9em 0;
+  font-family: var(--v-ui);
+  font-size: 14px;
+  line-height: 1.45;
+  font-variant-numeric: tabular-nums;
+}
+.msg-text th, .msg-text td { border: 0; border-bottom: 1px solid var(--v-line); padding: 8px 14px 8px 0; text-align: left; vertical-align: top; background: none; }
+.msg-text th { font-weight: 600; color: var(--v-ink-2); border-bottom-color: var(--v-line-2); white-space: nowrap; }
+.msg-text tr:last-child td { border-bottom: 0; }
+.msg-text .mention {
+  background: var(--v-slate-soft);
+  color: var(--v-slate) !important;   /* chat.js écrit la couleur brute de l'agent en ligne : illisible dans ta bulle */
+  border: 0;
+  border-radius: 6px;
+  padding: 0.05em 0.35em;
+  font-family: var(--v-ui);
+  font-size: 0.92em;
+  font-weight: 600;
+}
+
+/* Pièces jointes dans le fil. */
+.msg-attachments img { border-radius: 12px; border: 1px solid var(--v-line); box-shadow: var(--v-shadow-sm); }
+.msg-attachments .doc-attachment {
+  border: 1px solid var(--v-line) !important;
+  background: var(--v-surface);
+  border-radius: 10px !important;
+  font-family: var(--v-ui);
+  color: var(--v-ink) !important;
+}
+
+/* Actions de survol (répondre, à faire, supprimer) : discrètes. */
+.msg-actions button, .convert-job-pill, .bubble-copy {
+  font: 500 12px/1 var(--v-ui);
+  color: var(--v-ink-3);
+  background: var(--v-surface);
+  border: 1px solid var(--v-line);
+  border-radius: 7px;
+  box-shadow: var(--v-shadow-sm);
+}
+.msg-actions button:hover, .convert-job-pill:hover { color: var(--v-ink); border-color: var(--v-line-2); }
+.reply-quote {
+  border-left: 1px solid var(--v-line-2) !important;
+  background: var(--v-hover) !important;
+  border-radius: 8px;
+  color: var(--v-ink-2);
+  font-family: var(--v-ui);
+}
+
+/* ---------------------------------------------------------------- ce qui attend ta décision */
+.message.other .chat-bubble:has(.decision-choice) {
+  background: var(--v-slate-inset);
+  border: 1px solid color-mix(in srgb, var(--v-slate) 50%, transparent);
+  border-radius: 16px;
+  padding: 14px 16px 16px;
+  margin-left: -2px;
+}
+.decision-choices { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.decision-choice {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: 500 15px/1.35 var(--v-ui);
+  color: var(--v-ink);
+  background: var(--v-surface);
+  border: 1px solid var(--v-line-2);
+  border-radius: 12px;
+  padding: 11px 14px;
+  min-height: 44px;
+  cursor: pointer;
+  box-shadow: var(--v-shadow-sm);
+  transition: border-color var(--duration-normal) var(--v-ease), background var(--duration-normal) var(--v-ease), transform var(--duration-fast) var(--v-ease);
+}
+.decision-choice:hover { border-color: var(--v-slate); background: var(--v-surface); }
+.decision-choice:active { transform: scale(0.99); }
+.decision-choice:focus-visible { box-shadow: var(--v-focus); }
+.decision-resolved {
+  font: 400 14px/1.4 var(--v-ui);
+  color: var(--v-ink-2);
+  background: var(--v-hover);
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+.decision-resolved strong { color: var(--v-ink); white-space: pre-line; }   /* une réponse écrite garde ses retours à la ligne */
+
+/* Propositions de règle / résumés : cartes calmes. */
+.proposal-pill, .summary-card, .summary-pill {
+  background: var(--v-surface) !important;
+  border: 1px solid var(--v-line) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--v-shadow-sm) !important;
+  color: var(--v-ink) !important;
+  font-family: var(--v-ui);
+}
+
+/* ---------------------------------------------------------------- qui réfléchit */
+#vaultia-reflexion {
+  max-width: var(--v-col);
+  margin: 0 auto;
+  padding: 0 4px 10px;
+  font: 500 13px/1.3 var(--v-ui);
+  color: var(--v-ink-2);
+  gap: 10px;
+  flex-wrap: wrap;
+}
+#vaultia-reflexion .vt-agent { display: inline-flex; align-items: center; gap: 6px; color: var(--v-ink); font-weight: 600; }
+#vaultia-reflexion .vt-souffle {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--c, var(--v-slate));
+  animation: vt-souffle 1.6s ease-in-out infinite;
+}
+#vaultia-reflexion .vt-verbe { color: var(--v-ink-3); font-weight: 500; }
+@keyframes vt-souffle {
+  0%, 100% { transform: scale(0.72); opacity: 0.45; }
+  50% { transform: scale(1); opacity: 1; }
+}
+#typing-indicator { color: var(--v-ink-3); font-family: var(--v-ui); }
+
+/* Séparateurs de date : en retrait, en minuscules (« Aujourd'hui »), comme Claude. */
+.date-divider { color: var(--v-ink-3); font: 500 12px/1 var(--v-ui); text-transform: none; letter-spacing: 0; }
+.date-divider::before, .date-divider::after { background: var(--v-line); }
+#day-float span {
+  background: var(--v-paper);
+  border: 1px solid var(--v-line);
+  color: var(--v-ink-3);
+  font: 500 12px/1 var(--v-ui);
+  text-transform: none;
+  letter-spacing: 0;
+  box-shadow: var(--v-shadow-sm);
+}
+.bubble-role { font: 500 11.5px/1.2 var(--v-ui); color: var(--v-ink-3); }
+
+/* ---------------------------------------------------------------- la saisie : une carte arrondie */
+footer {
+  background: var(--v-paper);
+  box-shadow: none;
+  border-top: 0;
+  padding: 4px 20px 16px;
+}
+footer > #mention-toggles-row, footer > #attachments, footer > #input-row,
+footer > .input-hint, footer > #schedules-bar, footer > #vaultia-reflexion {
+  max-width: var(--v-col);
+  margin-left: auto;
+  margin-right: auto;
+}
+#mention-toggles-row { margin-bottom: 10px; gap: 8px; }
+.mention-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid var(--v-line);
+  color: var(--v-ink-2);
+  font: 500 12.5px/1.2 var(--v-ui);
+  border-radius: 999px;
+  padding: 5px 11px 5px 9px;
+  box-shadow: none;
+  transition: background var(--duration-fast) var(--v-ease), border-color var(--duration-fast) var(--v-ease), color var(--duration-fast) var(--v-ease);
+}
+/* Repliées par défaut : seules les mentions actives restent visibles ; le bouton @ déplie la rangée. */
+body:not(.vt-mentions) #mention-toggles .mention-toggle:not(.active) { display: none; }
+body:not(.vt-mentions) #mention-toggles-row:not(:has(.mention-toggle.active)) { display: none; }
+.mention-toggle:hover { background: var(--v-hover); border-color: var(--v-line-2); color: var(--v-ink); }
+.mention-toggle.active { background: var(--v-slate-soft); border-color: var(--v-slate-line); color: var(--v-ink); }
+#clear-chat-btn, #clear-chat-btn.ghost-btn {
+  background: none;
+  border: 0;
+  color: var(--v-ink-3);
+  font: 500 12.5px/1.2 var(--v-ui);
+  padding: 5px 6px;
+  border-radius: 7px;
+}
+#clear-chat-btn:hover { color: var(--v-danger); background: var(--v-danger-soft); }
+
+#input-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  background: var(--v-surface);
+  border: 1px solid var(--v-line-2);
+  border-radius: 22px;
+  padding: 10px 10px 8px 12px;
+  box-shadow: var(--v-shadow);
+  transition: border-color var(--duration-normal) var(--v-ease), box-shadow var(--duration-normal) var(--v-ease);
+}
+#input-row:focus-within { border-color: var(--v-slate-line); box-shadow: var(--v-shadow); }   /* le champ a le focus dès l'ouverture : pas d'anneau permanent */
+#input {
+  order: -1;
+  flex: 1 1 100%;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  outline: none;
+  color: var(--v-ink);
+  font: 400 16px/1.5 var(--v-ui);
+  padding: 4px 4px 10px;
+  min-height: 30px;
+  border-radius: 0;
+}
+#input:focus { border: 0; box-shadow: none; outline: none; }
+#input::placeholder { color: var(--v-ink-3); opacity: 1; }
+#sender-label { display: none !important; }   /* une seule personne dans la salle */
+#vaultia-photo-btn, #vaultia-doc-btn, #session-launch-btn, #mic, #schedule-btn {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  color: var(--v-ink-2) !important;
+  cursor: pointer;
+  box-shadow: none !important;
+  transition: background var(--duration-fast) var(--v-ease), color var(--duration-fast) var(--v-ease);
+}
+#vaultia-photo-btn:hover, #vaultia-doc-btn:hover, #session-launch-btn:hover, #mic:hover, #schedule-btn:hover {
+  background: var(--v-hover) !important;
+  color: var(--v-ink) !important;
+}
+#vaultia-photo-btn[aria-busy="true"], #vaultia-doc-btn[aria-busy="true"] { color: var(--v-slate) !important; }
+#vaultia-photo-btn[aria-busy="true"] svg, #vaultia-doc-btn[aria-busy="true"] svg { animation: vt-souffle 1.1s ease-in-out infinite; }
+#mic.recording { color: var(--v-danger) !important; background: var(--v-danger-soft) !important; }
+#session-launch-btn svg, #mic svg { width: 18px; height: 18px; stroke-width: 1.75; }
+.send-group {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: none;
+  border: 0;
+  box-shadow: none;
+}
+#send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--v-slate);
+  color: var(--v-on-slate);
+  box-shadow: var(--v-shadow-sm);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--v-ease), opacity var(--duration-fast) var(--v-ease), transform var(--duration-fast) var(--v-ease);
+}
+#send:hover { background: var(--v-slate-hover); }
+#send:active { transform: scale(0.94); }
+#send svg { width: 18px; height: 18px; }
+.send-group #send, .send-group.inactive #send {      /* le bouton scindé d'origine : on le veut rond */
+  border-radius: 999px;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0;
+  background: var(--v-slate);
+  color: var(--v-on-slate);
+}
+.send-group.inactive #send, .send-group.inactive #send:hover { opacity: 0.3; box-shadow: none; cursor: default; background: var(--v-slate); }
+.send-group #schedule-btn { order: -1; }
+.send-group .send-clock, .send-group.inactive .send-clock, .send-group.inactive .send-clock:hover { border-radius: 10px !important; background: transparent !important; color: var(--v-ink-3) !important; }
+#schedule-btn { width: 32px; min-width: 32px; }
+.input-hint {
+  text-align: center;
+  color: var(--v-ink-3);
+  font: 400 11.5px/1.4 var(--v-ui);
+  margin-top: 8px;
+}
+
+/* Pièces jointes en attente d'envoi. */
+#attachments { display: flex; flex-wrap: wrap; gap: 8px; }
+#attachments:not(:empty) { margin-bottom: 10px; }
+#attachments .attachment-preview img, #attachments .attachment-preview .attachment-doc {
+  border-radius: 12px;
+  border: 1px solid var(--v-line-2);
+  background: var(--v-surface);
+  box-shadow: var(--v-shadow-sm);
+  color: var(--v-ink-2);
+  font-family: var(--v-ui);
+}
+#attachments .attachment-preview .remove-btn {
+  background: var(--v-ink) !important;
+  color: var(--v-paper) !important;
+  border: 2px solid var(--v-paper) !important;
+  box-shadow: none !important;
+}
+
+/* Bouton « revenir en bas ». */
+#scroll-anchor {
+  background: var(--v-surface) !important;
+  color: var(--v-ink-2) !important;
+  border: 1px solid var(--v-line-2) !important;
+  box-shadow: var(--v-shadow) !important;
+}
+#scroll-anchor:hover { color: var(--v-ink) !important; }
+
+/* ---------------------------------------------------------------- panneaux, fenêtres, bulles d'aide */
+#jobs-panel, #rules-panel, #pins-panel, #channel-sidebar {
+  background: var(--v-surface);
+  border-color: var(--v-line);
+  color: var(--v-ink);
+}
+.pill-popover, .schedule-popover, #slash-menu, #mention-menu, .modal, .modal-content, .help-panel, #help-modal .modal-content, .settings-bar, #settings-bar {
+  background: var(--v-surface) !important;
+  color: var(--v-ink);
+  border: 0 !important;                 /* flottant : l'élévation seule, pas de liseré en plus */
+  border-radius: 14px;
+  box-shadow: var(--v-shadow-lg) !important;
+}
+.mention-item:hover, .mention-item.selected, .slash-item:hover, .slash-item.selected { background: var(--v-hover) !important; }
+.toast {
+  background: var(--v-ink) !important;
+  color: var(--v-paper) !important;
+  border: 0 !important;
+  border-radius: 12px !important;
+  box-shadow: var(--v-shadow-lg) !important;
+  font: 500 13.5px/1.35 var(--v-ui);
+}
+.toast--error { background: var(--v-danger) !important; color: var(--v-paper) !important; }   /* blanc sur le rouge du soir : 2,6:1 */
+input[type="text"], input[type="number"], input:not([type]), select, textarea {
+  color-scheme: inherit;
+}
+
+/* ---------------------------------------------------------------- le menu Vaultia (vaultia.js) */
+.vt-rail {
+  background: var(--v-rail);
+  border-right: 1px solid var(--v-line);
+  color: var(--v-ink);
+  font: 400 14px/1.35 var(--v-ui);
+}
+.vt-rail-tete { padding: 14px 14px 10px 16px; display: flex; align-items: center; gap: 8px; }
+.vt-rail-tete img { height: 24px; }
+.vt-actions { display: flex; gap: 6px; padding: 0 12px 12px; }
+.vt-action {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid var(--v-line-2);
+  color: var(--v-ink-2);
+  font: 500 12.5px/1 var(--v-ui);
+  border-radius: 10px;
+  padding: 8px 6px;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--v-ease), color var(--duration-fast) var(--v-ease), border-color var(--duration-fast) var(--v-ease);
+}
+.vt-action:hover { background: var(--v-surface); color: var(--v-ink); border-color: var(--v-line-2); box-shadow: var(--v-shadow-sm); }
+.vt-action svg { width: 15px; height: 15px; }
+.vt-corps { flex: 1; overflow: auto; padding: 4px 0 16px; border-top: 1px solid var(--v-line); }
+.vt-titre {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 12px 6px 18px;
+  font: 600 12px/1 var(--v-ui);
+  color: var(--v-ink-3);
+}
+.vt-plus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: 0;
+  color: var(--v-ink-3);
+  border-radius: 7px;
+  cursor: pointer;
+}
+.vt-plus:hover { background: var(--v-hover); color: var(--v-ink); }
+.vt-item, .vt-proj {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  margin: 1px 8px;
+  border-radius: 9px;
+  color: var(--v-ink-2);
+  cursor: pointer;
+  font-size: 14px;
+  transition: background var(--duration-fast) var(--v-ease), color var(--duration-fast) var(--v-ease);
+}
+.vt-item:hover, .vt-proj:hover { background: var(--v-hover); color: var(--v-ink); }
+.vt-item.actif { background: var(--v-active); color: var(--v-ink); font-weight: 600; }
+.vt-proj { font-weight: 600; color: var(--v-ink); }
+.vt-proj.actif { background: var(--v-active); }
+.vt-proj .vt-chevron { color: var(--v-ink-3); display: inline-flex; transition: transform var(--duration-normal) var(--v-ease); }
+.vt-proj.ouvert .vt-chevron { transform: rotate(90deg); }
+.vt-proj .vt-point { width: 6px; height: 6px; border-radius: 50%; background: var(--v-slate); }
+.vt-item .vt-diese { color: var(--v-ink-3); font-weight: 400; }
+.vt-item .vt-nom, .vt-proj .vt-nom { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vt-suppr {
+  display: inline-flex;
+  background: none;
+  border: 0;
+  color: var(--v-ink-3);
+  border-radius: 6px;
+  padding: 2px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--v-ease), color var(--duration-fast) var(--v-ease);
+}
+.vt-item:hover .vt-suppr, .vt-item:focus-within .vt-suppr { opacity: 1; }
+.vt-suppr:hover { color: var(--v-danger); }
+@media (hover: none) { .vt-suppr { opacity: 0.6; } }
+.vt-sous { margin: 2px 8px 8px 22px; }
+.vt-ajout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  margin: 1px 8px;
+  border-radius: 9px;
+  color: var(--v-ink-3);
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.vt-ajout:hover { background: var(--v-hover); color: var(--v-ink); }
+.vt-memoire-titre { font: 500 12px/1.3 var(--v-ui); color: var(--v-ink-3); margin: 10px 2px 4px; }
+.vt-champ, .vt-memoire {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--v-line-2);
+  background: var(--v-surface);
+  color: var(--v-ink);
+  font: 400 14px/1.45 var(--v-ui);
+  resize: vertical;
+}
+.vt-champ:focus, .vt-memoire:focus { outline: none; border-color: var(--v-slate-line); box-shadow: var(--v-focus); }
+.vt-btn {
+  border: 1px solid var(--v-line-2);
+  background: var(--v-surface);
+  color: var(--v-ink);
+  border-radius: 10px;
+  padding: 8px 14px;
+  font: 600 13.5px/1 var(--v-ui);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--v-ease), border-color var(--duration-fast) var(--v-ease);
+}
+.vt-btn:hover { border-color: var(--v-ink-3); }
+.vt-btn.principal { background: var(--v-slate); border-color: var(--v-slate); color: var(--v-on-slate); }
+.vt-btn.principal:hover { background: var(--v-slate-hover); border-color: var(--v-slate-hover); }
+.vt-bascule {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  background: var(--v-paper);
+  border: 1px solid var(--v-line-2);
+  color: var(--v-ink-2);
+  border-radius: 10px;
+  cursor: pointer;
+  box-shadow: var(--v-shadow-sm);
+  transition: background var(--duration-fast) var(--v-ease), color var(--duration-fast) var(--v-ease);
+}
+.vt-bascule:hover { background: var(--v-surface); color: var(--v-ink); }
+body.vt-rail-ouvert .vt-bascule { background: transparent; border-color: transparent; box-shadow: none; }
+.vt-fond { background: var(--bg-overlay); }
+.vt-boite {
+  background: var(--v-surface);
+  color: var(--v-ink);
+  border: 0;
+  border-radius: 18px;
+  box-shadow: var(--v-shadow-lg);
+  padding: 22px 24px 20px;
+  width: min(520px, 94vw);
+  max-height: 88vh;
+  overflow: auto;
+  font-family: var(--v-ui);
+}
+.vt-boite h2 { margin: 0 0 16px; font: 650 17px/1.25 var(--v-ui); letter-spacing: -0.005em; }
+.vt-note { margin: 0 0 14px; font-size: 13px; color: var(--v-ink-3); line-height: 1.45; }
+.vt-etiquette { display: block; margin: 0 0 12px; font: 500 12.5px/1.3 var(--v-ui); color: var(--v-ink-2); }
+.vt-etiquette .vt-champ { margin-top: 5px; }
+.vt-ligne { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--v-line); flex-wrap: wrap; }
+.vt-pastille { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; }
+.vt-table { width: 100%; border-collapse: collapse; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.vt-table th { text-align: left; font-weight: 600; color: var(--v-ink-3); padding: 6px 8px 8px 0; border-bottom: 1px solid var(--v-line-2); }
+.vt-table td { padding: 8px 8px 8px 0; border-bottom: 1px solid var(--v-line); }
+.vt-table td.num, .vt-table th.num { text-align: right; }
+.vt-etat-ok { color: var(--v-success); } .vt-etat-ko { color: var(--v-danger); }
+.vt-grille { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 11rem) minmax(0, 9rem); column-gap: 0; align-items: center; }
+.vt-grille > .vt-entete { font: 600 12px/1.2 var(--v-ui); color: var(--v-ink-3); padding: 0 12px 8px 0; border-bottom: 1px solid var(--v-line-2); }
+.vt-grille > .vt-cellule { padding: 9px 12px 9px 0; border-bottom: 1px solid var(--v-line); min-width: 0; }
+.vt-grille > :nth-child(3n) { padding-right: 0; }
+.vt-grille > .vt-cellule.vt-nom-ia { font-weight: 600; display: flex; flex-direction: column; justify-content: center; gap: 2px; align-self: stretch; }   /* toute la hauteur : filets alignés ; contenu centré */
+.vt-nom-ia-texte { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vt-grille .vt-champ { width: 100%; padding: 7px 9px; }
+@media (max-width: 520px) {
+  .vt-grille { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .vt-grille > .vt-entete-ia { display: none; }
+  .vt-grille > .vt-cellule.vt-nom-ia { grid-column: 1 / -1; border-bottom: 0; padding-bottom: 2px; }
+}
+
+/* ---------------------------------------------------------------- mouvement : une seule grammaire */
+#messages > .message:last-child { animation: vt-arrive 0.24s var(--v-ease) both; }
+@keyframes vt-arrive { from { opacity: 0.55; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  #messages > .message:last-child, .vt-souffle, .status-pill.working .status-dot,
+  #vaultia-photo-btn[aria-busy="true"] svg, #vaultia-doc-btn[aria-busy="true"] svg { animation: none !important; }
+  main#timeline { scroll-behavior: auto; }
+}
+
+/* ---------------------------------------------------------------- après la revue indépendante */
+/* Fenêtres : un titre, un bouton Fermer, et « Terminé » en bas. */
+.vt-tete-boite { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 14px; }
+.vt-tete-boite h2 { margin: 0; }
+.vt-fermer, .vt-geste {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 0;
+  color: var(--v-ink-3);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--v-ease), color var(--duration-fast) var(--v-ease), opacity var(--duration-fast) var(--v-ease);
+}
+.vt-fermer { width: 32px; height: 32px; margin: -6px -8px 0 0; }
+.vt-fermer:hover { background: var(--v-hover); color: var(--v-ink); }
+.vt-boite:focus { outline: none; box-shadow: var(--v-shadow-lg); }
+select.vt-champ {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: var(--v-chevron);
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+  background-size: 16px 16px;
+  padding-right: 32px !important;
+}
+.vt-statut { font: 500 11.5px/1.2 var(--v-ui); color: var(--v-ink-3); }
+.vt-statut:empty { display: none; }
+/* Le menu porte les gestes des onglets : renommer, supprimer, non-lus. */
+.vt-geste { width: 24px; height: 24px; opacity: 0; }
+.vt-item:hover .vt-geste, .vt-item:focus-within .vt-geste { opacity: 1; }
+.vt-geste:hover { background: var(--v-active); color: var(--v-ink); }
+.vt-suppr:hover { color: var(--v-danger); }
+@media (hover: none) { .vt-geste { opacity: 0.7; } }
+.vt-item.nonlu { color: var(--v-ink); font-weight: 600; }
+.vt-nonlu {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--v-slate);
+  color: var(--v-on-slate);
+  font: 600 11.5px/20px var(--v-ui);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+body.vt-rail-ouvert #channel-bar { display: none; }   /* le menu liste déjà les conversations */
+/* Badges de l'en-tête et non-lus : l'ardoise, lisible sur elle-même. */
+.jobs-badge, .rules-badge, .pins-badge, .channel-unread-dot { background: var(--v-slate) !important; color: var(--v-on-slate) !important; box-shadow: none !important; }
+/* Rappel d'une décision qui a défilé hors de l'écran. */
+.vt-attente {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--v-slate-inset);
+  border: 1px solid color-mix(in srgb, var(--v-slate) 50%, transparent);
+  color: var(--v-ink);
+  font: 600 13px/1 var(--v-ui);
+  border-radius: 999px;
+  padding: 7px 12px 7px 10px;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--v-ease);
+}
+.vt-attente:hover { background: var(--v-slate-soft); }
+.vt-attente svg { color: var(--v-slate); }
+/* Le bouton @ : un outil de la carte de saisie, qui dit s'il est ouvert. */
+#vaultia-mention-btn {
+  width: 36px; min-width: 36px; height: 36px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: 0; border-radius: 10px;
+  color: var(--v-ink-2); cursor: pointer;
+  transition: background var(--duration-fast) var(--v-ease), color var(--duration-fast) var(--v-ease);
+}
+#vaultia-mention-btn:hover { background: var(--v-hover); color: var(--v-ink); }
+#vaultia-mention-btn[aria-pressed="true"] { background: var(--v-slate-soft); color: var(--v-slate); }
+/* En-tête du téléphone : titre de la conversation et menu « plus » (masqués au bureau). */
+.vt-titre-canal, #vt-plus-entete { display: none; }
+.vt-menu {
+  position: fixed;
+  top: 52px;
+  right: 10px;
+  z-index: 1300;
+  min-width: 200px;
+  padding: 6px;
+  background: var(--v-surface);
+  border-radius: 14px;
+  box-shadow: var(--v-shadow-lg);
+  display: flex;
+  flex-direction: column;
+}
+.vt-menu[hidden] { display: none !important; }
+.vt-menu-item {
+  text-align: left;
+  background: none;
+  border: 0;
+  color: var(--v-ink);
+  font: 500 15px/1.2 var(--v-ui);
+  padding: 12px 12px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.vt-menu-item:hover, .vt-menu-item:focus-visible { background: var(--v-hover); }
+/* Réglages : « Effacer le fil » et le crédit du projet d'origine, en texte. */
+#vt-reglage-fil #clear-chat-btn { color: var(--v-danger); border: 1px solid var(--v-line-2); background: var(--v-surface); padding: 7px 12px; width: auto !important; min-width: max-content; white-space: nowrap; }
+.vt-credit { color: var(--v-ink-3); font: 400 12.5px/1.4 var(--v-ui); }
+.vt-credit a { color: var(--v-slate); }
+
+/* Fermer une carte déjà répondue en texte : discret, sous les choix. */
+.decision-autrement {
+  align-self: flex-start;
+  min-height: 36px;
+  padding: 6px 4px;
+  background: none;
+  border: 0;
+  color: var(--v-ink-2);
+  font: 500 13.5px/1.2 var(--v-ui);
+  text-decoration: underline;
+  text-decoration-color: var(--v-line-2);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.decision-autrement:hover { color: var(--v-ink); text-decoration-color: currentColor; }
+/* « Autre réponse… » : la dernière option de la liste, plus légère que les choix de l'agent ;
+   elle s'ouvre sur place en champ de réponse. */
+.decision-libre {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 11px 14px;
+  text-align: left;
+  font: 500 15px/1.35 var(--v-ui);
+  color: var(--v-ink-2);
+  background: transparent;
+  border: 1px solid var(--v-line-2);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color var(--duration-normal) var(--v-ease), color var(--duration-normal) var(--v-ease), background var(--duration-normal) var(--v-ease);
+}
+.decision-libre svg { flex: 0 0 auto; }
+.decision-libre:hover { border-color: var(--v-slate); color: var(--v-ink); background: var(--v-surface); }
+.decision-libre:focus-visible { outline: none; box-shadow: var(--v-focus); }
+.decision-libre[hidden], .decision-texte[hidden] { display: none; }
+.decision-texte { display: flex; flex-direction: column; gap: 8px; align-self: stretch; width: 100%; }
+.decision-texte textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 64px;
+  max-height: 40vh;
+  padding: 10px 12px;
+  font: 400 16px/1.45 var(--v-ui);
+  color: var(--v-ink);
+  background: var(--v-surface);
+  border: 1px solid var(--v-slate-line);
+  border-radius: 12px;
+  resize: none;
+  overflow-y: auto;
+}
+.decision-texte textarea:focus { outline: none; border-color: var(--v-slate); box-shadow: var(--v-focus); }
+.decision-texte-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.decision-texte-actions .vt-btn { min-height: 40px; padding: 0 16px; }
+.decision-texte-actions .vt-btn:focus-visible { outline: none; box-shadow: var(--v-focus); }
+/* « Remplacée par … #N » : le numéro mène à la carte qui fait foi. */
+.decision-lien {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--v-slate);
+  text-decoration: underline;
+  text-decoration-color: var(--v-slate-line);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.decision-lien:hover { text-decoration-color: currentColor; }
+/* Quand le rappel est là, « revenir en bas » se range au bord droit, plus haut : il reste
+   utilisable (aucune fonction perdue) sans s'empiler sur le rappel ni cacher le texte. */
+/* chat.js (repositionScrollAnchor) écrit left/bottom en ligne : on force le bord droit, on garde sa hauteur. */
+body.vt-rappel #scroll-anchor { left: auto !important; right: 16px; transform: none !important; }
+body.vt-rappel #scroll-anchor:hover { transform: scale(1.06) !important; }
+#vt-plus-entete { position: relative; }
+.vt-plus-badge {
+  position: absolute;
+  top: -4px;                 /* à l'angle du bouton : les trois points restent entiers */
+  right: -5px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--v-slate);
+  color: var(--v-on-slate);
+  font: 700 11px/17px var(--v-ui);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.vt-plus-badge[hidden] { display: none; }
+.vt-menu-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.vt-menu-compte:not(:empty) {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--v-slate);
+  color: var(--v-on-slate);
+  font: 600 12px/22px var(--v-ui);
+  text-align: center;
+}
