@@ -497,6 +497,43 @@
     boutonMentions(row);
   }
 
-  function init() { railMenu(); boutonPhoto(); bandeauReflexion(); enteteTelephone(); reglages(); badgesAvatars(); }
+  // ---------- nouvelle version de la salle ----------
+  // Après un redémarrage, la page se reconnecte sans se recharger et garde l'ancien code ; installée
+  // comme application, elle n'a même pas de bouton « recharger ». Au retour sur l'application (et aux
+  // 5 min), on relit la page servie : si elle référence un fichier (?v=…) que la page ouverte n'a pas,
+  // on recharge — sauf s'il y a un brouillon, alors on le propose d'un bouton.
+  function miseAJour() {
+    const versions = (texte) => new Set(texte.match(/\/static\/[\w.\/-]+\.(?:js|css)\?v=[\w.-]+/g) || []);
+    const chargees = () => versions([...document.querySelectorAll("script[src], link[rel=stylesheet]")].map((n) => n.getAttribute("src") || n.getAttribute("href")).join(" "));
+    const brouillon = () => {
+      const saisie = document.getElementById("input");
+      if (saisie && saisie.value.trim()) return true;
+      return [...document.querySelectorAll(".decision-texte:not([hidden]) textarea")].some((t) => t.value.trim());
+    };
+    let propose = false;
+    async function verifier() {
+      if (document.hidden || propose) return;
+      let html;
+      try { const r = await fetch("/", { cache: "no-store" }); if (!r.ok) return; html = await r.text(); } catch (e) { return; }
+      const ici = chargees();
+      const nouvelles = [...versions(html)].filter((v) => !ici.has(v)).sort().join("|");
+      if (!nouvelles) return;
+      let deja = null;
+      try { deja = sessionStorage.getItem("vt-recharge"); } catch (e) {}
+      if (deja === nouvelles) return;            // déjà rechargé pour ces fichiers : pas de boucle
+      if (!brouillon()) {
+        try { sessionStorage.setItem("vt-recharge", nouvelles); } catch (e) {}
+        location.reload();
+        return;
+      }
+      propose = true;
+      document.body.append(el("button", { id: "vt-nouvelle-version", type: "button", onclick: () => location.reload() }, "Nouvelle version de la salle · Recharger"));
+    }
+    document.addEventListener("visibilitychange", verifier);
+    setInterval(verifier, 5 * 60 * 1000);
+    setTimeout(verifier, 4000);
+  }
+
+  function init() { railMenu(); boutonPhoto(); bandeauReflexion(); enteteTelephone(); reglages(); badgesAvatars(); miseAJour(); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
 })();

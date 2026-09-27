@@ -1095,3 +1095,24 @@ body.vt-rappel #scroll-anchor:hover { transform: scale(1.06) !important; }
   font: 600 12px/22px var(--v-ui);
   text-align: center;
 }
+
+/* Nouvelle version de la salle pendant qu'un brouillon est en cours : proposée, jamais imposée. */
+#vt-nouvelle-version {
+  position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 62px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1300;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--v-slate);
+  color: var(--v-on-slate);
+  font: 600 14.5px/1 var(--v-ui);
+  box-shadow: var(--v-shadow-lg);
+  cursor: pointer;
+  white-space: nowrap;
+}
+#vt-nouvelle-version:hover { background: var(--v-slate-hover); }
+#vt-nouvelle-version:focus-visible { outline: none; box-shadow: var(--v-shadow-lg), var(--v-focus); }

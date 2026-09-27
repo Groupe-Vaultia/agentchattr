@@ -446,6 +446,12 @@ Les coins sont doux et croissent avec la taille de l'objet : 6 px pour le code e
 - Une rangée de 52 px : bascule du rail, « # conversation » (600 15,5px, tronqué par une ellipse), puis Jobs, Réglages et « ⋯ » (boutons de 38 px).
 - « ⋯ » ouvre un menu fixe (sous l'en-tête, à 10 px du bord droit, 200 px au moins, surface, rayon de 14 px, ombre flottante, marge de 6 px). Ses rangées (500 15px, marge de 12 px, rayon de 9 px) sont « Règles de la salle », « Épingles » et « Aide ». Chacune affiche son compteur dans une capsule ardoise de 22 px. Le total en attente est aussi reporté dans un badge ardoise de 17 px, à l'angle de « ⋯ ». Le menu se ferme par Échap, par un clic ailleurs ou par le choix d'une rangée.
 
+### Application installée (cell)
+
+- **Manifeste** `static/manifest.webmanifest` : « Salle Vaultia » (court : « Vaultia »), `display: standalone`, `start_url` et `scope` à `/`, fond et barre d'état `paper`. La page n'est jamais mise en cache : le jeton de session y est injecté à chaque ouverture.
+- **Icône** `static/icons/` : le « V » du logo redessiné en SVG (trois triangles emboîtés, une seule teinte `slate` à 100 / 55 / 30 %, un creux au centre), sur `paper`. Version « any » (marque à 300/512), « maskable » (250/512, tient dans le cercle de 80 %), « monochrome » (forme blanche pour les icônes à thème d'Android) et `apple-touch-icon` 180 px.
+- **Nouvelle version** : l'application installée n'a pas de bouton « recharger ». Au retour sur l'application et aux 5 min, `vaultia.js` relit la page servie ; si elle référence un fichier (`?v=…`) absent de la page ouverte, elle recharge, sauf s'il y a un brouillon (saisie ou « Autre réponse… ») : une pastille ardoise « Nouvelle version de la salle · Recharger » le propose alors. Un seul rechargement par version (garde en `sessionStorage`).
+
 ### Dialogs (fenêtres Vaultia)
 - **Boîte** : surface, sans bordure, rayon de 18 px, ombre flottante, marge 22px 24px 20px, largeur `min(520px, 94vw)`, hauteur maximale 88vh, sur le voile `overlay`.
 - **En-tête** : le titre (650 17px) et un bouton Fermer de 32 px. En bas, « Terminé » (principal). Échap ou un clic sur le voile ferment la fenêtre. Au doigt, le focus va à la boîte et non au premier champ, pour ne pas faire surgir le clavier.
