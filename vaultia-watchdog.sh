@@ -40,10 +40,10 @@ while true; do
     ./vaultia-start.sh >> "$LOG" 2>&1
     sleep 25; continue
   fi
-  pont qwenlocal; pont cursor; pont gemini
+  pont gemini   # cursor et qwenlocal retires le 4 oct. 2026
   cli claude --dangerously-skip-permissions
   cli codex --dangerously-bypass-approvals-and-sandbox --config=check_for_update_on_startup=false
-  cli qwencode
+  cli qwencode --approval-mode=yolo
   cli grok
   sleep 30
 done

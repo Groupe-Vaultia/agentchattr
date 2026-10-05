@@ -27,13 +27,13 @@ rm -f data/server.log; (umask 077; : > data/server.log)   # le journal affiche l
 (setsid nohup "$PY" run.py > data/server.log 2>&1 &)
 for i in $(seq 1 20); do curl -s -o /dev/null 127.0.0.1:8300/ && break; sleep 0.5; done
 
-echo "== ponts API (Qwen local, Cursor, Gemini) =="
-for a in qwenlocal cursor gemini; do : > "data/$a.log"; (setsid nohup env PATH="$PATH" "$PY" wrapper_api.py "$a" > "data/$a.log" 2>&1 &); done
+echo "== ponts API (Gemini) =="
+for a in gemini; do : > "data/$a.log"; (setsid nohup env PATH="$PATH" "$PY" wrapper_api.py "$a" > "data/$a.log" 2>&1 &); done
 
 echo "== agents CLI (Claude, Codex) en tmux =="
 tmux new-session -d -s ac-claude -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py claude --dangerously-skip-permissions; read"
 tmux new-session -d -s ac-codex  -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py codex --dangerously-bypass-approvals-and-sandbox --config=check_for_update_on_startup=false; read"
-tmux new-session -d -s ac-qwencode -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py qwencode; read"
+tmux new-session -d -s ac-qwencode -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py qwencode --approval-mode=yolo; read"
 tmux new-session -d -s ac-grok -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py grok; read"
 
 sleep 12
