@@ -57,7 +57,8 @@ class MessageStore:
             timestamp: float | None = None,
             time_str: str | None = None,
             _bulk: bool = False,
-            projet_id: str | None = None) -> dict:
+            projet_id: str | None = None,
+            tache_id: int | None = None) -> dict:
         with self._lock:
             ts = timestamp if timestamp is not None else time.time()
             msg = {
@@ -77,6 +78,8 @@ class MessageStore:
                 msg["metadata"] = metadata
             if projet_id:
                 msg["projet_id"] = projet_id   # SOCLE-SHOP S1 : le projet du message suit jusqu'a l'agent
+            if tache_id:
+                msg["tache_id"] = tache_id     # SOCLE-SHOP S4 : la tache (carte) du message, valide par l'appelant
             self._next_id += 1
             self._messages.append(msg)
             if not _bulk:
@@ -130,6 +133,15 @@ class MessageStore:
             if channel:
                 msgs = [m for m in msgs if m.get("channel", "general") == channel]
             return list(msgs[-count:])
+
+    def filtrer(self, projet_id: str | None = None, tache_id: int | None = None,
+                since_id: int = 0, limit: int = 50) -> list[dict]:
+        """SOCLE-SHOP S4 : la conversation reste unique ; « Ce projet » et « Ce sujet » sont des filtres."""
+        with self._lock:
+            msgs = [m for m in self._messages if m["id"] > since_id
+                    and (projet_id is None or m.get("projet_id") == projet_id)
+                    and (tache_id is None or m.get("tache_id") == tache_id)]
+            return list(msgs[-limit:]) if limit > 0 else msgs
 
     def get_since(self, since_id: int = 0, channel: str | None = None) -> list[dict]:
         with self._lock:

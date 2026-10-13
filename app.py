@@ -1198,14 +1198,13 @@ async def websocket_endpoint(websocket: WebSocket):
                 if reply_to is not None:
                     reply_to = int(reply_to)
 
-                # SOCLE-SHOP S1 : un projet_id inconnu est refuse, jamais remplace par un autre projet
-                projet_id = str(event.get("projet_id") or "").strip() or None
-                if projet_id and not _projets.existe(projet_id):
-                    store.add("system", f"Projet « {projet_id} » inconnu : message non envoyé.",
-                              msg_type="system", channel=channel)
+                # SOCLE-SHOP S1/S4 : projet ou tache inconnus = refus, jamais remplaces par d'autres
+                projet_id, tache_id, err = _etiquettes(event.get("projet_id"), event.get("tache_id"))
+                if err:
+                    store.add("system", f"{err} : message non envoyé.", msg_type="system", channel=channel)
                     continue
                 store.add(sender, text, attachments=attachments, reply_to=reply_to,
-                          channel=channel, projet_id=projet_id)
+                          channel=channel, projet_id=projet_id, tache_id=tache_id)
 
             elif event.get("type") == "delete":
                 ids = event.get("ids", [])
@@ -1587,6 +1586,26 @@ async def import_history(file: UploadFile = File(...)):
     return JSONResponse(report)
 
 
+def _etiquettes(projet_id, tache_id) -> tuple[str | None, int | None, str]:
+    """SOCLE-SHOP S4 : valide l'etiquette projet/tache d'un message. Une tache doit exister et appartenir au
+    projet ; sans projet_id, il est repris de la tache. Rend (projet_id, tache_id, erreur)."""
+    projet_id = str(projet_id or "").strip() or None
+    if projet_id and not _projets.existe(projet_id):
+        return None, None, f"projet inconnu : {projet_id}"
+    if tache_id in (None, "", 0):
+        return projet_id, None, ""
+    try:
+        tache_id = int(tache_id)
+    except (TypeError, ValueError):
+        return None, None, "tache_id entier attendu"
+    tache = jobs.get(tache_id) if jobs else None
+    if not tache or not tache.get("projet_id"):
+        return None, None, f"tache inconnue : {tache_id}"
+    if projet_id and tache["projet_id"] != projet_id:
+        return None, None, f"la tache {tache_id} n'appartient pas au projet {projet_id}"
+    return tache["projet_id"], tache_id, ""
+
+
 @app.get("/api/messages")
 async def get_messages(since_id: int = 0, limit: int = 50, channel: str = ""):
     ch = channel if channel else None
@@ -1616,11 +1635,11 @@ async def api_send(request: Request):
     if not text:
         return JSONResponse({"error": "text is required"}, status_code=400)
     channel = body.get("channel", "general")
-    projet_id = str(body.get("projet_id") or "").strip() or None
-    if projet_id and not _projets.existe(projet_id):
-        return JSONResponse({"error": f"projet inconnu : {projet_id}"}, status_code=422)
+    projet_id, tache_id, err = _etiquettes(body.get("projet_id"), body.get("tache_id"))
+    if err:
+        return JSONResponse({"error": err}, status_code=422)
 
-    msg = store.add(sender, text, channel=channel, projet_id=projet_id)
+    msg = store.add(sender, text, channel=channel, projet_id=projet_id, tache_id=tache_id)
     return JSONResponse(msg)
 
 
@@ -2359,6 +2378,17 @@ async def assign_channel_v2(request: Request):
     if not _projets.assigner_canal(canal, projet_id, par_id=True):
         return JSONResponse({"error": "projet inconnu"}, status_code=404)
     return JSONResponse({"ok": True, **_projets.lister()})
+
+
+# SOCLE-SHOP S4 : filtres « Ce projet » / « Ce sujet » sur la conversation unique.
+@app.get("/api/v2/messages")
+async def filtrer_messages(projet_id: str = "", tache_id: int = 0, since_id: int = 0, limit: int = 100):
+    if not projet_id and not tache_id:
+        return JSONResponse({"error": "projet_id ou tache_id requis"}, status_code=400)
+    if projet_id and not _projets.existe(projet_id):
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    return JSONResponse({"messages": store.filtrer(projet_id or None, tache_id or None, since_id,
+                                                   max(1, min(limit, 500)))})
 
 
 # SOCLE-SHOP S2 : taches de projet (un job avec projet_id, etape, responsable, equipe, preuve).

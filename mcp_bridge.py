@@ -351,6 +351,8 @@ def chat_send(
     projet_id = (projet_id or "").strip() or ((parent or {}).get("projet_id") or "")
     if projet_id and not _projets.existe(projet_id):
         return f"Unknown projet_id: {projet_id}. Message not sent."
+    # SOCLE-SHOP S4 : elle garde aussi sa tache, si la tache du parent est du meme projet.
+    tache_id = (parent or {}).get("tache_id") if (parent or {}).get("projet_id") == projet_id else None
 
     # Determine message type and metadata based on choices
     msg_type = "chat"
@@ -363,7 +365,7 @@ def chat_send(
     msg = store.add(sender, message.strip(), attachments=attachments,
                     reply_to=reply_id, channel=channel,
                     msg_type=msg_type, metadata=metadata,
-                    projet_id=projet_id or None)
+                    projet_id=projet_id or None, tache_id=tache_id)
     _update_cursor(sender, [msg], channel)
     with _presence_lock:
         _presence[sender] = time.time()
