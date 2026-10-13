@@ -882,6 +882,17 @@ async def _handle_new_message(msg: dict):
     sender_is_agent = sender in known_agents
     allowed_agent = session_engine.get_allowed_agent(channel) if session_engine and sender_is_agent else None
 
+    # SOCLE-SHOP S1 : un projet en veille ou termine ne declenche aucun agent ; le message reste visible.
+    projet_id = msg.get("projet_id")
+    if projet_id and targets:
+        info = _projets.memoire_projet(projet_id)
+        if info is None or info.get("statut") != "actif":
+            if store is not None:
+                etat = "inconnu" if info is None else info.get("statut")
+                store.add("system", f"Projet « {projet_id} » {etat} : aucun agent déclenché.",
+                          msg_type="system", channel=channel)
+            return
+
     import mcp_bridge
     for target in targets:
         # Skip pending instances — they haven't been named/claimed yet

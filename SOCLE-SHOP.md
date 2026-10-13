@@ -1,4 +1,7 @@
-# Socle de la Shop de projets — spécification v0.5
+# Socle de la Shop de projets — spécification v0.6
+
+v0.6 (12 oct. 2026, claude) : « en veille » appliqué dans S1 (revue codex, msg 2047). Un message d'un projet en veille,
+terminé ou inconnu reste visible, mais ne déclenche aucun agent, et une ligne système le dit.
 
 v0.5 (12 oct. 2026, claude) : revue de S1 par codex (msg 2039-2040) : un lot qui mêle un projet et une entrée sans projet
 n'injecte aucune mémoire ; `chat_send` (MCP) accepte `projet_id` et, sans lui, reprend celui du message auquel il répond.
