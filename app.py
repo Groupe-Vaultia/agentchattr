@@ -2562,6 +2562,12 @@ def _methodes_etapes() -> dict:
     return out
 
 
+@app.get("/api/v2/methodes")
+async def get_methodes():
+    """La methode de chaque etape (docs/PILOTE.md), pour l'atelier : {etape: texte}."""
+    return JSONResponse(_methodes_etapes())
+
+
 # SOCLE-SHOP v1.1 P1 : jalons J1/J2. claude les prepare ; seul Charles decide (corps `par: "user"`).
 @app.get("/api/v2/projects/{projet_id}/jalons")
 async def list_jalons(projet_id: str):
