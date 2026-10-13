@@ -1,5 +1,6 @@
 """S1 contract tests for project migration and per-trigger memory isolation.
 
+v0.2 (2026-10-12, codex): distinguish a legacy name from another project's slug.
 v0.1 (2026-10-12, codex): synthetic v1 migration, compatibility, and
 multi-project trigger coverage for SOCLE-SHOP.md v0.3.
 """
@@ -134,6 +135,29 @@ class SocleS1Tests(unittest.TestCase):
         self.assertEqual(set(values), {"cafe", "cafe-2", "cafe-3"})
         self.assertEqual({p["memoire"] for p in values.values()}, {"ONE", "TWO", "THREE"})
         self.assertEqual(len({p["nom"] for p in values.values()}), 3)
+
+    def test_creating_name_equal_to_another_projects_slug_creates_distinct_project(self):
+        self._v1({"Café": {"memoire": "FIRST", "cree": 1, "channels": []}}, active="Café")
+
+        created_id = projects.creer("cafe", "SECOND")
+
+        self.assertEqual(created_id, "cafe-2")
+        projects_by_name = projects.lister()["projets"]
+        self.assertEqual(projects_by_name["Café"]["memoire"], "FIRST")
+        self.assertEqual(projects_by_name["cafe"]["memoire"], "SECOND")
+
+    def test_legacy_name_route_updates_exact_name_when_it_matches_another_id(self):
+        self._v1({
+            "Café": {"memoire": "FIRST", "cree": 1, "channels": []},
+            "cafe": {"memoire": "SECOND", "cree": 2, "channels": []},
+        }, active="Café")
+
+        response = self.client.post("/api/projects/cafe/memory", json={"memory": "UPDATED_SECOND"})
+
+        self.assertEqual(response.status_code, 200)
+        projects_by_name = self.client.get("/api/projects").json()["projets"]
+        self.assertEqual(projects_by_name["Café"]["memoire"], "FIRST")
+        self.assertEqual(projects_by_name["cafe"]["memoire"], "UPDATED_SECOND")
 
 
 if __name__ == "__main__":
