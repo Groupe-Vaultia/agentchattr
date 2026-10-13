@@ -1,5 +1,6 @@
 """S1 project pause must stop agent triggers while keeping messages visible.
 
+v0.2 (2026-10-12, codex): isolate app.store in the temporary test directory.
 v0.1 (2026-10-12, codex): exercise the project status rule in
 SOCLE-SHOP.md through the message router.
 """
@@ -19,6 +20,7 @@ if str(ROOT) not in sys.path:
 import app
 import mcp_bridge
 import projects
+from store import MessageStore
 
 
 class _Router:
@@ -48,9 +50,11 @@ class ProjectStatusTests(unittest.TestCase):
             self.assertTrue(projects.definir_statut("alpha", "veille"))
 
             agents = _Agents()
+            store = MessageStore(str(Path(directory) / "messages.jsonl"))
             message = {"id": 7, "sender": "user", "text": "@codex Please review",
                        "channel": "atelier", "type": "chat", "projet_id": "alpha"}
             with mock.patch.object(app, "agents", agents), \
+                    mock.patch.object(app, "store", store), \
                     mock.patch.object(app, "router", _Router()), \
                     mock.patch.object(app, "registry", None), \
                     mock.patch.object(app, "config", {"agents": {"codex": {}}}), \
@@ -61,6 +65,7 @@ class ProjectStatusTests(unittest.TestCase):
 
             broadcast.assert_awaited_once_with(message)
             agents.trigger.assert_not_awaited()
+            self.assertIn("aucun agent déclenché", store.get_recent(1)[0]["text"])
 
 
 if __name__ == "__main__":
