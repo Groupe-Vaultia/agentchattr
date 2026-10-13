@@ -123,7 +123,7 @@ function renderRail() {
   const ids = Object.keys(state.projets);
   $("#rail-proj").innerHTML = ids.map(id => {
     const p = state.projets[id];
-    return `<button class="proj" data-proj="${esc(id)}" aria-current="${id === state.sel}"><span class="dot ${p.statut === "actif" ? "actif" : p.statut}"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.nom || id)}</span><span class="st">${p.etape ? esc(p.etape.split(":").pop().trim()) : ""}</span></button>`;
+    return `<button class="proj" data-proj="${esc(id)}" aria-current="${id === state.sel}" title="${esc(p.nom || id)}"><span class="dot ${p.statut === "actif" ? "actif" : p.statut}"></span><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.nom || id)}</span><span class="st" style="flex:none">${p.etape ? esc(p.etape.split(":").pop().trim()) : ""}</span></button>`;
   }).join("") || `<div class="sub" style="padding:2px 8px;font-size:12px;color:var(--ink3)">aucun projet</div>`;
 }
 
