@@ -1,6 +1,6 @@
 """Server and MCP channel labels for Shop task conversations.
 
-v0.3 (2026-10-13, codex): cover the UI's empty-JSON task-conversation request.
+v0.4 (2026-10-13, codex): preserve project labels for orphaned task channels.
 """
 
 import asyncio
@@ -72,7 +72,7 @@ class SocleSalleAtelierTests(unittest.TestCase):
 
     def test_orphan_task_channel_stays_untagged_even_if_a_project_is_assigned(self):
         projects.assigner_canal("tache-99", self.alpha, par_id=True)
-        self.assertEqual(app._etiquettes(None, None, "tache-99"), (None, None, ""))
+        self.assertEqual(app._etiquettes(None, None, "tache-99"), (self.alpha, None, ""))
 
     def test_mcp_send_in_orphan_task_channel_stays_untagged(self):
         projects.assigner_canal("tache-99", self.alpha, par_id=True)
@@ -90,7 +90,7 @@ class SocleSalleAtelierTests(unittest.TestCase):
         result = mcp_bridge.chat_send(sender="codex", message="orphan task", choices=[], channel="tache-99")
         self.assertIn("Sent (id=", result)
         saved = self.messages.get_recent(1)[0]
-        self.assertNotIn("projet_id", saved)
+        self.assertEqual(saved["projet_id"], self.alpha)
         self.assertNotIn("tache_id", saved)
 
     def test_mcp_send_in_task_channel_gets_project_and_task(self):
