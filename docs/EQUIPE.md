@@ -1,6 +1,8 @@
 # Équipe d'agents — rôles, cycle et règles
 
-**Version : v1.6** — 2026-10-13.
+**Version : v1.6.1** — 2026-10-13.
+Changement v1.6 → v1.6.1 (revue codex #2216) : §4 cite `config.toml` pour gemini (`config_loader.py`
+ignore les redéfinitions locales); §3 dit que la carte R1 v1.5 active est périmée sur l'équipe.
 Changement v1.5.2 → v1.6 (Charles #2214) : l'équipe réelle remplace l'ancienne — cursor et qwenlocal
 retirés le 4 oct. (commit 1f55829), qwencode et grok ajoutés, gemini et grok autorisés à coder (#2030);
 §2 dit qui fusionne aujourd'hui; §3 ajoute R9 v2 (#26) et R11 v1 (#32) et liste les cartes périmées
@@ -79,7 +81,9 @@ alors celle-là seulement (#22 à #26, 13 oct.). Le cycle est complet à la PR m
 Cartes actives faisant foi au 13 oct. 2026 (`GET /api/rules`) : **v1.5 #16 à #23**, **R9 v2 #26**,
 **R11 v1 #32**. Les cartes **#4 à #15** (v1.1, v1.2) sont encore actives et injectées à chaque
 déclenchement; elles sont périmées et à désactiver par Charles dans le panneau Rules. En cas
-d'écart, la carte la plus récente l'emporte. `rules.py:9` limite une carte à 600 caractères; la
+d'écart, la carte la plus récente l'emporte. Exception : la carte R1 v1.5 (#16), encore active,
+nomme qwenlocal et cursor et range gemini parmi les avis; sur la composition de l'équipe, §1 fait
+foi jusqu'à ce que Charles active une R1 à jour. `rules.py:9` limite une carte à 600 caractères; la
 concision reste voulue, car chaque carte active est injectée dans le prompt de chaque agent CLI
 (`wrapper.py`). Le texte ci-dessous est la version longue.
 
@@ -185,7 +189,7 @@ Un souvenir n'est jamais cité comme preuve au sens de R6.
 | codex | CLI (`codex`), cwd `~/atelier` | oui | `config.toml` `[agents.codex]` |
 | qwencode | CLI (`qwen`, `--approval-mode=yolo`), cwd `~/atelier` | oui; `git rebase` refusé par ses permissions | `config.local.toml`, `vaultia-watchdog.sh` |
 | grok | CLI (`grok-launch.sh`), cwd `~/atelier/cad-grok` | oui | `config.local.toml` `[agents.grok]` |
-| gemini | `type = "cli_print"` (`agy`), cwd `~/atelier/cad-gemini` | selon les flags de `agy` | `config.local.toml` `[agents.gemini]` |
+| gemini | `type = "cli_print"` (`agy`), cwd `~/atelier/cad-gemini` | selon les flags de `agy` | `config.toml` `[agents.gemini]` |
 
 Tous sont lancés et relancés par `vaultia-watchdog.sh` (service utilisateur `vaultia-watchdog`).
 Un agent sans outils rédige, ne vérifie pas, et le dit (R6); il n'y en a plus dans la salle depuis
