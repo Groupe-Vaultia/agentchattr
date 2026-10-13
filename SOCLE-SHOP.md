@@ -1,4 +1,8 @@
-# Socle de la Shop de projets — spécification v0.6
+# Socle de la Shop de projets — spécification v0.7
+
+v0.7 (12 oct. 2026, claude) : le skill **pilote-rd** de Charles (v2.0) devient le processus de la Shop. Étapes 1-8 et
+jalons J1/J2 (Go / Recycle / Hold / Kill), fiche projet (niveau, TRL, horizon), journal d'essais RS&DE, vue
+Portefeuille. Statut `arrete` ajouté (Kill).
 
 v0.6 (12 oct. 2026, claude) : « en veille » appliqué dans S1 (revue codex, msg 2047). Un message d'un projet en veille,
 terminé ou inconnu reste visible, mais ne déclenche aucun agent, et une ligne système le dit.
@@ -55,6 +59,29 @@ L'**étape du projet** se calcule à partir de ses tâches : c'est la première 
 
 L'**historique** se lit, il ne se tient pas à part : il regroupe les exécutions, les décisions (approbations, mises en veille, tâches
 ajoutées), les messages et les révisions du projet, triés par date.
+
+## Processus : le skill pilote-rd (v0.7)
+
+La Shop suit le processus du skill `pilote-rd` de Charles. Les 5 colonnes de la maquette (Produit → Livrable) sont
+remplacées par ses étapes :
+
+```
+1 Problème → 2 État de l'art → 3 Concepts → J1 → 4 Conception → 5 Prototype → 6 Essais ↺ → J2 → 7 Industrialisation → 8 Lancement
+```
+
+| pilote-rd | Dans le socle |
+|---|---|
+| Étapes 1 à 8 | `tache.etape` ∈ {probleme, etat_art, concepts, conception, prototype, essais, industrialisation, lancement}. L'étape du projet est calculée (première étape avec une tâche non faite) : « Étape 4 sur 8 » |
+| Jalons J1, J2 : Go / Recycle / Hold / Kill | Objet **Jalon** : `projet_id`, `jalon` (J1, J2, revue), `resultats`, `criteres[]` (cible, mesuré, état), `risques[]`, `reste` (fourchette), `recommandation` (de claude), `decision` (de **Charles** seulement), `date`. Go = continue. Recycle = la tâche revient à une étape antérieure. Hold = statut `veille`. Kill = statut `arrete` |
+| Fiche projet (document maître) | `projet` gagne `code`, `niveau` (léger, moyen, lourd), `trl` (1 à 9), `horizon` (H1, H2, H3), `type`, `ambition`, `criteres[]`, `hypotheses[]`, `risques[]`. La fiche `<code>_fiche-projet_vNN` est **générée** à partir de ces champs, versionnée à chaque changement |
+| Journal d'essais RS&DE | Une tâche d'essai exige `incertitude`, `hypothese`, `methode` et `critere` **avant** sa première exécution (sinon refus). `resultat` et `conclusion` viennent après. Les dates sont celles des événements, donc contemporaines par construction |
+| Niveau léger / moyen / lourd | Léger : J2 seulement. Moyen : J1 et J2. Lourd : J1, J2 et une revue avant le lancement. Le niveau fixe les jalons qui sont créés |
+| Mode Portefeuille | La vue Projets affiche projet / type / ambition / horizon / étape / TRL / ressources engagées (temps des exécutions, S3) / prochaine décision, plus le graphique risque-rendement |
+| Indicateurs | Calculés : taux de recycle ou de kill aux jalons, durée d'une boucle d'essai, respect des dates de jalon, répartition H1/H2/H3 des ressources |
+| Conception mécanique | Étapes 4 à 6 : skill `concevoir-une-piece`, production par loop-engine, harnais Bambu. Le skill `pilote-rd` renvoie à `ingenieur-rd-fusion`, son équivalent sur claude.ai : les résultats vont dans la fiche et le journal, sans refaire les calculs |
+
+Règles du skill reprises telles quelles : une étape doit réduire un risque nommé ; pas de chiffre externe sans source ;
+la décision d'un jalon appartient à Charles et elle est datée ; arrêter un projet est un résultat valable.
 
 ## Combinaisons d'agents (décision de Charles, msg 2021)
 

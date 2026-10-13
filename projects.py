@@ -14,7 +14,8 @@ from pathlib import Path
 
 _LOCK = threading.Lock()
 _FILE: Path | None = None
-STATUTS = ("actif", "veille", "termine")
+# Jalons du skill pilote-rd : Go = actif, Hold = veille, Kill = arrete, livre = termine.
+STATUTS = ("actif", "veille", "arrete", "termine")
 _state: dict = {"version": 2, "projets": {}, "defaut": ""}
 
 
