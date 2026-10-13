@@ -5,6 +5,8 @@ dernier signe de vie et une issue. Sans signe depuis `silence_s` (10 min), elle 
 Une fin tardive ou recue en double ne la ressuscite pas, et un signe recu apres la fin est ignore. Les evenements
 ne gardent qu'un resume d'une ligne (200 caracteres), jamais de journal brut (R3). La memoire injectee n'est pas
 recopiee : on garde son projet et son empreinte sha256, pour prouver laquelle a ete donnee.
+
+v2 (13 oct. 2026, claude) : issue « terminee » ajoutee, posee par le serveur quand l'agent retourne au repos (app.py).
 """
 
 import hashlib
@@ -16,7 +18,7 @@ import uuid
 from pathlib import Path
 
 SILENCE_S = 600
-ISSUES = ("reussie", "echouee", "abandonnee")
+ISSUES = ("reussie", "echouee", "abandonnee", "terminee")  # terminee : tour fini, non juge (v2)
 _MAX_EVENEMENTS = 200
 
 

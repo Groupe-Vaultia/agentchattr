@@ -5,6 +5,7 @@ import json
 import re as _re
 import sys
 import threading
+import time
 import uuid
 import logging
 from pathlib import Path
@@ -919,6 +920,7 @@ async def _handle_new_message(msg: dict):
         if agents.is_available(target):
             await agents.trigger(target, message=chat_msg, channel=channel, prompt=custom_prompt,
                                  projet_id=msg.get("projet_id"))
+            _ouvrir_execution(target, msg.get("tache_id"), text)
 
 
 # --- broadcasting ---
@@ -2530,6 +2532,51 @@ async def list_executions(projet_id: str = "", tache_id: int | None = None):
     return JSONResponse({"executions": executions.lister(projet_id or None, tache_id)})
 
 
+# SOCLE-SHOP S3 v0.9 : le serveur tient les executions lui-meme, sans changer les wrappers. Un @agent dans un message
+# etiquete d'une tache ouvre une execution ; le battement « actif » du wrapper vaut signe de vie ; le retour au repos
+# la termine avec l'issue neutre « terminee » (le tour est fini, le resultat n'est pas juge).
+_SIGNE_MIN_S = 30
+
+
+def _execution_ouverte(agent: str) -> dict | None:
+    if executions is None:
+        return None
+    return next((e for e in executions.lister() if e["agent"] == agent and not e.get("fin")), None)
+
+
+def _ouvrir_execution(agent: str, tache_id, consigne: str) -> None:
+    """Sans effet si la tache est inconnue, son projet pas actif ou l'essai pas pret : le message part quand meme."""
+    if executions is None or jobs is None or not tache_id:
+        return
+    try:
+        tache = jobs.get(int(tache_id))
+        if not tache or not tache.get("projet_id") or not _jobs_mod.essai_pret(tache):
+            return
+        info = _projets.memoire_projet(tache["projet_id"])
+        if info is None or info["statut"] != "actif":
+            return
+        ouverte = _execution_ouverte(agent)
+        if ouverte and ouverte["tache_id"] == tache["id"]:
+            executions.signe(ouverte["id"])
+            return
+        if ouverte:
+            executions.terminer(ouverte["id"], "terminee")
+        role = next((m.get("role", "") for m in tache.get("equipe") or [] if m.get("agent") == agent), "")
+        executions.demarrer(tache["id"], tache["projet_id"], agent, role or "producteur", consigne, info["memoire"])
+    except Exception:
+        log.exception("S3 : ouverture d'execution pour %s", agent)
+
+
+def _battement_execution(agent: str, actif: bool, etait_actif: bool) -> None:
+    ouverte = _execution_ouverte(agent)
+    if ouverte is None:
+        return
+    if actif and time.time() - ouverte["dernier_signe"] >= _SIGNE_MIN_S:
+        executions.signe(ouverte["id"])
+    elif etait_actif and not actif:
+        executions.terminer(ouverte["id"], "terminee")
+
+
 @app.post("/api/v2/executions")
 async def start_execution(request: Request):
     """Demarre une execution sur une tache. Refus : tache inconnue, projet pas actif (veille, arrete, termine),
@@ -2874,6 +2921,7 @@ async def heartbeat(agent_name: str, request: Request):
             was_active = mcp_bridge._activity.get(current_name, False)
             mcp_bridge.set_active(current_name, active_val)
             _activity_changed = was_active != active_val
+            _battement_execution(current_name, active_val, was_active)  # SOCLE-SHOP S3 v0.9
     except Exception:
         pass  # No body = plain heartbeat
     # Immediately broadcast on activity state change (don't wait for background checker)
