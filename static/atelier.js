@@ -39,6 +39,9 @@ const state = {
   taches: [],       // tâches du projet sélectionné
   etape: null,      // étape courante du projet (calc serveur ou local)
   executions: [],   // exécutions du projet sélectionné
+  jalons: [],       // jalons du projet (P1) : {id, jalon, criteres, risque, recommandation, decision, …}
+  fiche: null,      // fiche projet (P2) : {objectif, niveau, trl, hypotheses, risques, questions, …}
+  methode: null,    // méthode de l'étape courante (P3, joint par la route /prochaines) — null si absent
 };
 
 // ---------- accès réseau : état vide propre si la route n'est pas encore branchée ----------
@@ -69,7 +72,6 @@ async function postJSON(url, body) {
     return {ok: true, data: await r.json().catch(() => null)};
   } catch (_) { return {ok: false, data: null, err: 0}; }
 }
-
 function toast(m) {
   const t = $("#toast"); t.textContent = m; t.hidden = false;
   clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, 3800);
@@ -190,8 +192,14 @@ function renderCarte() {
 
   if (!state.sel) { $("#map").innerHTML = ""; return; }
   const veille = p && p.statut === "veille";
+  const idx = state.etape ?? etapeDuProjet(taches);
+  const courante = ETAPES[idx];
+  // « Pourquoi » visible sur la carte : la méthode de l'étape courante (P3, jointe par la ronde).
+  const pourquoi = (state.methode && state.methode.etape === courante)
+    ? `<div class="pourquoi" id="pourquoi"><div class="lbl">Pourquoi, cette étape</div><p>${esc(state.methode.texte)}</p></div>`
+    : "";
 
-  $("#map").innerHTML = ETAPES.map((e, i) => {
+  $("#map").innerHTML = pourquoi + ETAPES.map((e, i) => {
     const de = taches.filter(t => t.etape === e);
     const done = de.length && de.every(t => t.etat === "fait");
     const isNow = i === (state.etape ?? etapeDuProjet(taches)) && !done;
@@ -225,7 +233,7 @@ function renderProjHead() {
   el.innerHTML = `<div class="ph${veille ? " veille" : ""}">
     <div class="top"><b>${esc(p.nom || state.sel)}</b><span class="pill ${STATUT_CLS[p.statut] || "s-attente"}">${esc(STATUTS[p.statut] || p.statut || "?")}</span>
       ${p.memoire ? `<span class="cap" style="margin:0">${esc(p.memoire)}</span>` : ""}
-      <span style="margin-left:auto;display:flex;gap:6px"><button class="btn" data-act="newtask">+ Tâche</button><button class="btn${p.statut === "veille" ? " pri" : ""}" data-status="${p.statut === "veille" ? "actif" : "veille"}" data-proj="${esc(state.sel)}">${p.statut === "veille" ? "Réactiver" : "En veille"}</button></span></div>
+      <span style="margin-left:auto;display:flex;gap:6px"><button class="btn" data-act="fiche-projet">Fiche projet</button><button class="btn" data-act="newtask">+ Tâche</button><button class="btn${p.statut === "veille" ? " pri" : ""}" data-status="${p.statut === "veille" ? "actif" : "veille"}" data-proj="${esc(state.sel)}">${p.statut === "veille" ? "Réactiver" : "En veille"}</button></span></div>
     <div class="steps">${steps}</div>
     <div class="cap" style="margin:0">${idx < ETAPES.length ? `Étape ${idx + 1} sur ${ETAPES.length} : ${NOM_ETAPES[ETAPES[idx]]}` : "Toutes les étapes sont terminées"}</div>
     ${live.length ? `<div class="live"><span class="lbl">En direct</span><ul>${live.map(e => `<li><b>${esc(e.agent)}</b> · ${esc(e.role || e.titre || "")}${e.etat === "silencieux" ? " · <span class='pill s-silence'>silencieux</span>" : ""}</li>`).join("")}</ul></div>` : ""}
@@ -278,13 +286,16 @@ function renderLivrable() {
 async function loadProjet() {
   const id = state.sel;
   state.taches = []; state.executions = []; state.hist = null; state.liv = null; state.etape = null;
+  state.jalons = []; state.fiche = null; state.methode = null;
   if (!id) { renderTous(); return; }
 
-  const [t, e, h, l] = await Promise.all([
+  const [t, e, h, l, j, pr] = await Promise.all([
     getJSON(`/api/v2/taches?projet_id=${encodeURIComponent(id)}`),
     getJSON(`/api/v2/executions?projet_id=${encodeURIComponent(id)}`),
     getJSON(`/api/v2/projects/${encodeURIComponent(id)}/historique`),
     getJSON(`/api/v2/projects/${encodeURIComponent(id)}/revisions`),
+    getJSON(`/api/v2/projects/${encodeURIComponent(id)}/jalons`),          // P1
+    getJSON(`/api/v2/ronde?projet_id=${encodeURIComponent(id)}`),          // P4 : prochaines[] + methode_etape
   ]);
 
   if (t.ok && t.data) {
@@ -299,6 +310,16 @@ async function loadProjet() {
   if (e.ok && e.data) state.executions = Array.isArray(e.data) ? e.data : (e.data.executions || []);
   if (h.ok && h.data) state.hist = h.data;
   if (l.ok && l.data) state.liv = l.data;
+  if (j.ok && j.data) state.jalons = j.data.jalons || (Array.isArray(j.data) ? j.data : []);
+  // P2 : la fiche projet vit dans le projet (GET /api/projects → v2.projets[id]) ; on lit l'objet projet.
+  state.fiche = state.projets[id] || null;
+  // P3 : la méthode de l'étape courante est jointe dans `prochaines[].methode_etape` par la ronde.
+  if (pr.ok && pr.data) {
+    const prochaines = pr.data.prochaines || [];
+    const courante = ETAPES[state.etape ?? etapeDuProjet(state.taches)];
+    const hit = prochaines.find(x => x.etape === courante && x.methode_etape);
+    if (hit) state.methode = {etape: courante, texte: hit.methode_etape};
+  }
 
   // enrichit la fiche projet pour la vue Projets (étape, taches) sans re-fetch
   const p = state.projets[id];
@@ -344,8 +365,9 @@ async function nouveauProjet(e) {
   e.preventDefault();
   const nom = $("#np-nom").value.trim();
   if (!nom) { toast("Donne un nom au projet."); return; }
-  const r = await postJSON("/api/projects", {name: nom, memory: $("#np-but").value.trim()});
-  toast(r.ok ? `Projet « ${nom} » créé. claude le découpe.` : "Création refusée (route non branchée ou nom déjà pris).");
+  // P4 : c'est POST /api/v2/projects {nom, objectif} qui crée le projet ET appelle @claude (lancement guidé).
+  const r = await postJSON("/api/v2/projects", {nom, objectif: $("#np-but").value.trim()});
+  toast(r.ok ? `Projet « ${nom} » lancé. claude démarre le cadrage.` : "Création refusée (route non branchée ou nom déjà pris).");
   if (r.ok) { e.target.reset(); await loadProjets(); await loadProjet(); }
 }
 
@@ -417,6 +439,54 @@ async function ouvrirTache(id) {
       : `<li class="cap">Aucun message ni exécution rattaché à cette tâche pour l'instant. « Discuter » ouvre sa conversation : tout ce qui s'y dit s'inscrit ici.</li>`);
 }
 
+// ---------- jalons (P1) : les décisions de Charles ----------
+const JALON_NOM = {J1: "Jalon J1", J2: "Jalon J2", revue: "Revue"};
+const JALON_DECISIONS = {go: ["go", "Continuer"], recycle: ["recycle", "Recycler"], hold: ["hold", "Mettre en veille"], kill: ["kill", "Arrêter"]};
+const JALON_CLS = {go: "s-fait", recycle: "s-cours", hold: "s-veille", kill: "s-bloque", "": "s-attente"};
+const ETAT_CRITERE = {atteint: "atteint", partiel: "partiel", rate: "manqué", a_mesurer: "à mesurer"};
+const CRIT_CLS = {atteint: "crit-ok", partiel: "crit-part", rate: "crit-rate", a_mesurer: "crit-mes"};
+
+// Les étapes antérieures à un jalon (recycle_etape doit être antérieure au jalon).
+// J1 : probleme, etat_art ou concepts ; J2 : jusqu'à essais.
+const JALON_RECYCLE = {J1: ["probleme", "etat_art", "concepts"], J2: ["probleme", "etat_art", "concepts", "conception", "prototype"], revue: ETAPES.slice(0, 7)};
+
+// Rend le bloc « Jalon » d'une étape : les jalons rattachés à cette étape, avec leurs boutons de décision.
+function blocJalons(etape) {
+  // Un jalon J1 vit à la fin de l'étape concepts (1-3), un J2 à la fin de essais, une revue avant lancement.
+  const rattaches = state.jalons.filter(j =>
+    (j.jalon === "J1" && etape === "concepts") ||
+    (j.jalon === "J2" && etape === "essais") ||
+    (j.jalon === "revue" && etape === "lancement"));
+  if (!rattaches.length) return "";
+  const html = rattaches.map(j => {
+    const decise = !!j.decision;
+    const criteres = (j.criteres || []).map(c =>
+      `<li><span class="crit ${CRIT_CLS[c.etat] || "crit-mes"}">${esc(ETAT_CRITERE[c.etat] || c.etat || "?")}</span><span>${esc(c.nom || "")}</span>${c.cible ? `<span class="cap">cible ${esc(c.cible)}${c.mesure ? " · " + esc(c.mesure) : ""}</span>` : ""}</li>`).join("");
+    const risques = (j.risques || []).length ? (j.risques.map(esc).join(" · ")) : "";
+    const boutons = decise ? "" :
+      `<div class="jb">` +
+      `<div class="lbl">Ta décision</div>` +
+      (j.recommandation ? `<div class="cap">recommandation de claude : <b>${esc(j.recommandation)}</b>${j.raison ? " — " + esc(j.raison) : ""}</div>` : "") +
+      `<div class="jb-btns">` +
+      Object.entries(JALON_DECISIONS).map(([v, l]) =>
+        `<button class="btn dec${v === "go" ? " pri" : v === "kill" ? " stop" : ""}" type="button" data-dec="${esc(j.id)}" data-val="${v}">${l}</button>`).join("") +
+      `</div>` +
+      `<label class="lbl" for="recy-${esc(j.id)}">ou recycler vers</label><select id="recy-${esc(j.id)}" data-recy="${esc(j.id)}"><option value="">—</option>${(JALON_RECYCLE[j.jalon] || []).map(e2 => `<option value="${e2}">${NOM_ETAPES[e2]}</option>`).join("")}</select>` +
+      `<label class="lbl" for="not-${esc(j.id)}">note (facultatif)</label><input id="not-${esc(j.id)}" data-not="${esc(j.id)}" placeholder="ex. : on recyle sur la masse">` +
+      `</div>`;
+    return `<div class="jalon">
+      <div class="jalon-hd"><b>${esc(JALON_NOM[j.jalon] || j.jalon)}</b><span class="pill ${JALON_CLS[decise ? j.decision : ""] || "s-attente"}">${decise ? j.decision : "en attente de Charles"}</span>${j.decision_date ? `<span class="cap">${esc(heure(j.decision_date))}</span>` : ""}</div>
+      ${criteres ? `<ul class="crits">${criteres}</ul>` : ""}
+      ${risques ? `<div class="cap">Risques : ${risques}</div>` : ""}
+      ${j.resultats ? `<div class="fc"><div class="lbl">Résultats</div><p>${avecLiens(j.resultats)}</p></div>` : ""}
+      ${j.reste ? `<div class="fc"><div class="lbl">Reste à faire</div><p>${esc(j.reste)}</p></div>` : ""}
+      ${j.decision_note ? `<div class="fc"><div class="lbl">Note de la décision</div><p>${esc(j.decision_note)}</p></div>` : ""}
+      ${boutons}
+    </div>`;
+  }).join("");
+  return `<div class="fc"><div class="lbl">Jalon(s) de cette étape</div>${html}</div>`;
+}
+
 function ouvrirEtape(e) {
   const i = ETAPES.indexOf(e);
   if (i < 0) return;
@@ -425,9 +495,57 @@ function ouvrirEtape(e) {
   const liste = de.length
     ? `<ul class="flist">${de.map(t => { const st = normEtat(t.etat); return `<li><button type="button" data-fiche="${esc(t.id)}"><span class="pill ${ETAT_CLS[st] || "s-afaire"}">${esc(ETAT_TACHE[st] || t.etat)}</span><span>${esc(t.titre)}</span>${t.resultat ? `<span class="cap">${esc(court(t.resultat, 160))}</span>` : ""}</button></li>`; }).join("")}</ul>`
     : `<p class="cap">Aucune tâche à cette étape pour l'instant.</p>`;
+  // La méthode de cette étape (P3) si la ronde l'a jointe ; sinon la définition générique.
+  const methode = (state.methode && state.methode.etape === e)
+    ? `<div class="fc"><div class="lbl">Méthode de l'étape</div><p>${esc(state.methode.texte)}</p></div>`
+    : `<div class="fc"><div class="lbl">Ce que couvre l'étape</div><p>${esc(DEF_ETAPES[e])}</p></div>`;
   ouvrirFiche(enteteFiche(`Étape ${i + 1} sur ${ETAPES.length}`, NOM_ETAPES[e]) +
-    `<div class="fc"><div class="lbl">Ce que couvre l'étape</div><p>${esc(DEF_ETAPES[e])}</p></div>` +
+    methode +
+    blocJalons(e) +
     `<div class="fc"><div class="lbl">Tâches (${fait}/${de.length} faites)</div>${liste}</div>`);
+}
+
+// ---------- décision sur un jalon (Charles) ----------
+async function deciderJalon(jalonId, val) {
+  const j = state.jalons.find(x => String(x.id) === String(jalonId));
+  if (!j) return;
+  const recy = val === "recycle" ? (($("#recy-" + CSS.escape(String(j.id)))?.value) || "") : "";
+  if (val === "recycle" && !recy) { toast("Choisis une étape vers laquelle recycler."); return; }
+  const note = (($("#not-" + CSS.escape(String(j.id)))?.value) || "").trim();
+  const r = await postJSON(`/api/v2/jalons/${encodeURIComponent(j.id)}/decision`,
+    {par: "user", decision: val, note, ...(val === "recycle" ? {recycle_etape: recy} : {})});
+  if (r.ok) { toast(`Jalon ${j.jalon} → ${val}.`); await loadProjet(); }
+  else toast(r.msg || `Décision refusée (déjà décidé, ou route non branchée).`);
+}
+
+// ---------- fiche projet (P2) : l'objectif, le niveau, les hypothèses, les risques, les questions ----------
+function ouvrirFicheProjet() {
+  const id = state.sel; if (!id) return;
+  const p = state.projets[id] || {};
+  const f = state.fiche || {};
+  const meta = `<div class="fm"><span class="pill ${STATUT_CLS[p.statut] || "s-attente"}">${esc(STATUTS[p.statut] || p.statut || "?")}</span>`
+    + (f.niveau ? `<span>Niveau : <b>${esc(f.niveau)}</b></span>` : "")
+    + (f.trl ? `<span>TRL : <b>${esc(f.trl)}</b></span>` : "")
+    + (f.horizon ? `<span>Horizon : <b>${esc(f.horizon)}</b></span>` : "")
+    + (f.code ? `<span>Code : <b>${esc(f.code)}</b></span>` : "")
+    + (f.type ? `<span>Type : <b>${esc(f.type)}</b></span>` : "")
+    + `</div>`;
+  const hypo = (f.hypotheses || []).map(h =>
+    `<li><span class="pill ${h.etat === "confirmee" ? "s-fait" : h.etat === "infirmee" ? "s-bloque" : "s-attente"}">${esc(h.etat || "à vérifier")}</span><span>${esc(h.texte || "")}</span><span class="cap">source : ${esc(h.source || "?")}</span></li>`).join("");
+  const risques = (f.risques || []).map(r =>
+    `<li><span class="cap">${esc(r.type || "")}${r.etape ? " · " + esc(NOM_ETAPES[r.etape] || r.etape) : ""}</span><span>${esc(r.texte || "")}</span></li>`).join("");
+  const questions = (f.questions || []).map(q =>
+    `<li><span>${esc(q.texte || "")}</span>${q.reponse ? `<span class="cap">réponse : ${esc(q.reponse)}</span>` : `<span class="cap" style="color:var(--warn)">sans réponse</span>`}</li>`).join("");
+  const c = f.criteres || [];
+  const contenu =
+    (f.objectif || p.objectif) ? `<div class="fc"><div class="lbl">Objectif</div><p>${esc(f.objectif || p.objectif)}</p></div>` : ""
+    + (f.livrable_attendu || p.livrable_attendu) ? `<div class="fc"><div class="lbl">Livrable attendu</div><p>${esc(f.livrable_attendu || p.livrable_attendu)}</p></div>` : ""
+    + (c.length ? `<div class="fc"><div class="lbl">Critères</div><ul class="flist">${c.map(x => `<li><span>${esc(x.nom || "")}</span>${x.cible ? `<span class="cap">cible : ${esc(x.cible)}</span>` : ""}</li>`).join("")}</ul></div>` : "")
+    + (hypo ? `<div class="fc"><div class="lbl">Hypothèses</div><ul class="flist hypo">${hypo}</ul></div>` : "")
+    + (risques ? `<div class="fc"><div class="lbl">Risques</div><ul class="flist">${risques}</ul></div>` : "")
+    + (questions ? `<div class="fc"><div class="lbl">Questions posées par claude</div><ul class="flist">${questions}</ul></div>` : "")
+    || `<p class="cap">La fiche projet n'est pas encore remplie. claude la remplit pendant le lancement guidé (objectif, niveau, hypothèses, risques, questions).</p>`;
+  ouvrirFiche(enteteFiche("Fiche projet", p.nom || id) + meta + contenu);
 }
 
 // ---------- câblage ----------
@@ -454,12 +572,15 @@ document.addEventListener("click", e => {
   if (rp && (rp.classList.contains("proj") || rp.classList.contains("prow"))) { state.sel = rp.dataset.proj; loadProjet(); go(rp.classList.contains("proj") ? "carte" : state.view); return; }
   // Bouton « Discuter » sur un nœud de tâche : on ouvre la salle, pas de sélection de nœud.
   const d = t.closest("[data-disc]"); if (d) { e.stopPropagation(); return discuter(d.dataset.disc); }
+  // Bouton de décision sur un jalon (Charles) : go / recycle / hold / kill.
+  const dj = t.closest("[data-dec]"); if (dj) { e.stopPropagation(); return deciderJalon(dj.dataset.dec, dj.dataset.val); }
   const fe = t.closest("[data-fiche]"); if (fe) return ouvrirTache(fe.dataset.fiche);
   const sp = t.closest("[data-step]"); if (sp) return ouvrirEtape(sp.dataset.step);
   const nd = t.closest("[data-node]"); if (nd) return ouvrirTache(nd.dataset.node);
   if (t.id === "fiche") return fermerFiche();  // clic sur le fond du dialogue
   const act = t.closest("[data-act]"); if (!act) return;
   if (act.dataset.act === "fermer") return fermerFiche();
+  if (act.dataset.act === "fiche-projet") return ouvrirFicheProjet();
   if (act.dataset.act === "newtask") { const f = $("#taskform"); f.hidden = !f.hidden; if (!f.hidden) $("#tk-t").focus(); }
   if (act.dataset.act === "canceltask") { $("#taskform").hidden = true; }
 });
