@@ -34,6 +34,8 @@ code{font:12.5px var(--mono)}
 .rail .it .st{margin-left:auto;font-size:11px;color:var(--ink3)}
 .rail .proj{display:flex;align-items:center;gap:7px;width:100%;text-align:left;background:none;border:0;border-radius:7px;padding:6px 8px;cursor:pointer;color:var(--ink2);font:inherit}
 .rail .proj[aria-current="true"]{background:var(--slate-soft);color:var(--ink);font-weight:600}
+.rail .proj .pn{flex:1 1 auto;min-width:4ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rail .proj .st{flex:0 1 auto;min-width:0;max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--idle)}
 .dot.actif{background:var(--ok)}.dot.veille{background:var(--idle)}.dot.termine{background:var(--slate-55)}.dot.arrete{background:var(--bad)}.dot.silence{background:var(--warn)}.dot.fait{background:var(--ok)}
 /* ---- centre ---- */
