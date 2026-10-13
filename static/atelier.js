@@ -1,0 +1,353 @@
+/* Atelier R&D · Vaultia — logique de la page.
+   Ne lit que les routes du socle (FICHES-LOTS.md). Chaque route « à venir » est enveloppée :
+   tant que claude n'a pas branché le lot (ou si la réponse est 404/500), l'interface affiche
+   un état vide propre, sans erreur. Aucun jeton, aucune donnée sensible n'est logguée (R3). */
+"use strict";
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+// Les 8 étapes de pilote-rd, dans l'ordre (spec v0.7).
+const ETAPES = ["probleme","etat_art","concepts","conception","prototype","essais","industrialisation","lancement"];
+const NOM_ETAPES = {probleme:"Problème",etat_art:"État de l'art",concepts:"Concepts",conception:"Conception",prototype:"Prototype",essais:"Essais",industrialisation:"Industrialisation",lancement:"Lancement"};
+const STATUTS = {actif:"actif",veille:"en veille",termine:"terminé",arrete:"arrêté"};
+const STATUT_CLS = {actif:"s-actif",veille:"s-veille",termine:"s-attente",arrete:"s-arrete"};
+const ETAT_TACHE = {fait:"fait",cours:"en cours",charles:"attend Charles",afaire:"à faire",bloque:"bloqué"};
+const ETAT_CLS = {fait:"s-fait",cours:"s-cours",charles:"s-charles",afaire:"s-afaire",bloque:"s-bloque"};
+const ETAT_EXEC = {actif:"actif",silencieux:"silencieux",fini:"fini"};
+const ETAT_EXEC_CLS = {actif:"s-actif",silencieux:"s-silence",fini:"s-fait"};
+
+const state = {
+  view: "projets",
+  projets: {},      // id -> {nom, statut, memoire, channels}
+  defaut: "",
+  sel: null,        // id du projet sélectionné
+  taches: [],       // tâches du projet sélectionné
+  etape: null,      // étape courante du projet (calc serveur ou local)
+  executions: [],   // exécutions du projet sélectionné
+};
+
+// ---------- accès réseau : état vide propre si la route n'est pas encore branchée ----------
+async function getJSON(url) {
+  try {
+    const r = await fetch(url, {headers: {"Accept": "application/json"}});
+    if (!r.ok) return {ok: false, data: null};
+    return {ok: true, data: await r.json()};
+  } catch (_) { return {ok: false, data: null}; }
+}
+async function postJSON(url, body) {
+  try {
+    const r = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body || {})});
+    if (!r.ok) return {ok: false, data: null, err: r.status};
+    return {ok: true, data: await r.json().catch(() => null)};
+  } catch (_) { return {ok: false, data: null, err: 0}; }
+}
+
+function toast(m) {
+  const t = $("#toast"); t.textContent = m; t.hidden = false;
+  clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, 3800);
+}
+const heure = ts => { if (ts == null) return ""; try { return new Date(ts * 1000).toLocaleString("fr-CA", {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}); } catch (_) { return ""; } };
+
+// ---------- chargement des projets ----------
+async function loadProjets() {
+  const r = await getJSON("/api/projects");
+  if (!r.ok || !r.data || !r.data.v2) {
+    state.projets = {}; state.defaut = "";
+    $("#note").hidden = false;
+    $("#note").textContent = "Le socle n'a pas encore retourné de projet (ou la route /api/projects n'est pas encore branchée). L'interface est prête : les projets apparaîtront ici dès que la salle en aura.";
+    return;
+  }
+  const v2 = r.data.v2;
+  state.projets = v2.projets || {};
+  state.defaut = v2.defaut || "";
+  if (!state.sel || !state.projets[state.sel]) state.sel = state.defaut || Object.keys(state.projets)[0] || null;
+  $("#note").hidden = true;
+}
+
+// ---------- vue Projets : résumé + une ligne par projet ----------
+function renderProjets() {
+  const ids = Object.keys(state.projets);
+  const actifs = ids.filter(id => state.projets[id].statut === "actif");
+  const veille = ids.filter(id => state.projets[id].statut === "veille");
+  const enDirect = new Set(state.executions.filter(e => e.etat === "actif" || e.etat === "silencieux").map(e => e.agent));
+  const attend = ids.filter(id => (state.projets[id].taches || []).some(t => t.etat === "charles"));
+
+  $("#psum").innerHTML = `
+    <div class="sum"><b>${actifs.length}</b><span>projets actifs</span></div>
+    <div class="sum"><b>${veille.length}</b><span>en veille</span></div>
+    <div class="sum"><b>${enDirect.size}</b><span>agents au travail</span></div>
+    <div class="sum"><b>${attend.length}</b><span>qui t'attendent</span></div>`;
+
+  if (!ids.length) {
+    $("#prows").innerHTML = `<div class="empty">Aucun projet pour l'instant. Crée le premier ci-dessous : claude découpe le travail et assigne les agents.</div>`;
+    return;
+  }
+  $("#prows").innerHTML = ids.map(id => {
+    const p = state.projets[id];
+    const taches = p.taches || [];
+    const fait = taches.filter(t => t.etat === "fait").length;
+    const cours = taches.filter(t => t.etat === "cours" || t.etat === "charles").length;
+    const afaire = taches.length - fait - cours;
+    const agents = [...new Set(taches.map(t => t.responsable).filter(Boolean))];
+    return `<div class="prow${id === state.sel ? " cur" : ""}" data-proj="${esc(id)}">
+      <div><div class="nm">${esc(p.nom || id)}</div><div class="sub"><span class="pill ${STATUT_CLS[p.statut] || "s-attente"}">${esc(STATUTS[p.statut] || p.statut || "?")}</span></div></div>
+      <div>${p.etape ? `<div class="sub">${esc(p.etape)}</div>` : `<div class="sub">étape —</div>`}<div class="bar" title="${fait} fait · ${cours} en cours · ${afaire} à faire"><i class="b-fait" style="flex:${Math.max(fait,0)}"></i><i class="b-cours" style="flex:${Math.max(cours,0)}"></i><i class="b-afaire" style="flex:${Math.max(afaire,1)}"></i></div></div>
+      <div class="sub">${agents.length ? agents.map(esc).join(", ") : "—"}</div>
+      <div class="chips"><button class="btn${p.statut === "veille" ? " pri" : ""}" data-status="${p.statut === "veille" ? "actif" : "veille"}" data-proj="${esc(id)}">${p.statut === "veille" ? "Réactiver" : "En veille"}</button></div>
+    </div>`;
+  }).join("");
+}
+
+// ---------- rail : projets + étape ----------
+function renderRail() {
+  const ids = Object.keys(state.projets);
+  $("#rail-proj").innerHTML = ids.map(id => {
+    const p = state.projets[id];
+    return `<button class="proj" data-proj="${esc(id)}" aria-current="${id === state.sel}"><span class="dot ${p.statut === "actif" ? "actif" : p.statut}"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.nom || id)}</span><span class="st">${p.etape ? esc(p.etape.split(":").pop().trim()) : ""}</span></button>`;
+  }).join("") || `<div class="sub" style="padding:2px 8px;font-size:12px;color:var(--ink3)">aucun projet</div>`;
+}
+
+// ---------- étape du projet (calc local si le serveur ne la donne pas) ----------
+function etapeDuProjet(taches) {
+  for (let i = 0; i < ETAPES.length; i++) {
+    if (taches.some(t => t.etape === ETAPES[i] && t.etat !== "fait")) return i;
+  }
+  return taches.length ? ETAPES.length : 0;
+}
+
+// ---------- vue Équipe : les agents, depuis les exécutions ----------
+function renderEquipe() {
+  const parAgent = {};
+  for (const e of state.executions) {
+    const a = parAgent[e.agent] = parAgent[e.agent] || {agent: e.agent, etat: e.etat, taches: new Set(), dernier: e.dernier_signe || e.debut};
+    if (e.etat === "actif") a.etat = "actif";
+    else if (a.etat !== "actif" && e.etat === "silencieux") a.etat = "silencieux";
+    if (e.titre) a.taches.add(e.titre);
+  }
+  const agents = Object.values(parAgent);
+  const actif = agents.filter(a => a.etat === "actif").length;
+  const silence = agents.filter(a => a.etat === "silencieux").length;
+  const attend = state.taches.filter(t => t.etat === "charles").length;
+
+  $("#esum").innerHTML = `
+    <div class="sum"><b>${actif}</b><span>agent(s) actif(s)</span></div>
+    <div class="sum"><b>${agents.length - actif - silence}</b><span>en attente ou terminé</span></div>
+    <div class="sum"><b style="color:var(--warn)">${silence}</b><span>silencieux depuis 10 min</span></div>
+    <div class="sum"><b style="color:var(--slate)">${attend}</b><span>tâches qui t'attendent</span></div>`;
+
+  if (!state.executions.length && !state.taches.length) {
+    $("#team").innerHTML = `<div class="empty">Aucun agent en cours sur ce projet. Quand claude assigne une tâche, l'agent apparaît ici avec son état, sa tâche et son dernier signe de vie.</div>`;
+    return;
+  }
+  $("#team").innerHTML = agents.map(a => `
+    <div class="agent">
+      <div class="hd"><span class="nm">${esc(a.agent)}</span><span class="pill ${ETAT_EXEC_CLS[a.etat] || "s-attente"}">${esc(ETAT_EXEC[a.etat] || a.etat || "?")}</span></div>
+      <div class="lbl">Tâche</div>
+      <div class="tache">${[...a.taches].map(esc).join(" · ") || "—"}</div>
+      <div class="meta"><span>signe de vie : ${esc(heure(a.dernier)) || "—"}</span></div>
+    </div>`).join("");
+}
+
+// ---------- vue Carte : les 8 étapes, une tâche par nœud ----------
+function renderCarte() {
+  const p = state.sel ? state.projets[state.sel] : null;
+  $("#carte-proj").textContent = p ? (p.nom || state.sel) : "aucun projet sélectionné";
+  const taches = state.taches;
+
+  // options du sélecteur « + Tâche »
+  $("#tk-c").innerHTML = ETAPES.map((e, i) => `<option value="${e}">${i + 1}. ${NOM_ETAPES[e]}</option>`).join("");
+
+  if (!state.sel) { $("#map").innerHTML = ""; return; }
+  const veille = p && p.statut === "veille";
+
+  $("#map").innerHTML = ETAPES.map((e, i) => {
+    const de = taches.filter(t => t.etape === e);
+    const done = de.length && de.every(t => t.etat === "fait");
+    const isNow = i === (state.etape ?? etapeDuProjet(taches)) && !done;
+    return `<div class="col"><h3>${i + 1}. ${NOM_ETAPES[e]}</h3>${
+      de.map(t => `<button class="node${veille ? " veille" : ""}" data-node="${esc(t.id)}" data-s="${t.etat === "fait" ? "fait" : t.etat === "charles" ? "charles" : t.etat === "bloque" ? "bloque" : t.etat === "cours" ? "cours" : "afaire"}">
+        <span class="t">${esc(t.titre)}</span>
+        <span class="w">${esc(t.responsable || "")}${t.critere ? " · " + esc(t.critere) : ""}</span>
+        <span class="w"><span class="pill ${ETAT_CLS[t.etat] || "s-afaire"}">${esc(ETAT_TACHE[t.etat] || t.etat)}</span></span>
+      </button>`).join("") ||
+      (done ? "" : `<div class="w" style="font-size:11.5px;color:var(--ink3)">aucune tâche</div>`)
+    }</div>`;
+  }).join("");
+}
+
+// ---------- en-tête de projet : barre d'étapes + en direct ----------
+function renderProjHead() {
+  const el = $("#projhead");
+  if (!state.sel) { el.hidden = true; el.innerHTML = ""; return; }
+  const p = state.projets[state.sel];
+  const taches = state.taches;
+  const idx = state.etape ?? etapeDuProjet(taches);
+  const veille = p.statut === "veille";
+  const live = state.executions.filter(e => e.etat === "actif" || e.etat === "silencieux");
+
+  const steps = ETAPES.map((e, i) => {
+    const cls = i < idx ? "done" : i === idx ? "now" : "";
+    return `<span class="step ${cls}"><i>${i + 1}</i>${NOM_ETAPES[e]}</span>`;
+  }).join("");
+
+  el.hidden = false;
+  el.innerHTML = `<div class="ph${veille ? " veille" : ""}">
+    <div class="top"><b>${esc(p.nom || state.sel)}</b><span class="pill ${STATUT_CLS[p.statut] || "s-attente"}">${esc(STATUTS[p.statut] || p.statut || "?")}</span>
+      ${p.memoire ? `<span class="cap" style="margin:0">${esc(p.memoire)}</span>` : ""}
+      <span style="margin-left:auto;display:flex;gap:6px"><button class="btn" data-act="newtask">+ Tâche</button><button class="btn${p.statut === "veille" ? " pri" : ""}" data-status="${p.statut === "veille" ? "actif" : "veille"}" data-proj="${esc(state.sel)}">${p.statut === "veille" ? "Réactiver" : "En veille"}</button></span></div>
+    <div class="steps">${steps}</div>
+    <div class="cap" style="margin:0">${idx < ETAPES.length ? `Étape ${idx + 1} sur ${ETAPES.length} : ${NOM_ETAPES[ETAPES[idx]]}` : "Toutes les étapes sont terminées"}</div>
+    ${live.length ? `<div class="live"><span class="lbl">En direct</span><ul>${live.map(e => `<li><b>${esc(e.agent)}</b> · ${esc(e.role || e.titre || "")}${e.etat === "silencieux" ? " · <span class='pill s-silence'>silencieux</span>" : ""}</li>`).join("")}</ul></div>` : ""}
+  </div>`;
+}
+
+// ---------- vue Historique : [[jour, [entrées]]] ----------
+function renderHist() {
+  const el = $("#hlist");
+  if (!state.hist) { el.innerHTML = `<li style="border:0"><span class="empty" style="grid-column:1/-1">Aucun historique pour ce projet. Les exécutions, décisions, messages et révisions apparaîtront ici, par jour.</span></li>`; return; }
+  if (!Array.isArray(state.hist) || !state.hist.length) { el.innerHTML = `<li style="border:0"><span class="empty" style="grid-column:1/-1">Rien dans l'historique pour l'instant.</span></li>`; return; }
+  el.innerHTML = state.hist.map(([jour, entrees]) =>
+    `<div class="day">${esc(jour)}</div>` +
+    entrees.map(en => `<li><time>${esc(heure(en.heure))}</time><span><span class="type">${esc(en.type || "")}</span>${esc(en.acteur || "")} — ${esc(en.resume || "")}</span></li>`).join("")
+  ).join("");
+}
+
+// ---------- vue Livrable : livrables + révisions ----------
+function renderLivrable() {
+  const tbl = $("#liv-tbl"), cap = $("#liv-cap"), rev = $("#liv-rev");
+  if (!state.liv) {
+    tbl.innerHTML = ""; cap.textContent = "Les livrables et les révisions figées de ce projet apparaîtront ici (route /api/v2/projects/{id}/revisions).";
+    rev.innerHTML = `<div class="empty">Aucune révision figée pour l'instant. « Approuver » fige les livrables actuels en P01, P02…</div>`;
+    return;
+  }
+  const liv = state.liv.livrables || [];
+  tbl.innerHTML = `<tr><th>Fichier</th><th>Version</th><th class="n">Empreinte</th></tr>` +
+    (liv.length ? liv.map(l => `<tr><td>${esc(l.chemin)}</td><td>${esc(l.version)}</td><td class="n"><code>${esc((l.empreinte || "").slice(0, 12))}</code></td></tr>`).join("") : `<tr><td colspan="3" class="sub">aucun livrable</td></tr>`);
+  cap.textContent = liv.length ? `${liv.length} livrable(s) au projet.` : "";
+  const revisions = state.liv.revisions || [];
+  rev.innerHTML = revisions.length
+    ? revisions.slice().reverse().map(r => `<div class="rev"><div class="hd"><b>${esc(r.numero)}</b><span class="pill s-fait">figée</span><span class="cap" style="margin:0">${esc(r.approuvee_par || "")} · ${esc(heure(r.heure))}</span></div><div class="chips" style="margin-top:6px">${(r.livrables || []).map(l => `<span class="chip">${esc(l.chemin)} · v${esc(l.version)}</span>`).join("")}</div></div>`).join("")
+    : `<div class="empty">Aucune révision figée. « Approuver » fige les livrables actuels.</div>`;
+  // bouton Approuver (exige approuvee_par: "user" côté serveur)
+  if (!$("#btn-approuver")) {
+    const b = document.createElement("button");
+    b.id = "btn-approuver"; b.className = "btn pri"; b.type = "button";
+    b.textContent = "Approuver (figer P0" + (revisions.length + 1) + ")";
+    b.style.marginBottom = "10px";
+    b.onclick = async () => {
+      const r = await postJSON(`/api/v2/projects/${encodeURIComponent(state.sel)}/revisions`, {approuvee_par: "user"});
+      toast(r.ok ? `Révision ${r.data && r.data.numero ? r.data.numero : ""} figée.` : "Approuver n'a pas abouti (route non branchée ou refus).");
+      if (r.ok) await loadProjet();
+    };
+    rev.parentNode.insertBefore(b, rev);
+  }
+}
+
+// ---------- chargement de tout ce qui dépend du projet sélectionné ----------
+async function loadProjet() {
+  const id = state.sel;
+  state.taches = []; state.executions = []; state.hist = null; state.liv = null; state.etape = null;
+  if (!id) { renderTous(); return; }
+
+  const [t, e, h, l] = await Promise.all([
+    getJSON(`/api/v2/taches?projet_id=${encodeURIComponent(id)}`),
+    getJSON(`/api/v2/executions?projet_id=${encodeURIComponent(id)}`),
+    getJSON(`/api/v2/projects/${encodeURIComponent(id)}/historique`),
+    getJSON(`/api/v2/projects/${encodeURIComponent(id)}/revisions`),
+  ]);
+
+  if (t.ok && t.data) {
+    // v0.2 : {taches, etape, etapes} ; v0.1 : liste nue
+    if (Array.isArray(t.data)) state.taches = t.data;
+    else { state.taches = t.data.taches || []; state.etape = (t.data.etape != null) ? t.data.etape : null; }
+  }
+  if (e.ok && e.data) state.executions = Array.isArray(e.data) ? e.data : (e.data.executions || []);
+  if (h.ok && h.data) state.hist = h.data;
+  if (l.ok && l.data) state.liv = l.data;
+
+  // enrichit la fiche projet pour la vue Projets (étape, taches) sans re-fetch
+  const p = state.projets[id];
+  if (p) {
+    p.taches = state.taches;
+    const idx = state.etape ?? etapeDuProjet(state.taches);
+    p.etape = idx < ETAPES.length ? `Étape ${idx + 1}/${ETAPES.length} · ${NOM_ETAPES[ETAPES[idx]]}` : "terminé";
+  }
+  renderTous();
+}
+
+function renderTous() {
+  renderRail(); renderProjets();
+  $("#projhead").hidden = true;
+  renderProjHead();
+  renderEquipe(); renderCarte(); renderHist(); renderLivrable();
+  syncNav();
+}
+
+// ---------- navigation ----------
+function go(v) {
+  state.view = v;
+  document.querySelectorAll("#tabs [role=tab]").forEach(b => b.setAttribute("aria-selected", b.dataset.v === v));
+  ["projets", "equipe", "carte", "hist", "livrable"].forEach(x => { const s = $("#v-" + x); if (s) s.hidden = (x !== v); });
+  syncNav();
+}
+function syncNav() {
+  const m = $("#msel");
+  if (m) m.innerHTML = [["projets","Projets"],["equipe","Équipe"],["carte","Carte"],["hist","Historique"],["livrable","Livrable"]].map(([v,l]) => `<option value="${v}"${v === state.view ? " selected" : ""}>${l}</option>`).join("");
+  // rail aria-current sur la vue
+  document.querySelectorAll(".rail [data-go]").forEach(b => b.setAttribute("aria-current", b.dataset.go === state.view));
+}
+
+// ---------- actions ----------
+async function changerStatut(id, statut) {
+  const r = await postJSON(`/api/v2/projects/${encodeURIComponent(id)}/status`, {status: statut});
+  toast(r.ok ? `${id} → ${STATUTS[statut] || statut}` : `Changement refusé (route non branchée ou statut inconnu).`);
+  if (r.ok) { await loadProjets(); await loadProjet(); }
+}
+
+async function nouveauProjet(e) {
+  e.preventDefault();
+  const nom = $("#np-nom").value.trim();
+  if (!nom) { toast("Donne un nom au projet."); return; }
+  const r = await postJSON("/api/projects", {name: nom, memory: $("#np-but").value.trim()});
+  toast(r.ok ? `Projet « ${nom} » créé. claude le découpe.` : "Création refusée (route non branchée ou nom déjà pris).");
+  if (r.ok) { e.target.reset(); await loadProjets(); await loadProjet(); }
+}
+
+async function nouvelleTache(e) {
+  e.preventDefault();
+  const titre = $("#tk-t").value.trim();
+  if (!titre || !state.sel) { toast("Donne un titre à la tâche."); return; }
+  // La route POST /api/v2/taches est du lot de claude ; on tente, et on le dit si absent.
+  const r = await postJSON(`/api/v2/taches`, {projet_id: state.sel, titre, etape: $("#tk-c").value, responsable: $("#tk-r").value, equipe: [{agent: $("#tk-r").value, role: "responsable"}]});
+  toast(r.ok ? "Tâche ajoutée." : "Ajout refusé (route POST /api/v2/taches non branchée pour l'instant).");
+  if (r.ok) { e.target.hidden = true; await loadProjet(); }
+}
+
+// ---------- câblage ----------
+document.addEventListener("click", e => {
+  const t = e.target;
+  const tab = t.closest("#tabs [role=tab]"); if (tab) return go(tab.dataset.v);
+  const g = t.closest("[data-go]"); if (g) return go(g.dataset.go);
+  const row = t.closest(".prow[data-proj]"); if (row) { if (!t.closest("button")) { state.sel = row.dataset.proj; loadProjet(); } return; }
+  const rp = t.closest("[data-proj]");
+  const st = t.closest("[data-status]");
+  if (st) { e.stopPropagation(); return changerStatut(st.dataset.proj, st.dataset.status); }
+  if (rp && (rp.classList.contains("proj") || rp.classList.contains("prow"))) { state.sel = rp.dataset.proj; loadProjet(); go(rp.classList.contains("proj") ? "carte" : state.view); return; }
+  const nd = t.closest("[data-node]"); if (nd) { /* sélection de tâche : sujet de la conversation (géré par la salle) */ nd.classList.add("sel"); return; }
+  const act = t.closest("[data-act]"); if (!act) return;
+  if (act.dataset.act === "newtask") { const f = $("#taskform"); f.hidden = !f.hidden; if (!f.hidden) $("#tk-t").focus(); }
+  if (act.dataset.act === "canceltask") { $("#taskform").hidden = true; }
+});
+$("#msel").addEventListener("change", e => go(e.target.value));
+$("#newproj").addEventListener("submit", nouveauProjet);
+$("#taskform").addEventListener("submit", nouvelleTache);
+window.addEventListener("resize", () => {});
+
+// ---------- démarrage ----------
+(async function init() {
+  try { const v = localStorage.getItem("rd-view"); if (v) state.view = v; } catch (_) {}
+  await loadProjets();
+  await loadProjet();
+  go(state.view || "projets");
+})();

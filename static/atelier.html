@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Atelier R&amp;D · Vaultia</title>
+<link rel="stylesheet" href="/static/atelier.css">
+</head>
+<body>
+<div class="mtop">
+  <span class="brand"><svg class="logo" viewBox="100 180 312 222" aria-hidden="true"><path fill-rule="evenodd" fill="currentColor" d="M106 185.5H406L256 397Z M164.59 185.5H347.41L256 314.38Z"/><path fill-rule="evenodd" fill="currentColor" fill-opacity=".55" d="M164.59 185.5H347.41L256 314.38Z M202.09 185.5H309.91L256 261.51Z"/><path fill-rule="evenodd" fill="currentColor" fill-opacity=".3" d="M202.09 185.5H309.91L256 261.51Z M234.91 185.5H277.09L256 215.24Z"/></svg>Vaultia</span>
+  <label for="msel" class="lbl" hidden>Aller à</label>
+  <select id="msel" aria-label="Aller à"></select>
+</div>
+
+<div class="app">
+  <aside class="rail" aria-label="Atelier R&D">
+    <div class="brand"><svg class="logo" viewBox="100 180 312 222" aria-hidden="true"><path fill-rule="evenodd" fill="currentColor" d="M106 185.5H406L256 397Z M164.59 185.5H347.41L256 314.38Z"/><path fill-rule="evenodd" fill="currentColor" fill-opacity=".55" d="M164.59 185.5H347.41L256 314.38Z M202.09 185.5H309.91L256 261.51Z"/><path fill-rule="evenodd" fill="currentColor" fill-opacity=".3" d="M202.09 185.5H309.91L256 261.51Z M234.91 185.5H277.09L256 215.24Z"/></svg>Vaultia<small style="flex-basis:100%">Atelier R&amp;D</small></div>
+    <div>
+      <h4>Projets</h4>
+      <div id="rail-proj"></div>
+      <button class="it" data-go="projets">Tous les projets</button>
+    </div>
+    <div>
+      <h4>Atelier R&amp;D</h4>
+      <button class="it" data-go="equipe" aria-current="true">Équipe</button>
+      <button class="it" data-go="carte">Carte</button>
+      <button class="it" data-go="hist">Historique</button>
+      <button class="it" data-go="livrable">Livrable</button>
+    </div>
+  </aside>
+
+  <main class="main" id="main">
+    <div class="mhead"><h1>Atelier R&amp;D</h1><span class="sub" id="mhead-sub"></span></div>
+    <div class="note" id="note" hidden></div>
+
+    <nav class="tabs" role="tablist" id="tabs">
+      <button role="tab" aria-selected="true" data-v="projets">Projets</button>
+      <button role="tab" aria-selected="false" data-v="equipe">Équipe</button>
+      <button role="tab" aria-selected="false" data-v="carte">Carte</button>
+      <button role="tab" aria-selected="false" data-v="hist">Historique</button>
+      <button role="tab" aria-selected="false" data-v="livrable">Livrable</button>
+    </nav>
+
+    <div id="projhead" hidden></div>
+
+    <section id="v-projets">
+      <div class="summary" id="psum"></div>
+      <div id="prows"></div>
+      <div class="panel">
+        <h3>Nouveau projet</h3>
+        <form class="form" id="newproj">
+          <label class="lbl" for="np-nom">Nom</label><input id="np-nom" placeholder="Ex. : boîtier pour capteur de porte">
+          <label class="lbl" for="np-but">Objectif, en une ou deux phrases</label><textarea id="np-but" rows="2" placeholder="Ex. : tenir un capteur Zigbee sur un cadre de porte"></textarea>
+          <div><button class="btn pri" type="submit">Lancer le projet</button> <span class="cap">claude découpe le travail et assigne les agents.</span></div>
+        </form>
+      </div>
+    </section>
+
+    <section id="v-equipe" hidden>
+      <div class="summary" id="esum"></div>
+      <div class="team" id="team"></div>
+    </section>
+
+    <section id="v-carte" hidden>
+      <div class="chips" style="margin-bottom:8px;justify-content:space-between;width:100%"><span class="cap" id="carte-proj"></span><button class="btn pri" data-act="newtask">+ Tâche</button></div>
+      <form class="panel form" id="taskform" hidden>
+        <h3>Nouvelle tâche dans ce projet</h3>
+        <label class="lbl" for="tk-t">Titre</label><input id="tk-t" placeholder="Ex. : vérifier le jeu des tenons après impression">
+        <label class="lbl" for="tk-c">Étape</label><select id="tk-c"></select>
+        <label class="lbl" for="tk-r">Responsable</label><select id="tk-r"><option>claude</option><option>codex</option><option>qwencode</option><option>grok</option><option>gemini</option><option>Charles</option></select>
+        <div><button class="btn pri" type="submit">Ajouter la tâche</button> <button class="btn" type="button" data-act="canceltask">Annuler</button></div>
+      </form>
+      <div class="legend"><span class="pill s-fait">fait</span><span class="pill s-cours">en cours</span><span class="pill s-afaire">à faire</span><span class="pill s-charles">attend Charles</span><span class="pill s-bloque">bloqué</span></div>
+      <div class="mapbox" id="mapbox"><svg class="links" id="links"></svg><div class="map" id="map"></div></div>
+      <p class="cap">Clique une tâche : elle devient le sujet de la conversation de l'atelier, et tous les agents le voient.</p>
+    </section>
+
+    <section id="v-hist" hidden>
+      <div class="panel"><ul class="timeline" id="hlist"></ul></div>
+    </section>
+
+    <section id="v-livrable" hidden>
+      <div class="grid2">
+        <div class="panel"><h3>Livrables</h3><div class="tblw"><table id="liv-tbl"></table></div><p class="cap" id="liv-cap"></p></div>
+        <div class="panel"><h3>Révisions figées</h3><div id="liv-rev"></div></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<button class="fab" id="fab" data-act="openchat" hidden>Conversation</button>
+<div class="toast" id="toast" hidden></div>
+<script src="/static/atelier.js"></script>
+</body>
+</html>
