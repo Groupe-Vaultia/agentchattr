@@ -365,7 +365,8 @@ document.addEventListener("click", e => {
   const tab = t.closest("#tabs [role=tab]"); if (tab) return go(tab.dataset.v);
   const g = t.closest("[data-go]"); if (g) return go(g.dataset.go);
   // Un clic sur un projet ouvre sa carte de tâches (avant : il ne faisait que le surligner).
-  const row = t.closest(".prow[data-proj]"); if (row) { if (!t.closest("button")) { state.sel = row.dataset.proj; loadProjet(); go("carte"); } return; }
+  // Les boutons de la ligne (« En veille ») passent au gestionnaire [data-status] plus bas.
+  const row = t.closest(".prow[data-proj]"); if (row && !t.closest("button")) { state.sel = row.dataset.proj; loadProjet(); go("carte"); return; }
   const rp = t.closest("[data-proj]");
   const st = t.closest("[data-status]");
   if (st) { e.stopPropagation(); return changerStatut(st.dataset.proj, st.dataset.status); }
