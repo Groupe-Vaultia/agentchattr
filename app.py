@@ -18,6 +18,8 @@ from store import MessageStore
 from rules import RuleStore
 from summaries import SummaryStore
 from jobs import JobStore
+import jobs as _jobs_mod
+from executions import ExecutionStore
 from schedules import ScheduleStore, parse_schedule_spec
 from router import Router
 from agents import AgentTrigger
@@ -34,6 +36,7 @@ store: MessageStore | None = None
 rules: RuleStore | None = None
 summaries: SummaryStore | None = None
 jobs: JobStore | None = None
+executions: ExecutionStore | None = None  # SOCLE-SHOP S3
 schedules: ScheduleStore | None = None
 router: Router | None = None
 agents: AgentTrigger | None = None
@@ -259,7 +262,7 @@ def _install_security_middleware(token: str, cfg: dict):
 
 
 def configure(cfg: dict, session_token: str = ""):
-    global store, rules, summaries, jobs, schedules, router, agents, registry, session_store, session_engine, config
+    global store, rules, summaries, jobs, executions, schedules, router, agents, registry, session_store, session_engine, config
     config = cfg
     # --- Security: store the session token and install middleware ---
     _install_security_middleware(session_token, cfg)
@@ -296,6 +299,7 @@ def configure(cfg: dict, session_token: str = ""):
 
     jobs = JobStore(str(jobs_path))
     jobs.on_change(_on_job_change)
+    executions = ExecutionStore(str(Path(data_dir) / "executions.json"))
 
     schedules = ScheduleStore(str(Path(data_dir) / "schedules.json"))
     schedules.on_change(_on_schedule_change)
@@ -2355,6 +2359,126 @@ async def assign_channel_v2(request: Request):
     if not _projets.assigner_canal(canal, projet_id, par_id=True):
         return JSONResponse({"error": "projet inconnu"}, status_code=404)
     return JSONResponse({"ok": True, **_projets.lister()})
+
+
+# SOCLE-SHOP S2 : taches de projet (un job avec projet_id, etape, responsable, equipe, preuve).
+@app.get("/api/v2/taches")
+async def list_taches(projet_id: str):
+    if not _projets.existe(projet_id):
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    taches = jobs.taches(projet_id)
+    return JSONResponse({"taches": taches, "etape": _jobs_mod.etape_du_projet(taches),
+                         "etapes": list(_jobs_mod.ETAPES)})
+
+
+@app.post("/api/v2/taches")
+async def create_tache(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    projet_id = str(body.get("projet_id", "")).strip()
+    if not _projets.existe(projet_id):
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    titre = str(body.get("titre", "")).strip()
+    if not titre:
+        return JSONResponse({"error": "titre requis"}, status_code=400)
+    tache, err = jobs.create_tache(
+        projet_id, titre, str(body.get("etape", "")), str(body.get("responsable", "")),
+        created_by=str(body.get("created_by", "user")), channel=str(body.get("channel", "general")),
+        equipe=body.get("equipe") or [], critere=str(body.get("critere", "")),
+        **{c: str(body.get(c, "")) for c in ("incertitude", "hypothese", "methode")})
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
+    return JSONResponse(tache)
+
+
+@app.patch("/api/v2/taches/{tache_id}")
+async def update_tache(tache_id: int, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "objet attendu"}, status_code=400)
+    tache, err = jobs.update_tache(tache_id, body)
+    if err:
+        return JSONResponse({"error": err}, status_code=404 if err == "tache inconnue" else 400)
+    return JSONResponse(tache)
+
+
+# SOCLE-SHOP S3 : executions et evenements (panneau « En direct »).
+@app.get("/api/v2/executions")
+async def list_executions(projet_id: str = "", tache_id: int | None = None):
+    if projet_id and not _projets.existe(projet_id):
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    return JSONResponse({"executions": executions.lister(projet_id or None, tache_id)})
+
+
+@app.post("/api/v2/executions")
+async def start_execution(request: Request):
+    """Demarre une execution sur une tache. Refus : tache inconnue, projet pas actif (veille, arrete, termine),
+    ou essai sans incertitude / hypothese / methode / critere ecrits avant (RS&DE)."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    try:
+        tache_id = int(body.get("tache_id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "tache_id requis"}, status_code=400)
+    tache = jobs.get(tache_id)
+    if not tache or not tache.get("projet_id"):
+        return JSONResponse({"error": "tache inconnue"}, status_code=404)
+    info = _projets.memoire_projet(tache["projet_id"])
+    if info is None:
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    if info["statut"] != "actif":
+        return JSONResponse({"error": f"projet {info['statut']} : aucune execution"}, status_code=409)
+    if not _jobs_mod.essai_pret(tache):
+        return JSONResponse({"error": "essai : incertitude, hypothese, methode et critere d'abord"},
+                            status_code=409)
+    agent = str(body.get("agent", "")).strip()
+    if not agent:
+        return JSONResponse({"error": "agent requis"}, status_code=400)
+    e = executions.demarrer(tache_id, tache["projet_id"], agent, str(body.get("role", "producteur")),
+                            str(body.get("consigne", "")), info["memoire"])
+    return JSONResponse(e)
+
+
+@app.post("/api/v2/executions/{exec_id}/signe")
+async def execution_signe(exec_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    e = executions.signe(exec_id, str(body.get("outil", "")), str(body.get("resume", "")))
+    if e is None:
+        return JSONResponse({"error": "execution inconnue"}, status_code=404)
+    return JSONResponse(e)
+
+
+@app.post("/api/v2/executions/{exec_id}/fin")
+async def execution_fin(exec_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    try:
+        e = executions.terminer(exec_id, str(body.get("issue", "")))
+    except ValueError as err:
+        return JSONResponse({"error": str(err)}, status_code=400)
+    if e is None:
+        return JSONResponse({"error": "execution inconnue"}, status_code=404)
+    return JSONResponse(e)
+
+
+@app.get("/api/v2/executions/{exec_id}/evenements")
+async def execution_evenements(exec_id: str):
+    ev = executions.evenements(exec_id)
+    if ev is None:
+        return JSONResponse({"error": "execution inconnue"}, status_code=404)
+    return JSONResponse({"evenements": ev})
 
 
 # --- Ajouter une IA par lien (agent API OpenAI-compatible) (Vaultia) ---
