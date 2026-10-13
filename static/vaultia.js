@@ -74,13 +74,18 @@
   const jget = (u) => appel(u).then((r) => r.json());
   const jpost = (u, b) => appel(u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b || {}) }).then((r) => r.json());
   const sanitize = (s) => s.trim().toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 20);
+  // Nom de conversation tel que le serveur l'accepte (^[a-z0-9][a-z0-9-]{0,19}$) : accents ramenés à
+  // leur lettre (« Création » donnait « cration »), espaces en tirets.
+  const nomCanal = (s) => (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim()
+    .replace(/[\s_]+/g, "-").replace(/[^a-z0-9-]/g, "").replace(/-+/g, "-").replace(/^-+/, "").slice(0, 20).replace(/-+$/, "");
 
   // ---------- fenêtres ----------
-  function overlay(titre, corps, avecTermine) {
+  function overlay(titre, corps, avecTermine, surFermer) {
     const fond = el("div", { class: "vt-fond", style: "position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;" });
     const boite = el("div", { class: "vt-boite", role: "dialog", "aria-modal": "true", "aria-label": titre, tabindex: "-1" });
     function surTouche(ev) { if (ev.key === "Escape") fermer(); }
-    function fermer() { fond.remove(); document.removeEventListener("keydown", surTouche); }
+    function fermer() { fond.remove(); document.removeEventListener("keydown", surTouche); if (surFermer) surFermer(); }
+    fond.fermer = fermer;
     fond.addEventListener("click", (ev) => { if (ev.target === fond) fermer(); });
     document.addEventListener("keydown", surTouche);
     boite.append(el("div", { class: "vt-tete-boite" }, el("h2", {}, titre),
@@ -98,6 +103,31 @@
   }
   const btn = (t, on, principal) => el("button", { class: "vt-btn" + (principal ? " principal" : ""), type: "button", onclick: on }, t);
   const pied = (...enfants) => el("div", { style: "display:flex;justify-content:flex-end;gap:8px;margin-top:16px;" }, ...enfants);
+
+  // prompt(), confirm() et alert() natifs sont ignorés EN SILENCE dans un iframe sans « allow-modals » :
+  // c'est le cas du navigateur simple de VS Code, où « + Conversation » ne faisait plus rien.
+  // Ces trois boîtes vivent dans la page et marchent partout.
+  function demander(titre, libelle, valeur) {
+    return new Promise((rendre) => {
+      let reponse = null;
+      const saisie = el("input", { type: "text", autocomplete: "off", spellcheck: "false" });
+      saisie.value = valeur || "";
+      const valider = () => { reponse = saisie.value; fond.fermer(); };
+      saisie.addEventListener("keydown", (ev) => { if (ev.key === "Enter") { ev.preventDefault(); valider(); } });
+      const corps = el("div", {}, champ(libelle, saisie), pied(btn("Annuler", () => fond.fermer()), btn("OK", valider, true)));
+      const fond = overlay(titre, corps, false, () => rendre(reponse));
+      saisie.focus(); saisie.select();   // comme prompt() : on tape tout de suite, au doigt aussi
+    });
+  }
+  function confirmer(titre, message, action) {
+    return new Promise((rendre) => {
+      let oui = false;
+      const corps = el("div", {}, el("p", {}, message),
+        pied(btn("Annuler", () => fond.fermer()), btn(action || "OK", () => { oui = true; fond.fermer(); }, true)));
+      const fond = overlay(titre, corps, false, () => rendre(oui));
+    });
+  }
+  const avertir = (message, titre) => overlay(titre || "Attention", el("p", {}, message), true);
 
   function ouvrirAjout() {
     const nom = el("input", { placeholder: "claude-2, mon-modele…" }), label = el("input", { placeholder: "Nom affiché" }),
@@ -183,11 +213,22 @@
 
   // Les onglets de canaux sont masqués quand le menu est là : le menu doit donc tout porter,
   // y compris renommer (fonction d'onglet) et les non-lus.
-  function renommer(nom, projet) {
-    const n = (prompt("Nouveau nom de la conversation :", nom) || "").trim().toLowerCase();
-    if (!n || n === nom) return;
-    if (!/^[a-z0-9][a-z0-9-]{0,19}$/.test(n)) { alert("Nom refusé : lettres minuscules, chiffres et tirets, 20 caractères au plus."); return; }
-    if (window.ws) window.ws.send(JSON.stringify({ type: "channel_rename", old_name: nom, new_name: n }));
+  // Un envoi sur une WebSocket fermée se perd sans erreur : on le dit plutôt que de ne rien faire.
+  function envoyer(objet) {
+    if (window.ws && window.ws.readyState === 1) { window.ws.send(JSON.stringify(objet)); return true; }
+    avertir("La salle n'est pas connectée au serveur. Recharge la page, puis réessaie.");
+    return false;
+  }
+  const NOM_REFUSE = "Nom refusé : il faut au moins une lettre ou un chiffre (20 caractères au plus).";
+
+  async function renommer(nom, projet) {
+    const saisi = await demander("Renommer la conversation", "Nouveau nom", nom);
+    if (saisi === null) return;
+    const n = nomCanal(saisi);
+    if (!n) { avertir(NOM_REFUSE); return; }
+    if (n === nom) return;
+    if (canaux().includes(n)) { avertir("Une conversation « " + n + " » existe déjà."); return; }
+    if (!envoyer({ type: "channel_rename", old_name: nom, new_name: n })) return;
     if (window.activeChannel === nom && window._setActiveChannel) window._setActiveChannel(n);
     setTimeout(async () => { if (projet) await jpost("/api/projects/assign", { channel: n, project: projet }); rendre(); }, 400);
   }
@@ -205,10 +246,10 @@
         el("button", { class: "vt-geste", type: "button", title: "Renommer la conversation", "aria-label": "Renommer la conversation " + nom,
           onclick: (e) => { e.stopPropagation(); renommer(nom, projet); } }, ico("crayon", 14)),
         el("button", { class: "vt-geste vt-suppr", type: "button", title: "Supprimer la conversation", "aria-label": "Supprimer la conversation " + nom,
-          onclick: (e) => {
+          onclick: async (e) => {
             e.stopPropagation();
-            if (!confirm("Supprimer la conversation « " + nom + " » ? Cette action est définitive.")) return;
-            if (window.ws) window.ws.send(JSON.stringify({ type: "channel_delete", name: nom }));
+            if (!(await confirmer("Supprimer la conversation", "Supprimer « " + nom + " » ? Cette action est définitive.", "Supprimer"))) return;
+            if (!envoyer({ type: "channel_delete", name: nom })) return;
             jpost("/api/projects/assign", { channel: nom, project: "" });
             if (window.activeChannel === nom && window.switchChannel) window.switchChannel("general");
             setTimeout(rendre, 400);
@@ -225,9 +266,19 @@
       if (canal) { await jpost("/api/projects/assign", { channel: canal, project: projet }); rendre(); }
     });
   }
-  function nouvelleConversation(projet) {
-    const n = sanitize(prompt("Nom de la conversation :") || ""); if (!n) return;
-    if (!canaux().includes(n) && window.ws) { if (window._setPendingChannelSwitch) window._setPendingChannelSwitch(n); window.ws.send(JSON.stringify({ type: "channel_create", name: n })); }
+  async function nouvelleConversation(projet) {
+    const saisi = await demander("Nouvelle conversation", "Nom de la conversation");
+    if (saisi === null) return;
+    const n = nomCanal(saisi);
+    if (!n) { avertir(NOM_REFUSE); return; }
+    if (canaux().includes(n)) {
+      // Elle existe déjà (même nom, ou nom tronqué à 20 caractères) : on l'ouvre au lieu de ne rien faire.
+      if (window.switchChannel) window.switchChannel(n);
+    } else {
+      if (window._setPendingChannelSwitch) window._setPendingChannelSwitch(n);
+      if (!envoyer({ type: "channel_create", name: n })) return;
+    }
+    fermerSiMobile();
     setTimeout(async () => { if (projet) await jpost("/api/projects/assign", { channel: n, project: projet }); rendre(); }, 400);
   }
   const ajout = (fn) => el("div", { class: "vt-ajout", role: "button", tabindex: "0", onclick: fn, onkeydown: auClavier(fn) }, ico("plus", 14), "Conversation");
@@ -241,7 +292,7 @@
 
     liste.append(el("div", { class: "vt-titre" }, el("span", {}, "Projets"),
       el("button", { class: "vt-plus", type: "button", title: "Nouveau projet", "aria-label": "Nouveau projet",
-        onclick: async () => { const n = prompt("Nom du projet :"); if (n && n.trim()) { await jpost("/api/projects", { name: n.trim() }); rendre(); } } }, ico("plus", 15))));
+        onclick: async () => { const n = await demander("Nouveau projet", "Nom du projet"); if (n && n.trim()) { await jpost("/api/projects", { name: n.trim() }); rendre(); } } }, ico("plus", 15))));
 
     Object.keys(projets).forEach((nom) => {
       const p = projets[nom]; const actif = d.actif === nom; const open = expanded === nom;
@@ -472,7 +523,7 @@
         catch (e) { /* le toast a déjà dit pourquoi ; on continue avec les suivantes */ }
       }
       occupe(b, false);
-      if (files.length && ok === 0) alert("La photo n'a pas pu être jointe. Réessaie, ou choisis une image plus petite.");
+      if (files.length && ok === 0) avertir("La photo n'a pas pu être jointe. Réessaie, ou choisis une image plus petite.");
       input.value = "";
     });
     const pbtn = el("button", { id: "vaultia-photo-btn", type: "button", title: "Joindre une photo", "aria-label": "Joindre une photo", onclick: () => input.click() }, ico("photo", 19));
@@ -488,7 +539,7 @@
       let ok = 0;
       for (const f of files) { try { if (window.uploadImage) { await window.uploadImage(f); ok++; } } catch (e) {} }
       occupe(b, false);
-      if (files.length && ok === 0) alert("Le document n'a pas pu être joint : type non accepté ou fichier trop volumineux.");
+      if (files.length && ok === 0) avertir("Le document n'a pas pu être joint : type non accepté ou fichier trop volumineux.");
       dinput.value = "";
     });
     const dbtn = el("button", { id: "vaultia-doc-btn", type: "button", title: "Joindre un document", "aria-label": "Joindre un document", onclick: () => dinput.click() }, ico("trombone", 19));
