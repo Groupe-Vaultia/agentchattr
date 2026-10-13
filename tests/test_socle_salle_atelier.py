@@ -1,6 +1,6 @@
 """Server and MCP channel labels for Shop task conversations.
 
-v0.4 (2026-10-13, codex): preserve project labels for orphaned task channels.
+v0.5 (2026-10-13, codex): name orphaned task-channel tests for project retention.
 """
 
 import asyncio
@@ -70,11 +70,11 @@ class SocleSalleAtelierTests(unittest.TestCase):
                          (self.beta, None, ""))
         self.assertIn("projet inconnu", app._etiquettes("missing", None, canal_tache(self.task["id"]))[2])
 
-    def test_orphan_task_channel_stays_untagged_even_if_a_project_is_assigned(self):
+    def test_orphan_task_channel_keeps_its_assigned_project(self):
         projects.assigner_canal("tache-99", self.alpha, par_id=True)
         self.assertEqual(app._etiquettes(None, None, "tache-99"), (self.alpha, None, ""))
 
-    def test_mcp_send_in_orphan_task_channel_stays_untagged(self):
+    def test_mcp_send_in_orphan_task_channel_keeps_its_assigned_project(self):
         projects.assigner_canal("tache-99", self.alpha, par_id=True)
         patchers = [
             mock.patch.object(mcp_bridge, "store", self.messages),
