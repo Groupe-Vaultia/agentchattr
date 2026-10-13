@@ -8,6 +8,7 @@ v2 (12 octobre 2026, socle de la Shop, SOCLE-SHOP.md S1) : plusieurs projets act
 - Le fichier v1 ({"projets": {nom: ...}, "actif": nom}) est migre au premier chargement ; l'original est
   garde en projects.v1.json. L'API v1 (projets indexes par nom, `actif`) reste servie par lister().
 - Routes v1 : le nom exact passe avant l'identifiant ; creer() ne cherche que le nom exact (revue codex e49c86e).
+- Routes v2 (/api/v2/projects/{projet_id}/...) : par_id=True, identifiant strict, aucune ambiguite (revue codex msg 2100).
 """
 from __future__ import annotations
 import json, os, re, threading, time, unicodedata
@@ -96,13 +97,16 @@ def _par_nom(nom: str) -> str:
     return ""
 
 
-def _resoudre(cle: str) -> str:
+def _resoudre(cle: str, par_id: bool = False) -> str:
     """Nom exact (routes v1) d'abord, puis identifiant ; '' si inconnu. Appeler sous _LOCK.
+    par_id=True (routes v2) : identifiant strict, jamais le nom.
 
     Le nom passe avant l'identifiant : apres migration, `Café` a l'ID `cafe`, et un autre projet
     peut s'appeler exactement `cafe` ; la route v1 /api/projects/cafe vise alors ce dernier."""
     if not cle:
         return ""
+    if par_id:
+        return cle if cle in _state["projets"] else ""
     return _par_nom(cle) or (cle if cle in _state["projets"] else "")
 
 
@@ -135,9 +139,9 @@ def creer(nom: str, memoire: str = "") -> str:
         return pid
 
 
-def definir_memoire(cle: str, memoire: str) -> bool:
+def definir_memoire(cle: str, memoire: str, par_id: bool = False) -> bool:
     with _LOCK:
-        pid = _resoudre(cle)
+        pid = _resoudre(cle, par_id)
         if not pid:
             return False
         _state["projets"][pid]["memoire"] = memoire
@@ -146,11 +150,11 @@ def definir_memoire(cle: str, memoire: str) -> bool:
         return True
 
 
-def definir_statut(cle: str, statut: str) -> bool:
+def definir_statut(cle: str, statut: str, par_id: bool = False) -> bool:
     if statut not in STATUTS:
         return False
     with _LOCK:
-        pid = _resoudre(cle)
+        pid = _resoudre(cle, par_id)
         if not pid:
             return False
         _state["projets"][pid]["statut"] = statut
@@ -170,21 +174,22 @@ def activer(cle: str) -> bool:
         return True
 
 
-def supprimer(cle: str) -> None:
+def supprimer(cle: str, par_id: bool = False) -> bool:
     with _LOCK:
-        pid = _resoudre(cle)
+        pid = _resoudre(cle, par_id)
         if not pid:
-            return
+            return False
         _state["projets"].pop(pid, None)
         if _state["defaut"] == pid:
             _state["defaut"] = ""
         _sauver()
+        return True
 
 
-def assigner_canal(canal: str, projet: str) -> bool:
+def assigner_canal(canal: str, projet: str, par_id: bool = False) -> bool:
     """Rattache un canal a un projet ; projet vide = le detacher. Un canal n'appartient qu'a un projet."""
     with _LOCK:
-        pid = _resoudre(projet)
+        pid = _resoudre(projet, par_id)
         if projet and not pid:
             return False
         for autre, p in _state["projets"].items():

@@ -2307,6 +2307,56 @@ async def assign_channel(request: Request):
     return JSONResponse({"ok": True, **_projets.lister()})
 
 
+# SOCLE-SHOP S1 : routes v2, identifiant strict (jamais le nom). Un nom egal a l'ID d'un autre projet
+# ne peut donc pas viser le mauvais projet (revue codex msg 2100). Les routes v1 ci-dessus restent par nom.
+@app.post("/api/v2/projects/{projet_id}/memory")
+async def set_project_memory_v2(projet_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    if not _projets.definir_memoire(projet_id, str(body.get("memory", "")), par_id=True):
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/v2/projects/{projet_id}/status")
+async def set_project_status_v2(projet_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    statut = str(body.get("status", "")).strip()
+    if statut not in _projets.STATUTS:
+        return JSONResponse({"error": f"statut parmi {', '.join(_projets.STATUTS)}"}, status_code=400)
+    if not _projets.definir_statut(projet_id, statut, par_id=True):
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    return JSONResponse({"ok": True, **_projets.lister()})
+
+
+@app.delete("/api/v2/projects/{projet_id}")
+async def delete_project_v2(projet_id: str):
+    if not _projets.supprimer(projet_id, par_id=True):
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    return JSONResponse({"ok": True, **_projets.lister()})
+
+
+@app.post("/api/v2/projects/assign")
+async def assign_channel_v2(request: Request):
+    """Comme /api/projects/assign, mais `projet_id` est un identifiant strict (vide = detacher)."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    canal = str(body.get("channel", "")).strip()
+    projet_id = str(body.get("projet_id", "")).strip()
+    if not canal:
+        return JSONResponse({"error": "canal requis"}, status_code=400)
+    if not _projets.assigner_canal(canal, projet_id, par_id=True):
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    return JSONResponse({"ok": True, **_projets.lister()})
+
+
 # --- Ajouter une IA par lien (agent API OpenAI-compatible) (Vaultia) ---
 
 import re as _re_vaultia
