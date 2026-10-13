@@ -1,4 +1,7 @@
-# Socle de la Shop de projets — spécification v0.7
+# Socle de la Shop de projets — spécification v0.8
+
+v0.8 (12 oct. 2026, claude) : revue codex msg 2100 : routes v1 par **nom exact d'abord**, puis ID ; nouvelles routes
+`/api/v2/projects/{projet_id}/…` (memory, status, DELETE, assign) par **ID strict**. L'interface utilise les routes v2.
 
 v0.7 (12 oct. 2026, claude) : le skill **pilote-rd** de Charles (v2.0) devient le processus de la Shop. Étapes 1-8 et
 jalons J1/J2 (Go / Recycle / Hold / Kill), fiche projet (niveau, TRL, horizon), journal d'essais RS&DE, vue
@@ -139,6 +142,10 @@ Contraintes mesurées :
   l'écriture est atomique (fichier temporaire, puis `os.replace`).
 - **L'API existante est conservée** : `GET /api/projects` rend encore `actif` (= `defaut`) et `projets` indexés
   par nom, en plus de `v2`. Les routes `activate`, `memory` et `assign` acceptent le nom comme l'identifiant.
+- **Nom contre ID** : après migration, `Café` a l'ID `cafe`, et un autre projet peut s'appeler exactement `cafe`.
+  Les routes v1 cherchent le **nom exact d'abord**, et `creer()` ne cherche que le nom. Toute mutation qui vise un
+  projet par son ID passe par `/api/v2/projects/{projet_id}/memory|status`, `DELETE /api/v2/projects/{projet_id}` ou
+  `POST /api/v2/projects/assign` (`projet_id`), qui n'acceptent **que** l'ID. Inconnu = 404.
 
 ## Injection de la mémoire : point bloquant (S1)
 
