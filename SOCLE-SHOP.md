@@ -1,4 +1,7 @@
-# Socle de la Shop de projets — spécification v1.0
+# Socle de la Shop de projets — spécification v1.1
+
+v1.1 (13 oct. 2026, claude) : lot « Pilote autonome » (oui de Charles, msg 2269) : jalons J1/J2, fiche projet,
+lancement guidé, méthode par étape et ronde-moteur. Section « Pilote autonome (P1-P5) » plus bas.
 
 v1.0 (13 oct. 2026, claude) : la salle et l'atelier se parlent (msg 2198). Un message sans étiquette prend celle de
 son canal : `tache-<id>` donne la tâche (et son projet), un canal rangé sous un projet donne le projet. Une étiquette
@@ -96,6 +99,68 @@ remplacées par ses étapes :
 
 Règles du skill reprises telles quelles : une étape doit réduire un risque nommé ; pas de chiffre externe sans source ;
 la décision d'un jalon appartient à Charles et elle est datée ; arrêter un projet est un résultat valable.
+
+## Pilote autonome (P1-P5) — v1.1
+
+Charles, msg 2260 : « donner un but, et vous vous organisez pour atteindre la cible ». Il doit pouvoir intervenir, mais
+on ne l'appelle qu'aux jalons et pour un vrai blocage.
+
+| Lot | Qui | Contenu |
+|---|---|---|
+| P1 Jalons | claude (`jalons.py`, `app.py`, `ronde.py`) | Objet jalon, routes, effets de la décision, historique, ronde |
+| P2 Fiche projet | claude (`projects.py`, `app.py`) | Champs pilote-rd du projet, route PATCH |
+| P3 Méthodes | grok (`docs/PILOTE.md`), avis gemini | Par étape : risque visé, méthode, skills, livrable, critère de sortie |
+| P4 Lancement + ronde-moteur | claude (`app.py`, `ronde.py`) | Création → @claude lance le cadrage ; la ronde rend `prochaines` et `jalons_dus` |
+| P5 Interface | qwencode (`static/atelier.*`) | Fiche projet, jalons sur la carte avec boutons de décision, « pourquoi » visible sur la carte |
+| Tests | codex (`tests/test_pilote_*.py`) | P1, P2, P4 |
+
+### P1 Jalons
+
+Jalon : `{id, projet_id, jalon: J1|J2|revue, date, resultats, criteres: [{nom, cible, mesure, etat: atteint|partiel|rate|a_mesurer}],
+risques: [str], reste, recommandation: go|recycle|hold|kill, raison, decision: ""|go|recycle|hold|kill, decision_date,
+decision_note, recycle_etape}`.
+
+| Route | Effet |
+|---|---|
+| `GET /api/v2/projects/{id}/jalons` | `{jalons: [...]}`, du plus ancien au plus récent |
+| `POST /api/v2/projects/{id}/jalons` | claude prépare un jalon (recommandation et raison obligatoires). Un seul jalon sans décision par projet (sinon 409) |
+| `POST /api/v2/jalons/{jid}/decision` `{decision, note, recycle_etape?}` | Charles seulement : le corps doit porter `par: "user"` (l'interface le met ; aucun outil MCP n'expose cette route). Une décision est définitive (409 si déjà décidé) |
+
+Effets : go = rien (le projet continue) ; hold = statut `veille` ; kill = statut `arrete` ; recycle = `recycle_etape`
+obligatoire, antérieure au jalon (J1 : probleme, etat_art ou concepts ; J2 : jusqu'à essais) ; claude y crée les
+tâches de reprise. Chaque création et chaque décision va dans l'historique (`jalons=` de `historique.historique`).
+La ronde ajoute `jalons_en_attente` (préparés, sans décision), qui comptent comme « attend Charles ».
+
+Niveau du projet (P2) → jalons dus : léger = J2 ; moyen (défaut) = J1 et J2 ; lourd = J1, J2 et une revue avant le
+lancement. J1 est dû quand toutes les tâches des étapes 1-3 sont faites et qu'aucun J1 n'est décidé go ; J2, quand
+toutes les tâches d'essais sont faites. La ronde rend `jalons_dus: [{projet_id, jalon}]` : claude prépare le jalon.
+
+### P2 Fiche projet
+
+`PATCH /api/v2/projects/{id}/fiche` : `objectif`, `livrable_attendu`, `code`, `niveau` (leger|moyen|lourd), `trl` (1-9),
+`horizon` (H1|H2|H3), `type`, `ambition`, `criteres: [{nom, cible}]`, `hypotheses: [{texte, source: charles|claude,
+etat: a_verifier|confirmee|infirmee}]`, `risques: [{texte, type: technique|cout|marche|fabrication|reglementaire,
+etape}]`, `questions: [{texte, reponse}]`. Champ inconnu ou valeur hors liste = 400. Les champs vivent dans le projet
+(forme v2 de `GET /api/projects`).
+
+### P3 Méthodes par étape (`docs/PILOTE.md`)
+
+Une section par étape, titre exact `## <etape>` (probleme, etat_art, …). Chaque section : risque visé, méthode
+(dont TRIZ obligatoire à `concepts` et à tout essai qui bute sur une contradiction), skills (`pilote-rd`, `triz`,
+`ingenieur-rd-fusion`, `concevoir-une-piece`, `deep-research`), livrable, critère de sortie. Le serveur lit la section
+de l'étape et la joint à la consigne d'une tâche (`methode_etape` dans `prochaines`). Les agents sans skills suivent
+ce texte.
+
+### P4 Lancement guidé et ronde-moteur
+
+- `POST /api/v2/projects {nom, objectif}` (bouton « Lancer le projet » de l'atelier, donc un geste de Charles) crée le
+  projet et poste, au nom de `user`, dans `#developpement-de-pro` (sinon `#general`), étiqueté du projet :
+  « @claude Lancement guidé … ». claude applique pilote-rd : au plus 3 questions qui changent le projet (dans
+  `fiche.questions`), le reste en hypothèses écrites, niveau, risques, puis les tâches des étapes 1-3.
+- La ronde rend aussi `prochaines: [{projet_id, tache_id, titre, etape, responsable, methode_etape}]` : par projet
+  actif, les tâches `a_faire` de l'étape courante dont le responsable n'a pas d'exécution ouverte. À chaque passage,
+  claude lance chacune dans `#tache-<id>` (« @responsable » + consigne + méthode), sans attendre Charles.
+- Charles n'est appelé que par `attend_charles`, `jalons_en_attente` et `bloquees`.
 
 ## Combinaisons d'agents (décision de Charles, msg 2021)
 
