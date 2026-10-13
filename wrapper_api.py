@@ -225,10 +225,11 @@ def main():
         # projet auquel le canal est rattache, sinon aucune. Plusieurs projets dans un lot : aucune.
         if len(projet_ids) > 1:
             return "", ""
+        seul = next(iter(projet_ids)) if projet_ids else ""
         try:
             import urllib.parse
-            if projet_ids:
-                pid = urllib.parse.quote(next(iter(projet_ids)), safe="")
+            if seul:
+                pid = urllib.parse.quote(seul, safe="")
                 url = f"http://127.0.0.1:{server_port}/api/projects/{pid}/memory"
             else:
                 url = f"http://127.0.0.1:{server_port}/api/projects/channel/{urllib.parse.quote(channel, safe='')}/memory"
@@ -432,8 +433,9 @@ def main():
                             data = json.loads(line)
                             ch = data.get("channel", "general") if isinstance(data, dict) else "general"
                             channels_triggered.add(ch)
-                            if isinstance(data, dict) and data.get("projet_id"):
-                                projets_par_canal.setdefault(ch, set()).add(str(data["projet_id"]))
+                            if isinstance(data, dict):
+                                # "" = entree sans projet : A + sans projet = ambigu (revue codex 2039)
+                                projets_par_canal.setdefault(ch, set()).add(str(data.get("projet_id") or ""))
                         except json.JSONDecodeError:
                             channels_triggered.add("general")
 

@@ -1,4 +1,7 @@
-# Socle de la Shop de projets — spécification v0.4
+# Socle de la Shop de projets — spécification v0.5
+
+v0.5 (12 oct. 2026, claude) : revue de S1 par codex (msg 2039-2040) : un lot qui mêle un projet et une entrée sans projet
+n'injecte aucune mémoire ; `chat_send` (MCP) accepte `projet_id` et, sans lui, reprend celui du message auquel il répond.
 
 v0.4 (12 oct. 2026, claude) : S1 codé. 2 corrections de codex (msg 2033) : « inconnu » = 404, `store.py` et
 `agents.py` dans le lot S1. Règle ajoutée : un lot de file qui mélange plusieurs projets n'injecte aucune mémoire.
@@ -127,9 +130,11 @@ S1 change la règle (v0.3) : **chaque déclenchement transporte son `projet_id`*
 | `projet_id` absent, canal rattaché à un projet (`assigner_canal`, canaux d'avant la Shop) | celle du projet du canal |
 | `projet_id` absent, canal non rattaché (dont la conversation multi-projet de l'atelier) | **aucune** |
 
-4. Un lot de file qui contient **plusieurs** `projet_id` différents (déclenchements regroupés) n'injecte **aucune**
-   mémoire : c'est ambigu, et on ne mélange pas les contextes.
-5. `defaut` (l'ancien `actif`) **n'injecte plus rien**. Il reste dans `GET /api/projects` sous le nom `actif`,
+4. Un lot de file qui contient **plusieurs** `projet_id` différents, ou un `projet_id` et une entrée **sans** projet
+   (déclenchements regroupés), n'injecte **aucune** mémoire : c'est ambigu, et on ne mélange pas les contextes.
+5. Les réponses des agents par MCP (`chat_send`) portent `projet_id` : explicite, sinon celui du message de `reply_to`.
+   Un ID inconnu refuse l'envoi.
+6. `defaut` (l'ancien `actif`) **n'injecte plus rien**. Il reste dans `GET /api/projects` sous le nom `actif`,
    pour l'affichage des anciens clients.
 
 Ce contrat ne dépend pas de S2. Les jobs s'y brancheront quand ils auront leur `projet_id`.

@@ -468,15 +468,17 @@ def _fetch_role(server_port: int, agent_name: str) -> str:
 def _fetch_trigger_memory(server_port: int, projet_ids: set, channel: str) -> tuple[str, str]:
     """SOCLE-SHOP S1 : la memoire du projet de CE declenchement, jamais celle d'un projet global.
     - un seul projet_id dans les entrees de file : sa memoire (inconnu = 404 = aucune) ;
-    - plusieurs projets melanges dans le meme lot : aucune (ambigu, pas de melange de contextes) ;
-    - aucun projet_id : la memoire du projet auquel le canal est rattache, sinon aucune."""
+    - plusieurs projets melanges dans le meme lot, ou un projet + une entree sans projet : aucune ;
+    - aucune entree avec projet_id : la memoire du projet auquel le canal est rattache, sinon aucune.
+    projet_ids contient "" pour chaque entree sans projet."""
     import urllib.parse
     import urllib.request
     if len(projet_ids) > 1:
         return "", ""
+    seul = next(iter(projet_ids)) if projet_ids else ""
     try:
-        if projet_ids:
-            pid = urllib.parse.quote(next(iter(projet_ids)), safe="")
+        if seul:
+            pid = urllib.parse.quote(seul, safe="")
             url = f"http://127.0.0.1:{server_port}/api/projects/{pid}/memory"
         else:
             url = f"http://127.0.0.1:{server_port}/api/projects/channel/{urllib.parse.quote(channel, safe='')}/memory"
@@ -547,8 +549,9 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
                     has_trigger = True
                     if isinstance(data, dict) and "channel" in data:
                         channel = data["channel"]
-                    if isinstance(data, dict) and data.get("projet_id"):
-                        projet_ids.add(str(data["projet_id"]))
+                    if isinstance(data, dict):
+                        # "" = entree sans projet : un lot A + sans projet est ambigu (revue codex 2039)
+                        projet_ids.add(str(data.get("projet_id") or ""))
 
                 if has_trigger:
                     # Signal activity BEFORE injecting — covers the thinking phase
