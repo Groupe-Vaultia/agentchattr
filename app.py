@@ -22,6 +22,7 @@ import jobs as _jobs_mod
 from executions import ExecutionStore
 import historique as _historique
 from revisions import RevisionStore
+from ronde import ronde as _ronde
 from schedules import ScheduleStore, parse_schedule_spec
 from router import Router
 from agents import AgentTrigger
@@ -2465,6 +2466,14 @@ async def projet_verifier(projet_id: str, numero: str):
         return JSONResponse({"livrables": revisions.verifier(projet_id, numero)})
     except KeyError:
         return JSONResponse({"error": "revision inconnue"}, status_code=404)
+
+
+# SOCLE-SHOP S6 : ce que la ronde planifiee du gestionnaire doit traiter, pour les projets actifs.
+@app.get("/api/v2/ronde")
+async def get_ronde():
+    v2 = _projets.lister()["v2"]["projets"]
+    taches = [t for pid in v2 for t in jobs.taches(pid)]
+    return JSONResponse(_ronde(v2, taches, executions.lister()))
 
 
 # SOCLE-SHOP S2 : taches de projet (un job avec projet_id, etape, responsable, equipe, preuve).
