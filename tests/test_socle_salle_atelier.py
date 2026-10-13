@@ -1,6 +1,6 @@
 """Server and MCP channel labels for Shop task conversations.
 
-v0.2 (2026-10-13, codex): isolate MCP identity checks in label-routing tests.
+v0.3 (2026-10-13, codex): cover the UI's empty-JSON task-conversation request.
 """
 
 import asyncio
@@ -134,10 +134,14 @@ class SocleSalleAtelierTests(unittest.TestCase):
              mock.patch.object(app, "room_settings", room_settings), \
              mock.patch.object(app, "_save_settings", save), \
              mock.patch.object(app, "broadcast_settings", broadcast):
+            response = self.client.post(f"/api/v2/taches/{self.task['id']}/conversation", json={})
             first = asyncio.run(app.tache_conversation(self.task["id"]))
             second = asyncio.run(app.tache_conversation(self.task["id"]))
             missing = asyncio.run(app.tache_conversation(999))
 
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {"channel": canal_tache(self.task["id"]),
+                                           "projet_id": self.alpha, "tache_id": self.task["id"]})
         first_body = json.loads(first.body)
         self.assertEqual(first.status_code, 200)
         self.assertEqual(first_body, {"channel": canal_tache(self.task["id"]),
