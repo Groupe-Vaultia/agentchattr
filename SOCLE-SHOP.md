@@ -1,5 +1,8 @@
-# Socle de la Shop de projets — spécification v0.1
+# Socle de la Shop de projets — spécification v0.2
 
+v0.2 (12 oct. 2026, claude) : ajoute la revue de codex (msg 2023) : identité stable, invariants, migration de
+`projects.json`, injection de la mémoire par projet (point bloquant), tests de S1, et la répartition du code
+entre les agents (msg 2024).
 v0.1 (12 oct. 2026, claude) : première version. Elle reprend les décisions de Charles des messages 1995 à 2021
 de #developpement-de-pro. Elle n'est pas encore codée.
 
@@ -71,6 +74,77 @@ Contraintes mesurées :
 | Ronde planifiée (`schedules.py`, toutes les 30 min) | Relance les exécutions silencieuses ou réassigne leur tâche, fait avancer la file de Qwen, signale ce qui attend Charles |
 | Preuve reçue | Vérifie le critère, puis passe la tâche à `fait` ou la renvoie avec la correction |
 | Livrable prêt | Demande la revue de codex, puis l'approbation de Charles |
+
+## Identité et invariants (revue de codex, v0.2)
+
+- Le **`projet_id`** est stable : un slug ASCII tiré du nom à la création (`support-x1`), unique, qui ne change
+  jamais. Le nom, lui, peut changer.
+- Une `tache.projet_id` doit exister. Une `execution.tache_id` doit appartenir au même projet que la tâche.
+  Un `message.tache_id`, quand il est présent, doit appartenir au `message.projet_id`. Un écart est **refusé**
+  (HTTP 422), jamais corrigé en silence.
+- `equipe` ne contient pas deux fois le même couple (agent, rôle), et le responsable est l'un des membres.
+- Pour `projet_id`, une valeur absente ou inconnue signifie « sans projet », jamais « le projet actif ».
+
+## Migration de `projects.json` (S1)
+
+| Ancien | Nouveau |
+|---|---|
+| `{"projets": {nom: {memoire, cree, channels}}, "actif": nom}` | `{"version": 2, "projets": {projet_id: {nom, objectif, livrable_attendu, statut, memoire, cree, maj, channels}}, "defaut": projet_id}` |
+| clé `nom` | `projet_id = slug(nom)`, `nom` conservé tel quel. En cas de collision de slug : suffixe `-2`, `-3` |
+| `actif` | devient `defaut` : le projet des canaux rattachés à aucun projet. Il ne sert **plus** à injecter la mémoire d'une exécution qui a son propre projet |
+| tous les projets | `statut = "actif"`, `objectif` et `livrable_attendu` vides |
+
+- La migration se fait au premier chargement. L'ancien fichier est gardé en `projects.v1.json`, et
+  l'écriture est atomique (fichier temporaire, puis `os.replace`).
+- **L'API existante est conservée** : `GET /api/projects` rend encore `actif` (= `defaut`) et `projets` indexés
+  par nom, en plus de `v2`. Les routes `activate`, `memory` et `assign` acceptent le nom comme l'identifiant.
+
+## Injection de la mémoire : point bloquant (S1)
+
+Aujourd'hui, `wrapper.py` (`_fetch_project_memory`, injection l. 584-586) et `wrapper_api.py`
+(`get_project_memory`, l. 223-232) injectent la mémoire du projet global `actif` dans **chaque** déclenchement.
+
+S1 change la règle : la mémoire injectée est celle du projet **du déclenchement**, résolue côté serveur dans cet
+ordre :
+1. `projet_id` du job, quand le déclenchement vient d'un job;
+2. sinon, le projet du canal (`assigner_canal`);
+3. sinon, le projet `defaut`;
+4. sinon, aucune mémoire.
+
+Les deux wrappers appellent `GET /api/projects/memory?channel=…&job=…` au lieu de lire `actif`. Tant que S1
+n'est pas fusionné, **un seul projet peut porter une mémoire** : le multi-projet reste désactivé côté mémoire.
+
+## Tests de S1 (proposés par codex, retenus)
+
+1. Migration réelle d'un `projects.json` v1, copié de `data/`, vers v2 : aucun projet, mémoire ni canal perdu,
+   `projects.v1.json` présent.
+2. Redémarrage : le v2 se recharge à l'identique, sans nouvelle migration.
+3. Deux déclenchements A et B intercalés (canaux rattachés à deux projets) : chacun reçoit **uniquement** la
+   mémoire de son projet.
+4. Projet inconnu ou absent, sans `defaut` : aucune mémoire injectée.
+5. Compatibilité : les routes existantes rendent la même forme qu'avant pour un client v1.
+6. Slugs en collision : `-2`, puis `-3`.
+
+## Répartition du code entre les agents (msg 2024) : la Shop testée sur elle-même
+
+S1 fixe le contrat (modèle, routes, migration). Une fois S1 fusionné, les autres lots se codent **en parallèle**,
+chacun dans son worktree, sur des fichiers distincts (R7).
+
+| Lot | Responsable (producteur) | Fichiers | Vérificateur |
+|---|---|---|---|
+| S1 projets, mémoire par déclenchement, wrappers | **claude** | `projects.py`, `wrapper.py`, `wrapper_api.py`, routes de `app.py` | codex |
+| Tests de S1 à S5, écrits d'après la spec | **codex** | `tests/test_socle_*.py` | claude |
+| S2 tâches et équipe | **claude** | `jobs.py` (+ routes) | codex |
+| S3 exécutions et événements | **claude** | `executions.py` (nouveau) | codex |
+| S5 révisions et empreintes | **gemini** | `revisions.py` (nouveau) | codex |
+| Historique, lecture seule | **grok** | `historique.py` (nouveau) | codex |
+| Interface, d'après la maquette v0.6 | **qwencode** | `static/atelier.js`, `static/atelier.css` (nouveaux) | codex, puis Charles |
+
+- gemini et grok sont « avis » selon R1 v1.5. Leur faire écrire du code demande le **oui de Charles**. Chacun
+  aurait un module neuf et isolé, derrière les tests de codex.
+- qwencode peut commencer l'interface avant S1, avec des données d'essai qui suivent le contrat des routes.
+- claude garde les lots qui touchent au cœur de la salle (wrappers, jobs) : une erreur à cet endroit coupe tous
+  les agents.
 
 ## Lots de travail (après le oui de Charles)
 
