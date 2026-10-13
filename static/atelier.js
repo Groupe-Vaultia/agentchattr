@@ -184,7 +184,7 @@ function renderCarte() {
     const de = taches.filter(t => t.etape === e);
     const done = de.length && de.every(t => t.etat === "fait");
     const isNow = i === (state.etape ?? etapeDuProjet(taches)) && !done;
-    return `<div class="col"><h3>${i + 1}. ${NOM_ETAPES[e]}</h3>${
+    return `<div class="col${de.length ? "" : " vide"}"><h3>${i + 1}. ${NOM_ETAPES[e]}</h3>${
       de.map(t => { const st = normEtat(t.etat); return `<div class="node${veille ? " veille" : ""}" data-node="${esc(t.id)}" data-s="${st}">
         <div class="t">${esc(t.titre)}</div>
         <div class="w">${esc(t.responsable || "")}${t.critere ? " · " + esc(t.critere) : ""}</div>
@@ -312,6 +312,7 @@ function go(v) {
   state.view = v;
   document.querySelectorAll("#tabs [role=tab]").forEach(b => b.setAttribute("aria-selected", b.dataset.v === v));
   ["projets", "equipe", "carte", "hist", "livrable"].forEach(x => { const s = $("#v-" + x); if (s) s.hidden = (x !== v); });
+  window.scrollTo(0, 0);
   syncNav();
 }
 function syncNav() {
@@ -363,7 +364,9 @@ document.addEventListener("click", e => {
   const t = e.target;
   const tab = t.closest("#tabs [role=tab]"); if (tab) return go(tab.dataset.v);
   const g = t.closest("[data-go]"); if (g) return go(g.dataset.go);
-  const row = t.closest(".prow[data-proj]"); if (row) { if (!t.closest("button")) { state.sel = row.dataset.proj; loadProjet(); } return; }
+  // Un clic sur un projet ouvre sa carte de tâches (avant : il ne faisait que le surligner).
+  // Les boutons de la ligne (« En veille ») passent au gestionnaire [data-status] plus bas.
+  const row = t.closest(".prow[data-proj]"); if (row && !t.closest("button")) { state.sel = row.dataset.proj; loadProjet(); go("carte"); return; }
   const rp = t.closest("[data-proj]");
   const st = t.closest("[data-status]");
   if (st) { e.stopPropagation(); return changerStatut(st.dataset.proj, st.dataset.status); }

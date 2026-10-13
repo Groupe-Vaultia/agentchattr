@@ -162,4 +162,7 @@ td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
   .summary{grid-template-columns:repeat(2,minmax(0,1fr))}
   .grid2{grid-template-columns:1fr}
   .prow{grid-template-columns:1fr}
+  /* carte sur cell : une colonne, sans les étapes vides (avant : 640px de large, les tâches hors écran) */
+  .map{grid-template-columns:1fr;min-width:0}
+  .col.vide{display:none}
 }
