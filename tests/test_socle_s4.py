@@ -1,6 +1,6 @@
 """S4 project/task message filters and task-tag inheritance.
 
-v0.1 (2026-10-12, codex): cover message labels, filtering, and reply propagation.
+v0.2 (2026-10-12, codex): isolate the MCP registry in reply propagation tests.
 """
 
 import sys
@@ -70,6 +70,7 @@ class SocleS4Tests(unittest.TestCase):
                                 tache_id=self.task["id"])
         patchers = [
             mock.patch.object(mcp_bridge, "store", self.store),
+            mock.patch.object(mcp_bridge, "registry", None),
             mock.patch.object(mcp_bridge, "_resolve_tool_identity", side_effect=lambda sender, *_a, **_k: (sender, None)),
             mock.patch.object(mcp_bridge, "_update_cursor"),
         ]
