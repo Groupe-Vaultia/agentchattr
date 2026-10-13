@@ -74,8 +74,10 @@ class JobStore:
                     self._next_id = max(a["id"] for a in self._jobs) + 1
                     if self._ensure_sort_orders_locked():
                         self._save()
-        except (json.JSONDecodeError, KeyError):
-            self._jobs = []
+        except (json.JSONDecodeError, KeyError) as err:
+            # S2 (revue codex) : un fichier illisible n'est jamais vide en silence, sinon la prochaine
+            # sauvegarde l'ecraserait. La salle refuse de demarrer et le fichier reste intact.
+            raise ValueError(f"{self._path} illisible : {err}") from err
 
     def _save(self):
         self._path.write_text(
@@ -206,6 +208,8 @@ class JobStore:
         eq = _equipe_valide(equipe or [])
         if eq is None:
             return None, f"equipe : [{{agent, role}}], role parmi {', '.join(ROLES)}, sans doublon"
+        if str(responsable).strip() not in {m["agent"] for m in eq}:
+            return None, "le responsable doit faire partie de l'equipe"
         a = self.create(title=titre, job_type="tache", channel=channel, created_by=created_by,
                         assignee=str(responsable).strip(), status="open")
         champs = {"projet_id": projet_id, "titre": a["title"], "etape": etape, "etat": "a_faire",
@@ -248,6 +252,8 @@ class JobStore:
                 if eq is None:
                     return None, f"equipe : [{{agent, role}}], role parmi {', '.join(ROLES)}, sans doublon"
                 nouveau["equipe"] = eq
+            if str(nouveau["responsable"]).strip() not in {m.get("agent") for m in nouveau.get("equipe") or []}:
+                return None, "le responsable doit faire partie de l'equipe"
             if nouveau["etat"] == "fait" and not str(nouveau.get("preuve", "")).strip():
                 return None, "fait exige une preuve (commande et sortie, sortie d'outil ou fichier:ligne)"
             nouveau["title"] = str(nouveau.get("titre", a["title"])).strip()[:120]
