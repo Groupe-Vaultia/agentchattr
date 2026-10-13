@@ -895,7 +895,8 @@ async def _handle_new_message(msg: dict):
         if not mcp_bridge.is_online(target):
             store.add("system", f"{target} appears offline — message queued.", msg_type="system", channel=channel)
         if agents.is_available(target):
-            await agents.trigger(target, message=chat_msg, channel=channel, prompt=custom_prompt)
+            await agents.trigger(target, message=chat_msg, channel=channel, prompt=custom_prompt,
+                                 projet_id=msg.get("projet_id"))
 
 
 # --- broadcasting ---
@@ -1182,8 +1183,14 @@ async def websocket_endpoint(websocket: WebSocket):
                 if reply_to is not None:
                     reply_to = int(reply_to)
 
+                # SOCLE-SHOP S1 : un projet_id inconnu est refuse, jamais remplace par un autre projet
+                projet_id = str(event.get("projet_id") or "").strip() or None
+                if projet_id and not _projets.existe(projet_id):
+                    store.add("system", f"Projet « {projet_id} » inconnu : message non envoyé.",
+                              msg_type="system", channel=channel)
+                    continue
                 store.add(sender, text, attachments=attachments, reply_to=reply_to,
-                          channel=channel)
+                          channel=channel, projet_id=projet_id)
 
             elif event.get("type") == "delete":
                 ids = event.get("ids", [])
@@ -1594,8 +1601,11 @@ async def api_send(request: Request):
     if not text:
         return JSONResponse({"error": "text is required"}, status_code=400)
     channel = body.get("channel", "general")
+    projet_id = str(body.get("projet_id") or "").strip() or None
+    if projet_id and not _projets.existe(projet_id):
+        return JSONResponse({"error": f"projet inconnu : {projet_id}"}, status_code=422)
 
-    msg = store.add(sender, text, channel=channel)
+    msg = store.add(sender, text, channel=channel, projet_id=projet_id)
     return JSONResponse(msg)
 
 
@@ -2222,6 +2232,39 @@ async def set_project_memory(name: str, request: Request):
     if not _projets.definir_memoire(name, str(body.get("memory", ""))):
         return JSONResponse({"error": "projet inconnu"}, status_code=404)
     return JSONResponse({"ok": True})
+
+
+@app.get("/api/projects/{projet_id}/memory")
+async def get_project_memory(projet_id: str):
+    """SOCLE-SHOP S1 : la memoire d'UN projet, pour le declenchement qui porte ce projet_id.
+    Inconnu = 404, sans repli sur un autre projet."""
+    info = _projets.memoire_projet(projet_id)
+    if info is None:
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    return JSONResponse(info)
+
+
+@app.get("/api/projects/channel/{channel}/memory")
+async def get_channel_project_memory(channel: str):
+    """Declenchement sans projet_id : seul un canal d'avant la Shop, rattache a un projet, porte une
+    memoire. Sinon : aucune (pas de projet par defaut)."""
+    pid = _projets.projet_du_canal(channel)
+    info = _projets.memoire_projet(pid) if pid else None
+    return JSONResponse(info or {"projet_id": "", "nom": "", "statut": "", "memoire": ""})
+
+
+@app.post("/api/projects/{name}/status")
+async def set_project_status(name: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    statut = str(body.get("status", "")).strip()
+    if statut not in _projets.STATUTS:
+        return JSONResponse({"error": f"statut parmi {', '.join(_projets.STATUTS)}"}, status_code=400)
+    if not _projets.definir_statut(name, statut):
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    return JSONResponse({"ok": True, **_projets.lister()})
 
 
 @app.post("/api/projects/{name}/activate")

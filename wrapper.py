@@ -465,20 +465,26 @@ def _fetch_role(server_port: int, agent_name: str) -> str:
         return ""
 
 
-def _fetch_project_memory(server_port: int) -> tuple[str, str]:
-    """La memoire du projet actif (Vaultia), a injecter dans le declenchement de l'agent."""
+def _fetch_trigger_memory(server_port: int, projet_ids: set, channel: str) -> tuple[str, str]:
+    """SOCLE-SHOP S1 : la memoire du projet de CE declenchement, jamais celle d'un projet global.
+    - un seul projet_id dans les entrees de file : sa memoire (inconnu = 404 = aucune) ;
+    - plusieurs projets melanges dans le meme lot : aucune (ambigu, pas de melange de contextes) ;
+    - aucun projet_id : la memoire du projet auquel le canal est rattache, sinon aucune."""
+    import urllib.parse
+    import urllib.request
+    if len(projet_ids) > 1:
+        return "", ""
     try:
-        import urllib.request
-        req = urllib.request.Request(f"http://127.0.0.1:{server_port}/api/projects")
-        with urllib.request.urlopen(req, timeout=3) as resp:
+        if projet_ids:
+            pid = urllib.parse.quote(next(iter(projet_ids)), safe="")
+            url = f"http://127.0.0.1:{server_port}/api/projects/{pid}/memory"
+        else:
+            url = f"http://127.0.0.1:{server_port}/api/projects/channel/{urllib.parse.quote(channel, safe='')}/memory"
+        with urllib.request.urlopen(urllib.request.Request(url), timeout=3) as resp:
             data = json.loads(resp.read())
-        actif = data.get("actif", "")
-        projets = data.get("projets", {})
-        if actif and actif in projets:
-            return (projets[actif].get("memoire", "") or "").strip(), actif
+        return (data.get("memoire", "") or "").strip(), data.get("nom", "") or ""
     except Exception:
-        pass
-    return "", ""
+        return "", ""
 
 
 def _fetch_active_rules(server_port: int, token: str = "") -> dict | None:
@@ -529,6 +535,7 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
 
                 has_trigger = False
                 channel = "general"
+                projet_ids: set = set()
                 for line in lines:
                     line = line.strip()
                     if not line:
@@ -540,6 +547,8 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
                     has_trigger = True
                     if isinstance(data, dict) and "channel" in data:
                         channel = data["channel"]
+                    if isinstance(data, dict) and data.get("projet_id"):
+                        projet_ids.add(str(data["projet_id"]))
 
                 if has_trigger:
                     # Signal activity BEFORE injecting — covers the thinking phase
@@ -581,9 +590,9 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
                     if role:
                         prompt += f"\n\nROLE: {role}"
 
-                    memoire_projet, nom_projet = _fetch_project_memory(server_port)
+                    memoire_projet, nom_projet = _fetch_trigger_memory(server_port, projet_ids, channel)
                     if memoire_projet:
-                        prompt += f"\n\nPROJET ACTIF « {nom_projet} » — memoire du projet (contexte a respecter) :\n{memoire_projet}"
+                        prompt += f"\n\nPROJET « {nom_projet} » — memoire du projet (contexte a respecter) :\n{memoire_projet}"
 
                     # Smart rules injection: first trigger, epoch change, or periodic refresh
                     _token = get_token_fn() if get_token_fn else ""

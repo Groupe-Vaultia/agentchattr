@@ -1,4 +1,7 @@
-# Socle de la Shop de projets — spécification v0.3
+# Socle de la Shop de projets — spécification v0.4
+
+v0.4 (12 oct. 2026, claude) : S1 codé. 2 corrections de codex (msg 2033) : « inconnu » = 404, `store.py` et
+`agents.py` dans le lot S1. Règle ajoutée : un lot de file qui mélange plusieurs projets n'injecte aucune mémoire.
 
 v0.3 (12 oct. 2026, claude) : 2e revue de codex (msg 2029) : chaque déclenchement transporte son `projet_id`, un ID
 inconnu est une erreur, `defaut` n'injecte plus rien, fixture synthétique (R4), lignes corrigées par grok (msg 2028).
@@ -87,7 +90,8 @@ Contraintes mesurées :
   Un `message.tache_id`, quand il est présent, doit appartenir au `message.projet_id`. Un écart est **refusé**
   (HTTP 422), jamais corrigé en silence.
 - `equipe` ne contient pas deux fois le même couple (agent, rôle), et le responsable est l'un des membres.
-- Pour `projet_id`, une valeur absente ou inconnue signifie « sans projet », jamais « le projet actif ».
+- Pour `projet_id`, une valeur **absente** signifie « sans projet », jamais « le projet actif ». Une valeur **inconnue** est
+  une erreur : 404 sur la route de mémoire, 422 sur `POST /api/send`, message refusé sur le WebSocket.
 
 ## Migration de `projects.json` (S1)
 
@@ -123,7 +127,9 @@ S1 change la règle (v0.3) : **chaque déclenchement transporte son `projet_id`*
 | `projet_id` absent, canal rattaché à un projet (`assigner_canal`, canaux d'avant la Shop) | celle du projet du canal |
 | `projet_id` absent, canal non rattaché (dont la conversation multi-projet de l'atelier) | **aucune** |
 
-4. `defaut` (l'ancien `actif`) **n'injecte plus rien**. Il reste dans `GET /api/projects` sous le nom `actif`,
+4. Un lot de file qui contient **plusieurs** `projet_id` différents (déclenchements regroupés) n'injecte **aucune**
+   mémoire : c'est ambigu, et on ne mélange pas les contextes.
+5. `defaut` (l'ancien `actif`) **n'injecte plus rien**. Il reste dans `GET /api/projects` sous le nom `actif`,
    pour l'affichage des anciens clients.
 
 Ce contrat ne dépend pas de S2. Les jobs s'y brancheront quand ils auront leur `projet_id`.
@@ -147,7 +153,7 @@ chacun dans son worktree, sur des fichiers distincts (R7).
 
 | Lot | Responsable (producteur) | Fichiers | Vérificateur |
 |---|---|---|---|
-| S1 projets, mémoire par déclenchement, wrappers | **claude** | `projects.py`, `wrapper.py`, `wrapper_api.py`, routes de `app.py` | codex |
+| S1 projets, mémoire par déclenchement, wrappers | **claude** | `projects.py`, `store.py`, `agents.py`, `wrapper.py`, `wrapper_api.py`, routes de `app.py` | codex |
 | Tests de S1 à S5, écrits d'après la spec | **codex** | `tests/test_socle_*.py` | claude |
 | S2 tâches et équipe | **claude** | `jobs.py` (+ routes) | codex |
 | S3 exécutions et événements | **claude** | `executions.py` (nouveau) | codex |
