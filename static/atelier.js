@@ -10,6 +10,17 @@ const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;
 // Les 8 étapes de pilote-rd, dans l'ordre (spec v0.7).
 const ETAPES = ["probleme","etat_art","concepts","conception","prototype","essais","industrialisation","lancement"];
 const NOM_ETAPES = {probleme:"Problème",etat_art:"État de l'art",concepts:"Concepts",conception:"Conception",prototype:"Prototype",essais:"Essais",industrialisation:"Industrialisation",lancement:"Lancement"};
+// Ce que couvre chaque étape (pilote-rd), affiché quand on clique une étape.
+const DEF_ETAPES = {
+  probleme: "Poser le problème : pour qui, quoi, pourquoi maintenant, et ce qui compte comme réussi.",
+  etat_art: "Ce qui existe déjà (produits, code, publications) et pourquoi ça ne suffit pas.",
+  concepts: "Les pistes possibles, comparées, et celle qu'on retient avec sa raison.",
+  conception: "Le plan de la piste retenue : règles, découpage, interfaces, avant de produire.",
+  prototype: "Construire une première version qui marche, livrée par PR et revue.",
+  essais: "Éprouver le prototype en vrai : hypothèse, méthode, critère, résultat (RS&DE).",
+  industrialisation: "Rendre le tout solide et durable : ménage, règles, exploitation.",
+  lancement: "Mise en usage réelle et bilan.",
+};
 const STATUTS = {actif:"actif",veille:"en veille",termine:"terminé",arrete:"arrêté"};
 const STATUT_CLS = {actif:"s-actif",veille:"s-veille",termine:"s-attente",arrete:"s-arrete"};
 // Les états que S2 (jobs.py) renvoie vraiment : fait / en_cours / attend_charles / a_faire / bloque.
@@ -184,7 +195,7 @@ function renderCarte() {
     const de = taches.filter(t => t.etape === e);
     const done = de.length && de.every(t => t.etat === "fait");
     const isNow = i === (state.etape ?? etapeDuProjet(taches)) && !done;
-    return `<div class="col${de.length ? "" : " vide"}"><h3>${i + 1}. ${NOM_ETAPES[e]}</h3>${
+    return `<div class="col${de.length ? "" : " vide"}"><h3><button type="button" class="steph" data-step="${e}">${i + 1}. ${NOM_ETAPES[e]}</button></h3>${
       de.map(t => { const st = normEtat(t.etat); return `<div class="node${veille ? " veille" : ""}" data-node="${esc(t.id)}" data-s="${st}">
         <div class="t">${esc(t.titre)}</div>
         <div class="w">${esc(t.responsable || "")}${t.critere ? " · " + esc(t.critere) : ""}</div>
@@ -207,7 +218,7 @@ function renderProjHead() {
 
   const steps = ETAPES.map((e, i) => {
     const cls = i < idx ? "done" : i === idx ? "now" : "";
-    return `<span class="step ${cls}"><i>${i + 1}</i>${NOM_ETAPES[e]}</span>`;
+    return `<button type="button" class="step ${cls}" data-step="${e}"><i>${i + 1}</i>${NOM_ETAPES[e]}</button>`;
   }).join("");
 
   el.hidden = false;
@@ -349,6 +360,76 @@ async function nouvelleTache(e) {
   if (r.ok) { e.target.hidden = true; await loadProjet(); }
 }
 
+// ---------- fiche d'une tâche / d'une étape (dialogue) ----------
+// Champs de la tâche (S2), dans l'ordre de lecture ; seuls les champs remplis s'affichent.
+const CHAMPS_FICHE = [
+  ["resultat", "Ce qui a été fait"], ["conclusion", "Pourquoi, et ce qu'on en retient"],
+  ["hypothese", "Hypothèse"], ["methode", "Méthode"], ["incertitude", "Incertitude"],
+  ["critere", "Critère de réussite"], ["preuve", "Preuve"],
+];
+// « PR #24 » devient un lien vers la PR ; le reste est échappé.
+const avecLiens = txt => esc(txt).replace(/PR #(\d+)/g,
+  (m, n) => `<a href="https://github.com/Groupe-Vaultia/agentchattr/pull/${n}" target="_blank" rel="noopener">PR #${n}</a>`);
+const court = (txt, n) => { const t = String(txt || ""); return t.length > n ? t.slice(0, n - 1) + "…" : t; };
+
+function ouvrirFiche(html) {
+  $("#fiche-c").innerHTML = html;
+  const d = $("#fiche");
+  if (!d.open) { if (d.showModal) d.showModal(); else d.setAttribute("open", ""); }
+  d.scrollTop = 0;
+}
+function fermerFiche() { const d = $("#fiche"); if (d.close) d.close(); else d.removeAttribute("open"); }
+const enteteFiche = (sur, titre) => `<div class="fh"><div><div class="lbl">${esc(sur)}</div><h2 id="fiche-t">${esc(titre)}</h2></div><button class="btn" type="button" data-act="fermer" aria-label="Fermer">Fermer</button></div>`;
+
+let REQUETE_FICHE = 0; // garde : une réponse n'affiche que si c'est encore la bonne tâche (pas d'historique croisé)
+async function ouvrirTache(id) {
+  const t = state.taches.find(x => String(x.id) === String(id));
+  if (!t) return;
+  const n = ++REQUETE_FICHE; // ce tirage est le seul autorisé à écrire dans la fiche
+  const st = normEtat(t.etat);
+  const equipe = (t.equipe || []).map(m => `${esc(m.agent)} <span class="cap">(${esc(m.role)})</span>`).join(", ") || esc(t.responsable || "—");
+  const champs = CHAMPS_FICHE.filter(([c]) => String(t[c] || "").trim())
+    .map(([c, l]) => `<div class="fc"><div class="lbl">${l}</div><p>${avecLiens(t[c])}</p></div>`).join("")
+    || `<p class="cap">Rien d'écrit encore sur cette tâche.</p>`;
+  const tete = enteteFiche(`Tâche ${t.id} · ${NOM_ETAPES[t.etape] || t.etape || ""}`, t.titre);
+  const meta = `<div class="fm"><span class="pill ${ETAT_CLS[st] || "s-afaire"}">${esc(ETAT_TACHE[st] || t.etat)}</span><span>Responsable : <b>${esc(t.responsable || "—")}</b></span><span>Équipe : ${equipe}</span></div>`;
+  const pied = `<div class="ff"><button class="btn pri" type="button" data-disc="${esc(t.id)}">Discuter de cette tâche</button></div>`;
+  ouvrirFiche(tete + meta + champs + `<div class="fc"><div class="lbl">Historique</div><ul class="fhist" id="fiche-h"><li class="cap">Chargement…</li></ul></div>` + pied);
+
+  const [m, e] = await Promise.all([
+    getJSON(`/api/v2/messages?tache_id=${encodeURIComponent(t.id)}&limit=100`),
+    getJSON(`/api/v2/executions?tache_id=${encodeURIComponent(t.id)}`),
+  ]);
+  if (n !== REQUETE_FICHE) return; // une tâche plus récente a été ouverte : on jette cette réponse (pas d'historique croisé)
+  const el = $("#fiche-h");
+  if (!el) return;
+  // Distinguer une erreur réseau d'un historique vraiment vide (404 = pas branché, pas une erreur).
+  const reussi = (m.ok || m.err === 404) && (e.ok || e.err === 404);
+  const lignes = [];
+  ((m.ok && m.data && m.data.messages) || []).forEach(x => lignes.push({h: x.timestamp, html: `<b>${esc(x.sender)}</b> — ${esc(court(x.text, 400))}`}));
+  ((e.ok && e.data && e.data.executions) || []).forEach(x => lignes.push({h: x.fin || x.debut,
+    html: `<span class="type">exécution</span><b>${esc(x.agent)}</b>${x.role ? ` (${esc(x.role)})` : ""} — ${esc(court(x.consigne, 200))}${x.issue ? ` · ${esc(x.issue)}` : x.fin ? "" : " · en cours"}`}));
+  lignes.sort((a, b) => (b.h || 0) - (a.h || 0));
+  el.innerHTML = !reussi
+    ? `<li class="cap" style="color:var(--bad)">Chargement de l'historique impossible (erreur réseau). Referme puis rouvre la tâche pour réessayer.</li>`
+    : (lignes.length
+      ? lignes.map(l => `<li><time>${esc(heure(l.h))}</time><span>${l.html}</span></li>`).join("")
+      : `<li class="cap">Aucun message ni exécution rattaché à cette tâche pour l'instant. « Discuter » ouvre sa conversation : tout ce qui s'y dit s'inscrit ici.</li>`);
+}
+
+function ouvrirEtape(e) {
+  const i = ETAPES.indexOf(e);
+  if (i < 0) return;
+  const de = state.taches.filter(t => t.etape === e);
+  const fait = de.filter(t => normEtat(t.etat) === "fait").length;
+  const liste = de.length
+    ? `<ul class="flist">${de.map(t => { const st = normEtat(t.etat); return `<li><button type="button" data-fiche="${esc(t.id)}"><span class="pill ${ETAT_CLS[st] || "s-afaire"}">${esc(ETAT_TACHE[st] || t.etat)}</span><span>${esc(t.titre)}</span>${t.resultat ? `<span class="cap">${esc(court(t.resultat, 160))}</span>` : ""}</button></li>`; }).join("")}</ul>`
+    : `<p class="cap">Aucune tâche à cette étape pour l'instant.</p>`;
+  ouvrirFiche(enteteFiche(`Étape ${i + 1} sur ${ETAPES.length}`, NOM_ETAPES[e]) +
+    `<div class="fc"><div class="lbl">Ce que couvre l'étape</div><p>${esc(DEF_ETAPES[e])}</p></div>` +
+    `<div class="fc"><div class="lbl">Tâches (${fait}/${de.length} faites)</div>${liste}</div>`);
+}
+
 // ---------- câblage ----------
 // Bouton « Discuter » : ouvre la conversation de la tâche dans la salle.
 // La route crée le canal tache-<id> (rangé sous le projet) une seule fois et rend {channel}.
@@ -373,8 +454,12 @@ document.addEventListener("click", e => {
   if (rp && (rp.classList.contains("proj") || rp.classList.contains("prow"))) { state.sel = rp.dataset.proj; loadProjet(); go(rp.classList.contains("proj") ? "carte" : state.view); return; }
   // Bouton « Discuter » sur un nœud de tâche : on ouvre la salle, pas de sélection de nœud.
   const d = t.closest("[data-disc]"); if (d) { e.stopPropagation(); return discuter(d.dataset.disc); }
-  const nd = t.closest("[data-node]"); if (nd) { nd.classList.add("sel"); return; }
+  const fe = t.closest("[data-fiche]"); if (fe) return ouvrirTache(fe.dataset.fiche);
+  const sp = t.closest("[data-step]"); if (sp) return ouvrirEtape(sp.dataset.step);
+  const nd = t.closest("[data-node]"); if (nd) return ouvrirTache(nd.dataset.node);
+  if (t.id === "fiche") return fermerFiche();  // clic sur le fond du dialogue
   const act = t.closest("[data-act]"); if (!act) return;
+  if (act.dataset.act === "fermer") return fermerFiche();
   if (act.dataset.act === "newtask") { const f = $("#taskform"); f.hidden = !f.hidden; if (!f.hidden) $("#tk-t").focus(); }
   if (act.dataset.act === "canceltask") { $("#taskform").hidden = true; }
 });

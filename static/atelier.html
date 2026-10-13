@@ -73,7 +73,7 @@
       </form>
       <div class="legend"><span class="pill s-fait">fait</span><span class="pill s-cours">en cours</span><span class="pill s-afaire">à faire</span><span class="pill s-charles">attend Charles</span><span class="pill s-bloque">bloqué</span></div>
       <div class="mapbox" id="mapbox"><svg class="links" id="links"></svg><div class="map" id="map"></div></div>
-      <p class="cap">Clique une tâche : elle devient le sujet de la conversation de l'atelier, et tous les agents le voient.</p>
+      <p class="cap">Clique une tâche pour sa fiche (ce qui a été fait, pourquoi, preuve, historique), ou une étape pour ce qu'elle couvre.</p>
     </section>
 
     <section id="v-hist" hidden>
@@ -90,6 +90,7 @@
 </div>
 
 <button class="fab" id="fab" data-act="openchat" hidden>Conversation</button>
+<dialog class="fiche" id="fiche" aria-labelledby="fiche-t"><div id="fiche-c"></div></dialog>
 <div class="toast" id="toast" hidden></div>
 <script src="/static/atelier.js"></script>
 </body>
