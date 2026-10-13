@@ -2382,7 +2382,7 @@ async def assign_channel_v2(request: Request):
 
 # SOCLE-SHOP S4 : filtres « Ce projet » / « Ce sujet » sur la conversation unique.
 @app.get("/api/v2/messages")
-async def filtrer_messages(projet_id: str = "", tache_id: int = 0, since_id: int = 0, limit: int = 100):
+async def filtrer_messages(projet_id: str = "", tache_id: int = 0, since_id: int = -1, limit: int = 100):
     if not projet_id and not tache_id:
         return JSONResponse({"error": "projet_id ou tache_id requis"}, status_code=400)
     if projet_id and not _projets.existe(projet_id):

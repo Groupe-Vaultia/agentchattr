@@ -135,7 +135,7 @@ class MessageStore:
             return list(msgs[-count:])
 
     def filtrer(self, projet_id: str | None = None, tache_id: int | None = None,
-                since_id: int = 0, limit: int = 50) -> list[dict]:
+                since_id: int = -1, limit: int = 50) -> list[dict]:
         """SOCLE-SHOP S4 : la conversation reste unique ; « Ce projet » et « Ce sujet » sont des filtres."""
         with self._lock:
             msgs = [m for m in self._messages if m["id"] > since_id
