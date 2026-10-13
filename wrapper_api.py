@@ -220,16 +220,22 @@ def main():
         except Exception:
             return model
 
-    def get_project_memory():
-        # La memoire du projet actif (Vaultia), injectee au contexte comme un projet Claude.
+    def get_project_memory(channel="general", projet_ids=frozenset()):
+        # SOCLE-SHOP S1 : la memoire du projet de CE declenchement (projet_id de la file), sinon celle du
+        # projet auquel le canal est rattache, sinon aucune. Plusieurs projets dans un lot : aucune.
+        if len(projet_ids) > 1:
+            return "", ""
+        seul = next(iter(projet_ids)) if projet_ids else ""
         try:
-            req = urllib.request.Request(f"http://127.0.0.1:{server_port}/api/projects")
-            with urllib.request.urlopen(req, timeout=3) as resp:
+            import urllib.parse
+            if seul:
+                pid = urllib.parse.quote(seul, safe="")
+                url = f"http://127.0.0.1:{server_port}/api/projects/{pid}/memory"
+            else:
+                url = f"http://127.0.0.1:{server_port}/api/projects/channel/{urllib.parse.quote(channel, safe='')}/memory"
+            with urllib.request.urlopen(urllib.request.Request(url), timeout=3) as resp:
                 data = json.loads(resp.read())
-            actif = data.get("actif", "")
-            projets = data.get("projets", {})
-            if actif and actif in projets:
-                return (projets[actif].get("memoire", "") or "").strip(), actif
+            return (data.get("memoire", "") or "").strip(), data.get("nom", "") or ""
         except Exception:
             pass
         return "", ""
@@ -331,16 +337,16 @@ def main():
         return data["choices"][0]["message"]["content"]
 
     # Format chat messages into OpenAI format
-    def format_messages(chat_msgs):
+    def format_messages(chat_msgs, channel="general", projet_ids=frozenset()):
         my_name = get_name()
 
         # Build dynamic system prompt with online status, role, and mention instructions
         online = get_online_agents()
         others = [n for n in online if n != my_name]
         parts = [system_prompt]
-        memoire, nom_projet = get_project_memory()
+        memoire, nom_projet = get_project_memory(channel, projet_ids)
         if memoire:
-            parts.append(f"Projet actif « {nom_projet} » — memoire du projet (contexte a respecter) :\n{memoire}")
+            parts.append(f"Projet « {nom_projet} » — memoire du projet (contexte a respecter) :\n{memoire}")
         # Inject role if set
         my_role = get_my_role()
         if my_role:
@@ -363,7 +369,7 @@ def main():
         return messages
 
     # Handle a trigger — read context, call model, respond
-    def handle_trigger(channel="general"):
+    def handle_trigger(channel="general", projet_ids=frozenset()):
         my_name = get_name()
         set_working(True)
         try:
@@ -371,7 +377,7 @@ def main():
             if not chat_msgs:
                 return
 
-            messages = format_messages(chat_msgs)
+            messages = format_messages(chat_msgs, channel, projet_ids)
             print(f"  [{channel}] Calling model with {len(messages)} messages...")
 
             response = call_model(messages, get_my_effort(), get_my_model())
@@ -418,6 +424,7 @@ def main():
                     qf.write_text("", "utf-8")
 
                     channels_triggered = set()
+                    projets_par_canal: dict = {}   # SOCLE-SHOP S1 : projet_id de chaque declenchement
                     for line in lines:
                         line = line.strip()
                         if not line:
@@ -426,11 +433,14 @@ def main():
                             data = json.loads(line)
                             ch = data.get("channel", "general") if isinstance(data, dict) else "general"
                             channels_triggered.add(ch)
+                            if isinstance(data, dict):
+                                # "" = entree sans projet : A + sans projet = ambigu (revue codex 2039)
+                                projets_par_canal.setdefault(ch, set()).add(str(data.get("projet_id") or ""))
                         except json.JSONDecodeError:
                             channels_triggered.add("general")
 
                     for ch in channels_triggered:
-                        handle_trigger(channel=ch)
+                        handle_trigger(channel=ch, projet_ids=frozenset(projets_par_canal.get(ch, ())))
             except Exception:
                 pass
 

@@ -1,10 +1,56 @@
-"""Job store — bounded work conversations with threaded messages."""
+"""Job store — bounded work conversations with threaded messages.
+
+v2 (12 oct. 2026, socle de la Shop, SOCLE-SHOP.md S2) : un job peut etre une **tache** d'un projet :
+`projet_id`, `etape` (pilote-rd 1-8), `etat`, un seul `responsable`, une `equipe` avec roles, `critere`, `preuve`,
+et pour les essais les champs RS&DE. Un job sans `projet_id` reste un job « sans projet » (anciens jobs).
+"""
 
 import json
 import time
 import threading
 import uuid
 from pathlib import Path
+
+
+ETAPES = ("probleme", "etat_art", "concepts", "conception", "prototype", "essais",
+          "industrialisation", "lancement")
+ETATS = ("a_faire", "en_cours", "attend_charles", "bloque", "fait")
+ROLES = ("producteur", "verificateur", "relecteur", "proposant")
+CHAMPS_ESSAI = ("incertitude", "hypothese", "methode", "critere")  # avant la 1re execution (RS&DE)
+CHAMPS_TACHE = ("titre", "etape", "etat", "responsable", "equipe", "critere", "preuve",
+                "incertitude", "hypothese", "methode", "resultat", "conclusion")
+
+
+def _equipe_valide(equipe) -> list[dict] | None:
+    """[{agent, role}] sans doublon d'agent ; None si invalide."""
+    if not isinstance(equipe, list):
+        return None
+    vus, out = set(), []
+    for m in equipe:
+        if not isinstance(m, dict):
+            return None
+        agent, role = str(m.get("agent", "")).strip(), str(m.get("role", "")).strip()
+        if not agent or role not in ROLES or agent in vus:
+            return None
+        vus.add(agent)
+        out.append({"agent": agent, "role": role})
+    return out
+
+
+def essai_pret(tache: dict) -> bool:
+    """Une tache d'essai ne s'execute qu'une fois incertitude, hypothese, methode et critere ecrits."""
+    if tache.get("etape") != "essais":
+        return True
+    return all(str(tache.get(c, "")).strip() for c in CHAMPS_ESSAI)
+
+
+def etape_du_projet(taches: list[dict]) -> str:
+    """Premiere etape (ordre pilote-rd) qui contient une tache pas encore faite ; '' si aucune."""
+    ouvertes = {t.get("etape") for t in taches if t.get("etat") != "fait"}
+    for e in ETAPES:
+        if e in ouvertes:
+            return e
+    return ""
 
 
 class JobStore:
@@ -28,8 +74,10 @@ class JobStore:
                     self._next_id = max(a["id"] for a in self._jobs) + 1
                     if self._ensure_sort_orders_locked():
                         self._save()
-        except (json.JSONDecodeError, KeyError):
-            self._jobs = []
+        except (json.JSONDecodeError, KeyError) as err:
+            # S2 (revue codex) : un fichier illisible n'est jamais vide en silence, sinon la prochaine
+            # sauvegarde l'ecraserait. La salle refuse de demarrer et le fichier reste intact.
+            raise ValueError(f"{self._path} illisible : {err}") from err
 
     def _save(self):
         self._path.write_text(
@@ -139,6 +187,86 @@ class JobStore:
             self._save()
         self._fire("create", a)
         return a
+
+    # --- S2 : taches de projet -------------------------------------------------------------------------------
+
+    def taches(self, projet_id: str) -> list[dict]:
+        with self._lock:
+            return [dict(a) for a in self._jobs if a.get("projet_id") == projet_id]
+
+    def create_tache(self, projet_id: str, titre: str, etape: str, responsable: str,
+                     created_by: str, channel: str = "general", equipe=None,
+                     critere: str = "", **essai) -> tuple[dict | None, str]:
+        """Cree une tache de projet. Rend (tache, '') ou (None, erreur). L'existence du projet est verifiee par
+        l'appelant (app.py), pour garder ce module sans dependance."""
+        if not projet_id:
+            return None, "projet_id requis"
+        if etape not in ETAPES:
+            return None, f"etape parmi {', '.join(ETAPES)}"
+        if not str(responsable).strip():
+            return None, "un responsable"
+        eq = _equipe_valide(equipe or [])
+        if eq is None:
+            return None, f"equipe : [{{agent, role}}], role parmi {', '.join(ROLES)}, sans doublon"
+        if str(responsable).strip() not in {m["agent"] for m in eq}:
+            return None, "le responsable doit faire partie de l'equipe"
+        a = self.create(title=titre, job_type="tache", channel=channel, created_by=created_by,
+                        assignee=str(responsable).strip(), status="open")
+        champs = {"projet_id": projet_id, "titre": a["title"], "etape": etape, "etat": "a_faire",
+                  "responsable": str(responsable).strip(), "equipe": eq, "critere": str(critere),
+                  "preuve": ""}
+        for c in ("incertitude", "hypothese", "methode"):
+            champs[c] = str(essai.get(c, ""))
+        with self._lock:
+            for j in self._jobs:
+                if j["id"] == a["id"]:
+                    j.update(champs)
+                    self._save()
+                    a = dict(j)
+                    break
+        self._fire("update", a)
+        return a, ""
+
+    def update_tache(self, job_id: int, champs: dict) -> tuple[dict | None, str]:
+        """Met a jour les champs d'une tache. `fait` exige une preuve (R6). Rend (tache, '') ou (None, erreur)."""
+        inconnus = set(champs) - set(CHAMPS_TACHE)
+        if inconnus:
+            return None, f"champs inconnus : {', '.join(sorted(inconnus))}"
+        with self._lock:
+            for a in self._jobs:
+                if a["id"] == job_id and a.get("projet_id"):
+                    break
+            else:
+                return None, "tache inconnue"
+            nouveau = dict(a)
+            for k, v in champs.items():
+                nouveau[k] = v
+            if nouveau.get("etape") not in ETAPES:
+                return None, f"etape parmi {', '.join(ETAPES)}"
+            if nouveau.get("etat") not in ETATS:
+                return None, f"etat parmi {', '.join(ETATS)}"
+            if not str(nouveau.get("responsable", "")).strip():
+                return None, "un responsable"
+            if "equipe" in champs:
+                eq = _equipe_valide(champs["equipe"])
+                if eq is None:
+                    return None, f"equipe : [{{agent, role}}], role parmi {', '.join(ROLES)}, sans doublon"
+                nouveau["equipe"] = eq
+            if str(nouveau["responsable"]).strip() not in {m.get("agent") for m in nouveau.get("equipe") or []}:
+                return None, "le responsable doit faire partie de l'equipe"
+            if nouveau["etat"] == "fait" and not str(nouveau.get("preuve", "")).strip():
+                return None, "fait exige une preuve (commande et sortie, sortie d'outil ou fichier:ligne)"
+            nouveau["title"] = str(nouveau.get("titre", a["title"])).strip()[:120]
+            nouveau["titre"] = nouveau["title"]
+            nouveau["assignee"] = str(nouveau["responsable"]).strip()
+            nouveau["status"] = "done" if nouveau["etat"] == "fait" else "open"
+            nouveau["updated_at"] = time.time()
+            a.clear()
+            a.update(nouveau)
+            self._save()
+            result = dict(a)
+        self._fire("update", result)
+        return result, ""
 
     def update_status(self, job_id: int, status: str) -> dict | None:
         """Update job status. Valid: open, done, archived."""

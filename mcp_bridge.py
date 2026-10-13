@@ -206,9 +206,12 @@ def chat_send(
     reply_to: int = -1,
     channel: str = "",
     job_id: int = 0,
+    projet_id: str = "",
     ctx: Context | None = None,
 ) -> str:
     """Send a message to the agentchattr chat. Use your name as sender (claude/codex/user).
+    Optionally tag the message with projet_id (a Shop project). If omitted and reply_to points to a
+    tagged message, the reply keeps that message's project.
     Optionally attach a local image by providing image_path (absolute path).
     Optionally reply to a message by providing reply_to (message ID).
     Channel/job_id resolution:
@@ -339,8 +342,17 @@ def chat_send(
         attachments.append({"name": src.name, "url": f"/uploads/{filename}"})
 
     reply_id = reply_to if reply_to >= 0 else None
-    if reply_id is not None and store.get_by_id(reply_id) is None:
+    parent = store.get_by_id(reply_id) if reply_id is not None else None
+    if reply_id is not None and parent is None:
         return f"Message #{reply_to} not found."
+
+    # SOCLE-SHOP S1 : la reponse d'un agent garde le projet du message auquel elle repond.
+    import projects as _projets
+    projet_id = (projet_id or "").strip() or ((parent or {}).get("projet_id") or "")
+    if projet_id and not _projets.existe(projet_id):
+        return f"Unknown projet_id: {projet_id}. Message not sent."
+    # SOCLE-SHOP S4 : elle garde aussi sa tache, si la tache du parent est du meme projet.
+    tache_id = (parent or {}).get("tache_id") if (parent or {}).get("projet_id") == projet_id else None
 
     # Determine message type and metadata based on choices
     msg_type = "chat"
@@ -352,7 +364,8 @@ def chat_send(
 
     msg = store.add(sender, message.strip(), attachments=attachments,
                     reply_to=reply_id, channel=channel,
-                    msg_type=msg_type, metadata=metadata)
+                    msg_type=msg_type, metadata=metadata,
+                    projet_id=projet_id or None, tache_id=tache_id)
     _update_cursor(sender, [msg], channel)
     with _presence_lock:
         _presence[sender] = time.time()
