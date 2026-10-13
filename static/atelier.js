@@ -381,9 +381,11 @@ function ouvrirFiche(html) {
 function fermerFiche() { const d = $("#fiche"); if (d.close) d.close(); else d.removeAttribute("open"); }
 const enteteFiche = (sur, titre) => `<div class="fh"><div><div class="lbl">${esc(sur)}</div><h2 id="fiche-t">${esc(titre)}</h2></div><button class="btn" type="button" data-act="fermer" aria-label="Fermer">Fermer</button></div>`;
 
+let REQUETE_FICHE = 0; // garde : une réponse n'affiche que si c'est encore la bonne tâche (pas d'historique croisé)
 async function ouvrirTache(id) {
   const t = state.taches.find(x => String(x.id) === String(id));
   if (!t) return;
+  const n = ++REQUETE_FICHE; // ce tirage est le seul autorisé à écrire dans la fiche
   const st = normEtat(t.etat);
   const equipe = (t.equipe || []).map(m => `${esc(m.agent)} <span class="cap">(${esc(m.role)})</span>`).join(", ") || esc(t.responsable || "—");
   const champs = CHAMPS_FICHE.filter(([c]) => String(t[c] || "").trim())
@@ -398,16 +400,21 @@ async function ouvrirTache(id) {
     getJSON(`/api/v2/messages?tache_id=${encodeURIComponent(t.id)}&limit=100`),
     getJSON(`/api/v2/executions?tache_id=${encodeURIComponent(t.id)}`),
   ]);
+  if (n !== REQUETE_FICHE) return; // une tâche plus récente a été ouverte : on jette cette réponse (pas d'historique croisé)
   const el = $("#fiche-h");
   if (!el) return;
+  // Distinguer une erreur réseau d'un historique vraiment vide (404 = pas branché, pas une erreur).
+  const reussi = (m.ok || m.err === 404) && (e.ok || e.err === 404);
   const lignes = [];
   ((m.ok && m.data && m.data.messages) || []).forEach(x => lignes.push({h: x.timestamp, html: `<b>${esc(x.sender)}</b> — ${esc(court(x.text, 400))}`}));
   ((e.ok && e.data && e.data.executions) || []).forEach(x => lignes.push({h: x.fin || x.debut,
     html: `<span class="type">exécution</span><b>${esc(x.agent)}</b>${x.role ? ` (${esc(x.role)})` : ""} — ${esc(court(x.consigne, 200))}${x.issue ? ` · ${esc(x.issue)}` : x.fin ? "" : " · en cours"}`}));
   lignes.sort((a, b) => (b.h || 0) - (a.h || 0));
-  el.innerHTML = lignes.length
-    ? lignes.map(l => `<li><time>${esc(heure(l.h))}</time><span>${l.html}</span></li>`).join("")
-    : `<li class="cap">Aucun message ni exécution rattaché à cette tâche pour l'instant. « Discuter » ouvre sa conversation : tout ce qui s'y dit s'inscrit ici.</li>`;
+  el.innerHTML = !reussi
+    ? `<li class="cap" style="color:var(--bad)">Chargement de l'historique impossible (erreur réseau). Referme puis rouvre la tâche pour réessayer.</li>`
+    : (lignes.length
+      ? lignes.map(l => `<li><time>${esc(heure(l.h))}</time><span>${l.html}</span></li>`).join("")
+      : `<li class="cap">Aucun message ni exécution rattaché à cette tâche pour l'instant. « Discuter » ouvre sa conversation : tout ce qui s'y dit s'inscrit ici.</li>`);
 }
 
 function ouvrirEtape(e) {
