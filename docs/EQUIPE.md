@@ -1,6 +1,10 @@
 # Équipe d'agents — rôles, cycle et règles
 
-**Version : v1.5.2** — 2026-09-21.
+**Version : v1.6** — 2026-10-13.
+Changement v1.5.2 → v1.6 (Charles #2214) : l'équipe réelle remplace l'ancienne — cursor et qwenlocal
+retirés le 4 oct. (commit 1f55829), qwencode et grok ajoutés, gemini et grok autorisés à coder (#2030);
+§2 dit qui fusionne aujourd'hui; §3 ajoute R9 v2 (#26) et R11 v1 (#32) et liste les cartes périmées
+encore actives; §4 et §5 revérifiés le 13 oct.
 Changement v1.5.1 → v1.5.2 : la limite des cartes est passée de 160 à 600 caractères sur `main`
 (commit 0c9a8af, 21:31; serveur redémarré à 22:05) — §3 le dit; la concision des cartes reste
 voulue. Branche renommée `equipe/regles-v1.1` → `equipe/regles`, rebasée sur `main` (4053c9a).
@@ -28,17 +32,20 @@ la carte active l'emporte et ce document doit être corrigé (avec bump de versi
 | Agent | Rôle | Tranche | Ne fait pas |
 |---|---|---|---|
 | **Charles** | Propriétaire, décideur final | Objectifs, grosses décisions, tout push, tout merge | — |
-| **claude** | Chef et producteur principal | Découpage, assignations, arbitrages techniques, validation des livrables | Push sans le « oui » nommé de Charles |
-| **codex** | Appui ciblé | Revue technique, tests, vérifications, déblocage | Production intégrale; renverser une décision de claude |
-| **qwenlocal** | Producteur d'appoint (Qwen3-Coder 80B, local) | Rédige ce que claude lui assigne — texte seulement, voir §4 | Décisions infra, secrets, tout ce qui touche au dépôt |
-| **qwen-b** | Réserve (2e session Qwen) | Rien sans assignation explicite | Toucher un fichier déjà assigné |
-| **cursor**, **gemini** | Avis | Conseil, découpage, relecture | Toute écriture dans le dépôt |
+| **claude** | Chef et producteur principal | Découpage, assignations, arbitrages techniques, validation des livrables | Push ou merge sans le « oui » nommé de Charles |
+| **codex** | Revue, tests, appui | Revue technique, tests, vérifications, déblocage | Production intégrale; renverser une décision de claude |
+| **qwencode** | Producteur sur lot assigné (Qwen Code CLI) | Le lot que claude lui assigne (ex. l'interface `static/atelier.*`) | Toucher un fichier hors de son lot |
+| **grok** | Producteur sur lot assigné (exception de Charles, #2030) | Le lot que claude lui assigne (ex. `historique.py`) | Idem |
+| **gemini** | Avis; producteur sur lot assigné (exception de Charles, #2030) | Conseil, relecture, CAO dans `cad-gemini` | Idem |
+
+Retirés le 4 oct. 2026 (commit 1f55829) : **cursor** et **qwenlocal**. Les cartes v1.5 les nomment
+encore (R1, R6); en attendant leur remplacement, « qwenlocal » s'y lit « un agent sans outils ».
 
 Seul Charles renverse une décision de claude. Les objections techniques sont encouragées :
 elles remontent à claude, qui tranche et qui les documente si elles changent quelque chose.
 Les rôles sont complémentaires, pas égaux (#127) : chacun couvre une faiblesse d'un autre —
-claude produit et cadre, codex challenge les preuves, qwenlocal rédige localement, cursor et
-gemini prennent du recul, Charles tranche.
+claude produit et cadre, codex challenge les preuves, qwencode et grok produisent sur lot,
+gemini prend du recul, Charles tranche.
 
 ## 2. Cycle de livraison
 
@@ -51,8 +58,14 @@ production sur branche (worktree isolé)
         → Charles merge (ou refuse)
 ```
 
-Qui exécute quoi : **claude** pousse et ouvre la PR, seulement après le « oui » de Charles;
-**Charles** merge. Le cycle est complet à la PR mergée, pas au push.
+Qui exécute quoi : **claude** pousse et ouvre la PR, seulement après le « oui » de Charles.
+**Charles** merge, ou dit à claude de fusionner une PR nommée (« fusionne #24 ») : claude fusionne
+alors celle-là seulement (#22 à #26, 13 oct.). Le cycle est complet à la PR mergée, pas au push.
+
+- Avant de fusionner, claude lit la base de la PR (`gh pr view N --json baseRefName`) : une PR
+  empilée fusionne dans une autre branche que `main` (#23, 13 oct.).
+- Après une fusion, le serveur en service est relancé seul, avec `vaultia-watchdog` en pause
+  (`kill -STOP` puis `-CONT`) : sans pause, le gardien relance toute la salle et coupe les agents.
 
 - Le push n'est jamais une étape intermédiaire ni une étape de test. Un « test de cycle »
   s'arrête à la validation claude.
@@ -63,14 +76,12 @@ Qui exécute quoi : **claude** pousse et ouvre la PR, seulement après le « oui
 
 ## 3. Règles (texte complet)
 
-Cartes v1.5 actives : **#16 à #23**, approuvées par Charles au #144. Les cartes #4–#15 (v1.1,
-v1.2) étaient encore actives à l'epoch 21 et sont à désactiver; en attendant, en cas d'écart,
-la carte v1.5 l'emporte. Les cartes v1.5 tiennent en 160 caractères parce qu'elles ont été
-rédigées quand `rules.py` limitait à 160; depuis le commit 0c9a8af (21:31, « regles jusqu'a
-600 caracteres »), `rules.py:9` dit `MAX_TEXT_CHARS = 600`, en vigueur au serveur redémarré à
-22:05 (`ps -o lstart`). La concision reste voulue : chaque carte active est injectée dans le
-prompt de chaque agent CLI à chaque déclenchement (`wrapper.py`). Le texte ci-dessous est la
-version longue.
+Cartes actives faisant foi au 13 oct. 2026 (`GET /api/rules`) : **v1.5 #16 à #23**, **R9 v2 #26**,
+**R11 v1 #32**. Les cartes **#4 à #15** (v1.1, v1.2) sont encore actives et injectées à chaque
+déclenchement; elles sont périmées et à désactiver par Charles dans le panneau Rules. En cas
+d'écart, la carte la plus récente l'emporte. `rules.py:9` limite une carte à 600 caractères; la
+concision reste voulue, car chaque carte active est injectée dans le prompt de chaque agent CLI
+(`wrapper.py`). Le texte ci-dessous est la version longue.
 
 ### R1 — Rôles
 Carte : *Charles décide. claude: chef, tranche, produit. codex: revue, tests, appui.
@@ -102,11 +113,11 @@ disque par le serveur et relus par des agents cloud (Anthropic, OpenAI, Cursor, 
 Carte : *agentchattr est public: travail cloud permis. Vaultia-client (données, prod,
 Authentik, logs) = local seulement, jamais lu par un agent cloud.*
 Le dépôt `agentchattr` (fork public de `bcurts/agentchattr`) et l'orchestrateur sont du
-travail ouvert : claude, codex, gemini et cursor (cloud) y participent sans restriction.
-Tout ce qui relève de **Vaultia-client** — données d'usagers, configurations de production,
-identités et secrets Authentik, journaux, clés — est traité localement seulement
-(qwenlocal), n'entre jamais dans un canal lu par un agent cloud, ni dans le dépôt public,
-ni dans une session Cursor Agent ouverte sur ce poste. Formulation opérationnelle
+travail ouvert : claude, codex, gemini, grok et qwencode (tous cloud) y participent sans
+restriction. Tout ce qui relève de **Vaultia-client** — données d'usagers, configurations de
+production, identités et secrets Authentik, journaux, clés — est traité localement seulement,
+n'entre jamais dans un canal lu par un agent cloud, ni dans le dépôt public. Depuis le retrait de
+qwenlocal (4 oct.), **aucun agent de la salle n'est local** : aucun ne touche Vaultia-client. Formulation opérationnelle
 uniquement : rien ici n'est une conclusion juridique sur la Loi 25.
 
 ### R5 — Canal
@@ -152,31 +163,47 @@ cite la version et le numéro de carte qu'elle remplace. Rôles, règles et déc
 être relisibles depuis le dépôt et le panneau Rules, pas depuis le fil : une session perdue
 (F6, claude-1) ne doit rien perdre d'autre que le raisonnement en cours.
 
-## 4. Capacités réelles des agents (vérifié dans le code, 2026-09-21)
+### R9 v2 — Format envers Charles
+Carte : *Tableau ou schéma d'abord, puis quelques lignes de texte au maximum. Jamais de
+paragraphe long, jamais de récapitulatif. Une décision attendue de lui = une ligne en fin de
+message. Le détail et les preuves vont dans le dépôt et entre agents.*
+Remplace R9 v1, qui interdisait les tableaux à tort. Une décision se pose avec des boutons
+(`choices`) quand c'est possible : Charles répond d'un clic, souvent depuis son cell.
+
+### R11 v1 — Mémoire commune
+Carte : *Si tu as l'outil ecc-memoire : memory_search sur le sujet avant de commencer;
+memory_save quand tu décides, termines un lot ou passes le relais (kind decision/note/handoff,
+titre clair, faits vérifiés, jamais de secret). Un souvenir est un indice, pas une preuve :
+revérifie avant d'agir.*
+Un souvenir n'est jamais cité comme preuve au sens de R6.
+
+## 4. Capacités réelles des agents (vérifié dans la config, 2026-10-13)
 
 | Agent | Type (config) | Shell / fichiers / git | Source |
 |---|---|---|---|
 | claude | CLI (`claude`), cwd `~/atelier` | oui | `config.toml` `[agents.claude]` |
 | codex | CLI (`codex`), cwd `~/atelier` | oui | `config.toml` `[agents.codex]` |
-| qwenlocal | `type = "api"` → llama-server | **non** : pont chat-completion pur, aucun outil | `wrapper_api.py` l. 280-302 : `POST /chat/completions`, retourne `message.content` |
-| cursor | `type = "cli_print"` (`cursor-agent -p`) | dépend des flags; se déclare « avis seulement » | `config.local.toml` |
-| gemini | `type = "cli_print"` (`agy`) | idem | `config.toml` `[agents.gemini]` |
+| qwencode | CLI (`qwen`, `--approval-mode=yolo`), cwd `~/atelier` | oui; `git rebase` refusé par ses permissions | `config.local.toml`, `vaultia-watchdog.sh` |
+| grok | CLI (`grok-launch.sh`), cwd `~/atelier/cad-grok` | oui | `config.local.toml` `[agents.grok]` |
+| gemini | `type = "cli_print"` (`agy`), cwd `~/atelier/cad-gemini` | selon les flags de `agy` | `config.local.toml` `[agents.gemini]` |
 
-Conséquence : **qwenlocal ne peut pas créer de branche, écrire un fichier ni lancer `gh`.**
-Toute affirmation contraire dans le fil (ex. « `gh auth status` → keyring » au #46) était
-produite sans exécution. Qwen rédige du texte que claude intègre; le rendre producteur
-réel est un chantier de l'orchestrateur (voir `docs/ORCHESTRATEUR.md`).
+Tous sont lancés et relancés par `vaultia-watchdog.sh` (service utilisateur `vaultia-watchdog`).
+Un agent sans outils rédige, ne vérifie pas, et le dit (R6); il n'y en a plus dans la salle depuis
+le retrait de qwenlocal.
 
-## 5. Identité GitHub et jetons (état au 2026-09-21)
+## 5. Identité GitHub et jetons (revérifié le 2026-10-13)
 
 - Dépôt `Groupe-Vaultia/agentchattr` : public, collaborateur unique `charlowal` (admin),
   `main` non protégée.
 - Accès `gh` **constatés** comme `charlowal` (keyring, scopes `gist, read:org, repo, workflow`) :
   **claude** (`gh auth status`, cette session) et **codex** (#50, hors sandbox).
-- **qwenlocal** : aucun accès — pas d'outils (§4). **cursor**, **gemini** : non vérifié.
+- **qwencode**, **grok** : shell sous le même utilisateur Linux, donc même jeton (non testé
+  directement). **gemini** : non vérifié.
 - Risque structurel : tout processus disposant d'un shell sous l'utilisateur Linux
   `charles-antoine` peut invoquer `gh` et hériter du jeton du keyring. L'accès n'est pas
   par agent; il est par utilisateur système.
 - `credential.helper = store` → jeton en clair dans `~/.git-credentials`. Correctif décidé :
-  `gh auth setup-git` puis retrait de `store`, exécuté par Charles. Bot GitHub dédié à
+  `gh auth setup-git` puis retrait de `store`, exécuté par Charles — **pas encore fait** au
+  13 oct. (`git config --global --get-all credential.helper` → `store`); `main` toujours non
+  protégée (`… --jq .protected` → `false`). Bot GitHub dédié à
   droits minimaux : décidé, reporté après v1.x.
