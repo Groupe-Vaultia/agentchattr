@@ -20,6 +20,7 @@ from summaries import SummaryStore
 from jobs import JobStore
 import jobs as _jobs_mod
 from executions import ExecutionStore
+import historique as _historique
 from schedules import ScheduleStore, parse_schedule_spec
 from router import Router
 from agents import AgentTrigger
@@ -37,6 +38,7 @@ rules: RuleStore | None = None
 summaries: SummaryStore | None = None
 jobs: JobStore | None = None
 executions: ExecutionStore | None = None  # SOCLE-SHOP S3
+revisions = None  # SOCLE-SHOP S5 (RevisionStore de gemini), branche a sa livraison
 schedules: ScheduleStore | None = None
 router: Router | None = None
 agents: AgentTrigger | None = None
@@ -2389,6 +2391,19 @@ async def filtrer_messages(projet_id: str = "", tache_id: int = 0, since_id: int
         return JSONResponse({"error": "projet inconnu"}, status_code=404)
     return JSONResponse({"messages": store.filtrer(projet_id or None, tache_id or None, since_id,
                                                    max(1, min(limit, 500)))})
+
+
+# Historique d'un projet (module de grok, lecture seule). Les id deviennent du texte, comme le veut son contrat.
+@app.get("/api/v2/projects/{projet_id}/historique")
+async def projet_historique(projet_id: str, limite: int = 200):
+    if not _projets.existe(projet_id):
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    msgs = [{**m, "id": str(m["id"])} for m in store.filtrer(projet_id, None, -1, 0)]
+    execs = [{**e, "id": str(e["id"])} for e in executions.lister(projet_id)]
+    revs = revisions.revisions(projet_id) if revisions else []
+    lignes = _historique.historique(projet_id, messages=msgs, executions=execs, revisions=revs,
+                                    limite=max(1, min(limite, 1000)))
+    return JSONResponse([[jour, entrees] for jour, entrees in _historique.par_jour(lignes)])
 
 
 # SOCLE-SHOP S2 : taches de projet (un job avec projet_id, etape, responsable, equipe, preuve).
