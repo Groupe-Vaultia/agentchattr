@@ -7,6 +7,7 @@ v2 (12 octobre 2026, socle de la Shop, SOCLE-SHOP.md S1) : plusieurs projets act
   plus qu'a l'affichage des anciens clients.
 - Le fichier v1 ({"projets": {nom: ...}, "actif": nom}) est migre au premier chargement ; l'original est
   garde en projects.v1.json. L'API v1 (projets indexes par nom, `actif`) reste servie par lister().
+- Routes v1 : le nom exact passe avant l'identifiant ; creer() ne cherche que le nom exact (revue codex e49c86e).
 """
 from __future__ import annotations
 import json, os, re, threading, time, unicodedata
@@ -87,16 +88,22 @@ def _sauver() -> None:
     os.replace(tmp, _FILE)
 
 
-def _resoudre(cle: str) -> str:
-    """Identifiant ou nom (routes v1) -> identifiant ; '' si inconnu. Appeler sous _LOCK."""
-    if not cle:
-        return ""
-    if cle in _state["projets"]:
-        return cle
+def _par_nom(nom: str) -> str:
+    """Nom exact -> identifiant ; '' si aucun. Appeler sous _LOCK."""
     for pid, p in _state["projets"].items():
-        if p.get("nom") == cle:
+        if p.get("nom") == nom:
             return pid
     return ""
+
+
+def _resoudre(cle: str) -> str:
+    """Nom exact (routes v1) d'abord, puis identifiant ; '' si inconnu. Appeler sous _LOCK.
+
+    Le nom passe avant l'identifiant : apres migration, `Café` a l'ID `cafe`, et un autre projet
+    peut s'appeler exactement `cafe` ; la route v1 /api/projects/cafe vise alors ce dernier."""
+    if not cle:
+        return ""
+    return _par_nom(cle) or (cle if cle in _state["projets"] else "")
 
 
 def lister() -> dict:
@@ -115,7 +122,7 @@ def lister() -> dict:
 def creer(nom: str, memoire: str = "") -> str:
     """Cree le projet (ou met a jour la memoire d'un projet de meme nom) ; rend son identifiant."""
     with _LOCK:
-        pid = _resoudre(nom)
+        pid = _par_nom(nom)
         if pid:
             _state["projets"][pid]["memoire"] = memoire
             _state["projets"][pid]["maj"] = time.time()
