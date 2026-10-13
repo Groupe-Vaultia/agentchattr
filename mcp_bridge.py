@@ -357,6 +357,14 @@ def chat_send(
         return f"Unknown projet_id: {projet_id}. Message not sent."
     # SOCLE-SHOP S4 : elle garde aussi sa tache, si la tache du parent est du meme projet.
     tache_id = (parent or {}).get("tache_id") if (parent or {}).get("projet_id") == projet_id else None
+    # SOCLE-SHOP v1.0 : sans etiquette, celle du canal (`tache-<id>` = la tache ; canal range sous un projet).
+    if not projet_id:
+        import jobs as _jobs_mod
+        t = jobs.get(_jobs_mod.tache_du_canal(channel) or 0) if jobs else None
+        if t and t.get("projet_id"):
+            projet_id, tache_id = t["projet_id"], t["id"]
+        else:
+            projet_id = _projets.projet_du_canal(channel)
 
     # Determine message type and metadata based on choices
     msg_type = "chat"

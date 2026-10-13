@@ -1248,7 +1248,7 @@ async def websocket_endpoint(websocket: WebSocket):
                     reply_to = int(reply_to)
 
                 # SOCLE-SHOP S1/S4 : projet ou tache inconnus = refus, jamais remplaces par d'autres
-                projet_id, tache_id, err = _etiquettes(event.get("projet_id"), event.get("tache_id"))
+                projet_id, tache_id, err = _etiquettes(event.get("projet_id"), event.get("tache_id"), channel)
                 if err:
                     store.add("system", f"{err} : message non envoyé.", msg_type="system", channel=channel)
                     continue
@@ -1635,10 +1635,17 @@ async def import_history(file: UploadFile = File(...)):
     return JSONResponse(report)
 
 
-def _etiquettes(projet_id, tache_id) -> tuple[str | None, int | None, str]:
+def _etiquettes(projet_id, tache_id, channel: str = "") -> tuple[str | None, int | None, str]:
     """SOCLE-SHOP S4 : valide l'etiquette projet/tache d'un message. Une tache doit exister et appartenir au
-    projet ; sans projet_id, il est repris de la tache. Rend (projet_id, tache_id, erreur)."""
+    projet ; sans projet_id, il est repris de la tache. Rend (projet_id, tache_id, erreur).
+    v1.0 : un message sans etiquette prend celle de son canal : `tache-<id>` donne la tache, un canal range sous
+    un projet donne le projet. Une etiquette explicite garde la priorite."""
     projet_id = str(projet_id or "").strip() or None
+    if not projet_id and tache_id in (None, "", 0) and channel:
+        tache_id = _jobs_mod.tache_du_canal(channel)
+        tache = jobs.get(tache_id) if (jobs and tache_id) else None
+        if not tache or not tache.get("projet_id"):  # canal ordinaire, ou nomme tache-N sans tache : jamais de refus
+            return (_projets.projet_du_canal(channel) or None), None, ""
     if projet_id and not _projets.existe(projet_id):
         return None, None, f"projet inconnu : {projet_id}"
     if tache_id in (None, "", 0):
@@ -1684,7 +1691,7 @@ async def api_send(request: Request):
     if not text:
         return JSONResponse({"error": "text is required"}, status_code=400)
     channel = body.get("channel", "general")
-    projet_id, tache_id, err = _etiquettes(body.get("projet_id"), body.get("tache_id"))
+    projet_id, tache_id, err = _etiquettes(body.get("projet_id"), body.get("tache_id"), channel)
     if err:
         return JSONResponse({"error": err}, status_code=422)
 
@@ -2560,6 +2567,22 @@ async def create_tache(request: Request):
     if err:
         return JSONResponse({"error": err}, status_code=400)
     return JSONResponse(tache)
+
+
+@app.post("/api/v2/taches/{tache_id}/conversation")
+async def tache_conversation(tache_id: int):
+    """SOCLE-SHOP v1.0 : ouvre (ou retrouve) le canal `tache-<id>` de la salle, range sous le projet de la tache.
+    Les messages et les @agent de ce canal portent la tache : ils vont dans l'historique et ouvrent les executions."""
+    tache = jobs.get(tache_id) if jobs else None
+    if not tache or not tache.get("projet_id"):
+        return JSONResponse({"error": "tache inconnue"}, status_code=404)
+    canal = _jobs_mod.canal_tache(tache_id)
+    if canal not in room_settings["channels"]:
+        room_settings["channels"].append(canal)
+        _save_settings()
+        await broadcast_settings()
+    _projets.assigner_canal(canal, tache["projet_id"], par_id=True)
+    return JSONResponse({"channel": canal, "projet_id": tache["projet_id"], "tache_id": tache_id})
 
 
 @app.patch("/api/v2/taches/{tache_id}")
