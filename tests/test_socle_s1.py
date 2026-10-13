@@ -1,5 +1,6 @@
 """S1 contract tests for project migration and per-trigger memory isolation.
 
+v0.3 (2026-10-12, codex): keep ID-only v2 mutations distinct from legacy name routes.
 v0.2 (2026-10-12, codex): distinguish a legacy name from another project's slug.
 v0.1 (2026-10-12, codex): synthetic v1 migration, compatibility, and
 multi-project trigger coverage for SOCLE-SHOP.md v0.3.
@@ -158,6 +159,28 @@ class SocleS1Tests(unittest.TestCase):
         projects_by_name = self.client.get("/api/projects").json()["projets"]
         self.assertEqual(projects_by_name["Café"]["memoire"], "FIRST")
         self.assertEqual(projects_by_name["cafe"]["memoire"], "UPDATED_SECOND")
+
+    def test_v2_mutations_use_strict_id_when_a_name_collides(self):
+        self._v1({
+            "Café": {"memoire": "FIRST", "cree": 1, "channels": []},
+            "cafe": {"memoire": "SECOND", "cree": 2, "channels": []},
+        }, active="Café")
+
+        self.assertEqual(self.client.post("/api/projects/cafe/status", json={"status": "veille"}).status_code, 200)
+        self.assertEqual(self.client.post("/api/v2/projects/cafe/status", json={"status": "arrete"}).status_code, 200)
+        self.assertEqual(self.client.post("/api/v2/projects/cafe/memory", json={"memory": "UPDATED_FIRST"}).status_code, 200)
+        self.assertEqual(self.client.post("/api/v2/projects/assign", json={"channel": "atelier", "projet_id": "cafe"}).status_code, 200)
+
+        by_id = self.client.get("/api/projects").json()["v2"]["projets"]
+        self.assertEqual((by_id["cafe"]["nom"], by_id["cafe"]["statut"], by_id["cafe"]["memoire"]),
+                         ("Café", "arrete", "UPDATED_FIRST"))
+        self.assertEqual(by_id["cafe"]["channels"], ["atelier"])
+        self.assertEqual((by_id["cafe-2"]["nom"], by_id["cafe-2"]["statut"], by_id["cafe-2"]["memoire"]),
+                         ("cafe", "veille", "SECOND"))
+        self.assertEqual(self.client.post("/api/v2/projects/Café/status", json={"status": "actif"}).status_code, 404)
+
+        self.assertEqual(self.client.delete("/api/v2/projects/cafe-2").status_code, 200)
+        self.assertEqual(set(self.client.get("/api/projects").json()["v2"]["projets"]), {"cafe"})
 
 
 if __name__ == "__main__":
