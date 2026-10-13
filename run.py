@@ -117,6 +117,17 @@ def main():
         )
         return HTMLResponse(injected, headers={"Cache-Control": "no-store"})
 
+    @app.get("/atelier")
+    async def atelier():
+        # SOCLE-SHOP : l'interface de l'atelier recoit le jeton de session comme index.html ;
+        # servie par /static/atelier.html, elle n'en aurait pas et toutes ses routes rendraient 403.
+        html = (static_dir / "atelier.html").read_text("utf-8")
+        injected = html.replace(
+            "</head>",
+            f'<script>window.__SESSION_TOKEN__="{session_token}";</script>\n</head>',
+        )
+        return HTMLResponse(injected, headers={"Cache-Control": "no-store"})
+
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     # Capture the event loop for the store→WebSocket bridge
