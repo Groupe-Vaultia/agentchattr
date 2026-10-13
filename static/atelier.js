@@ -185,11 +185,11 @@ function renderCarte() {
     const done = de.length && de.every(t => t.etat === "fait");
     const isNow = i === (state.etape ?? etapeDuProjet(taches)) && !done;
     return `<div class="col"><h3>${i + 1}. ${NOM_ETAPES[e]}</h3>${
-      de.map(t => { const st = normEtat(t.etat); return `<button class="node${veille ? " veille" : ""}" data-node="${esc(t.id)}" data-s="${st}">
-        <span class="t">${esc(t.titre)}</span>
-        <span class="w">${esc(t.responsable || "")}${t.critere ? " · " + esc(t.critere) : ""}</span>
-        <span class="w"><span class="pill ${ETAT_CLS[st] || "s-afaire"}">${esc(ETAT_TACHE[st] || t.etat)}</span></span>
-      </button>`; }).join("") ||
+      de.map(t => { const st = normEtat(t.etat); return `<div class="node${veille ? " veille" : ""}" data-node="${esc(t.id)}" data-s="${st}">
+        <div class="t">${esc(t.titre)}</div>
+        <div class="w">${esc(t.responsable || "")}${t.critere ? " · " + esc(t.critere) : ""}</div>
+        <div class="w"><span class="pill ${ETAT_CLS[st] || "s-afaire"}">${esc(ETAT_TACHE[st] || t.etat)}</span> <button class="btn disc" type="button" data-disc="${esc(t.id)}">Discuter</button></div>
+      </div>`; }).join("") ||
       (done ? "" : `<div class="w" style="font-size:11.5px;color:var(--ink3)">aucune tâche</div>`)
     }</div>`;
   }).join("");
@@ -349,6 +349,16 @@ async function nouvelleTache(e) {
 }
 
 // ---------- câblage ----------
+// Bouton « Discuter » : ouvre la conversation de la tâche dans la salle.
+// La route crée le canal tache-<id> (rangé sous le projet) une seule fois et rend {channel}.
+// On mémorise le canal pour la salle, puis on y va — sans toucher à chat.js.
+async function discuter(tacheId) {
+  const r = await postJSON(`/api/v2/taches/${encodeURIComponent(tacheId)}/conversation`, {});
+  if (!r.ok || !r.data || !r.data.channel) { toast(r.msg || "Impossible d'ouvrir la conversation de cette tâche."); return; }
+  try { localStorage.setItem("agentchattr-channel", r.data.channel); } catch (_) {}
+  window.location.href = "/";
+}
+
 document.addEventListener("click", e => {
   const t = e.target;
   const tab = t.closest("#tabs [role=tab]"); if (tab) return go(tab.dataset.v);
@@ -358,7 +368,9 @@ document.addEventListener("click", e => {
   const st = t.closest("[data-status]");
   if (st) { e.stopPropagation(); return changerStatut(st.dataset.proj, st.dataset.status); }
   if (rp && (rp.classList.contains("proj") || rp.classList.contains("prow"))) { state.sel = rp.dataset.proj; loadProjet(); go(rp.classList.contains("proj") ? "carte" : state.view); return; }
-  const nd = t.closest("[data-node]"); if (nd) { /* sélection de tâche : sujet de la conversation (géré par la salle) */ nd.classList.add("sel"); return; }
+  // Bouton « Discuter » sur un nœud de tâche : on ouvre la salle, pas de sélection de nœud.
+  const d = t.closest("[data-disc]"); if (d) { e.stopPropagation(); return discuter(d.dataset.disc); }
+  const nd = t.closest("[data-node]"); if (nd) { nd.classList.add("sel"); return; }
   const act = t.closest("[data-act]"); if (!act) return;
   if (act.dataset.act === "newtask") { const f = $("#taskform"); f.hidden = !f.hidden; if (!f.hidden) $("#tk-t").focus(); }
   if (act.dataset.act === "canceltask") { $("#taskform").hidden = true; }

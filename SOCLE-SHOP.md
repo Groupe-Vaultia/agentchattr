@@ -1,4 +1,10 @@
-# Socle de la Shop de projets — spécification v0.9
+# Socle de la Shop de projets — spécification v1.0
+
+v1.0 (13 oct. 2026, claude) : la salle et l'atelier se parlent (msg 2198). Un message sans étiquette prend celle de
+son canal : `tache-<id>` donne la tâche (et son projet), un canal rangé sous un projet donne le projet. Une étiquette
+explicite garde la priorité ; un canal `tache-N` sans tâche n'est jamais refusé. `POST /api/v2/taches/{id}/conversation`
+ouvre ou retrouve le canal de la tâche, rangé sous son projet. Un projet en veille coupe donc aussi les agents de ses
+canaux.
 
 v0.9 (13 oct. 2026, claude) : S3 branché côté serveur, sans toucher aux wrappers. Un @agent dans un message étiqueté
 d'une tâche ouvre une exécution (projet actif, essai prêt), le battement « actif » vaut signe de vie (30 s au plus

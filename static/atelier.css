@@ -110,6 +110,8 @@ nav.tabs button[aria-selected="true"]{background:var(--slate);color:var(--on-sla
 .node .t{font-size:13px;font-weight:600;line-height:1.3}
 .node .w{font-size:11px;color:var(--ink3)}
 .node .msgs{font-size:11px;color:var(--slate);font-weight:600}
+.node .disc{font-size:11px;padding:1px 8px;border-radius:999px;background:var(--slate-soft);color:var(--slate);border:1px solid var(--slate-line);cursor:pointer;margin-left:4px}
+.node .disc:hover{background:var(--slate);color:var(--on-slate)}
 .node[data-s="fait"]{border-left-color:var(--ok)}.node[data-s="en_cours"]{border-left-color:var(--slate-55)}
 .node[data-s="charles"]{border-left-color:var(--slate)}.node[data-s="bloque"]{border-left-color:var(--bad)}.node[data-s="afaire"]{border-left-color:var(--idle)}
 .node.sel{outline:2px solid var(--slate)}

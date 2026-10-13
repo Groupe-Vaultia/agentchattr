@@ -3,9 +3,12 @@
 v2 (12 oct. 2026, socle de la Shop, SOCLE-SHOP.md S2) : un job peut etre une **tache** d'un projet :
 `projet_id`, `etape` (pilote-rd 1-8), `etat`, un seul `responsable`, une `equipe` avec roles, `critere`, `preuve`,
 et pour les essais les champs RS&DE. Un job sans `projet_id` reste un job « sans projet » (anciens jobs).
+
+v3 (13 oct. 2026, claude, SOCLE-SHOP v1.0) : la conversation d'une tache est le canal `tache-<id>`.
 """
 
 import json
+import re
 import time
 import threading
 import uuid
@@ -17,6 +20,19 @@ ETAPES = ("probleme", "etat_art", "concepts", "conception", "prototype", "essais
 ETATS = ("a_faire", "en_cours", "attend_charles", "bloque", "fait")
 ROLES = ("producteur", "verificateur", "relecteur", "proposant")
 CHAMPS_ESSAI = ("incertitude", "hypothese", "methode", "critere")  # avant la 1re execution (RS&DE)
+_CANAL_TACHE = re.compile(r"^tache-([1-9][0-9]{0,13})$")
+
+
+def canal_tache(tache_id: int) -> str:
+    """Le canal de la salle ou l'on discute d'une tache (20 caracteres au plus, regle des canaux)."""
+    return f"tache-{int(tache_id)}"
+
+
+def tache_du_canal(canal: str) -> int | None:
+    m = _CANAL_TACHE.match(str(canal or ""))
+    return int(m.group(1)) if m else None
+
+
 CHAMPS_TACHE = ("titre", "etape", "etat", "responsable", "equipe", "critere", "preuve",
                 "incertitude", "hypothese", "methode", "resultat", "conclusion")
 
