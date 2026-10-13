@@ -12,10 +12,13 @@ const ETAPES = ["probleme","etat_art","concepts","conception","prototype","essai
 const NOM_ETAPES = {probleme:"Problème",etat_art:"État de l'art",concepts:"Concepts",conception:"Conception",prototype:"Prototype",essais:"Essais",industrialisation:"Industrialisation",lancement:"Lancement"};
 const STATUTS = {actif:"actif",veille:"en veille",termine:"terminé",arrete:"arrêté"};
 const STATUT_CLS = {actif:"s-actif",veille:"s-veille",termine:"s-attente",arrete:"s-arrete"};
-const ETAT_TACHE = {fait:"fait",cours:"en cours",charles:"attend Charles",afaire:"à faire",bloque:"bloqué"};
-const ETAT_CLS = {fait:"s-fait",cours:"s-cours",charles:"s-charles",afaire:"s-afaire",bloque:"s-bloque"};
+// Les états que S2 (jobs.py) renvoie vraiment : fait / en_cours / attend_charles / a_faire / bloque.
+const ETAT_TACHE = {fait:"fait",en_cours:"en cours",attend_charles:"attend Charles",a_faire:"à faire",bloque:"bloqué"};
+const ETAT_CLS = {fait:"s-fait",en_cours:"s-cours",attend_charles:"s-charles",a_faire:"s-afaire",bloque:"s-bloque"};
 const ETAT_EXEC = {actif:"actif",silencieux:"silencieux",fini:"fini"};
 const ETAT_EXEC_CLS = {actif:"s-actif",silencieux:"s-silence",fini:"s-fait"};
+// Normalise un état de tâche (S2) vers une clé de libellé/classe connue.
+const normEtat = e => (e && ETAT_TACHE[e] ? e : (e === "cours" ? "en_cours" : e === "charles" ? "attend_charles" : e === "afaire" ? "a_faire" : "a_faire"));
 
 const state = {
   view: "projets",
@@ -28,17 +31,30 @@ const state = {
 };
 
 // ---------- accès réseau : état vide propre si la route n'est pas encore branchée ----------
+// Le serveur sert /atelier avec un jeton de session injecté (comme /). Sans lui, tout est 403.
+const headers = () => {
+  const h = {"Accept": "application/json"};
+  const t = window.__SESSION_TOKEN__;
+  if (t) h["x-session-token"] = t;
+  return h;
+};
+function erreur(code) {
+  // 404 = le lot n'est pas encore branché (état vide propre). Tout le reste (403, 400, 500…) est une
+  // erreur réelle : on ne la cache pas derrière « rien à afficher ».
+  return code && code !== 404 ? `Erreur ${code} — vérifie que la salle est ouverte et que ton jeton est valide.` : "";
+}
 async function getJSON(url) {
   try {
-    const r = await fetch(url, {headers: {"Accept": "application/json"}});
-    if (!r.ok) return {ok: false, data: null};
+    const r = await fetch(url, {headers: headers()});
+    if (!r.ok) return {ok: false, data: null, err: r.status, msg: erreur(r.status)};
     return {ok: true, data: await r.json()};
-  } catch (_) { return {ok: false, data: null}; }
+  } catch (_) { return {ok: false, data: null, err: 0}; }
 }
 async function postJSON(url, body) {
   try {
-    const r = await fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body || {})});
-    if (!r.ok) return {ok: false, data: null, err: r.status};
+    const h = headers(); h["Content-Type"] = "application/json";
+    const r = await fetch(url, {method: "POST", headers: h, body: JSON.stringify(body || {})});
+    if (!r.ok) return {ok: false, data: null, err: r.status, msg: erreur(r.status)};
     return {ok: true, data: await r.json().catch(() => null)};
   } catch (_) { return {ok: false, data: null, err: 0}; }
 }
@@ -55,7 +71,10 @@ async function loadProjets() {
   if (!r.ok || !r.data || !r.data.v2) {
     state.projets = {}; state.defaut = "";
     $("#note").hidden = false;
-    $("#note").textContent = "Le socle n'a pas encore retourné de projet (ou la route /api/projects n'est pas encore branchée). L'interface est prête : les projets apparaîtront ici dès que la salle en aura.";
+    // 404 = pas encore branché (état vide propre) ; 403/400/500 = erreur réelle, affichée.
+    $("#note").textContent = (r.msg)
+      ? r.msg
+      : "Le socle n'a pas encore retourné de projet (ou la route /api/projects n'est pas encore branchée). L'interface est prête : les projets apparaîtront ici dès que la salle en aura.";
     return;
   }
   const v2 = r.data.v2;
@@ -71,7 +90,7 @@ function renderProjets() {
   const actifs = ids.filter(id => state.projets[id].statut === "actif");
   const veille = ids.filter(id => state.projets[id].statut === "veille");
   const enDirect = new Set(state.executions.filter(e => e.etat === "actif" || e.etat === "silencieux").map(e => e.agent));
-  const attend = ids.filter(id => (state.projets[id].taches || []).some(t => t.etat === "charles"));
+  const attend = ids.filter(id => (state.projets[id].taches || []).some(t => normEtat(t.etat) === "attend_charles"));
 
   $("#psum").innerHTML = `
     <div class="sum"><b>${actifs.length}</b><span>projets actifs</span></div>
@@ -86,8 +105,8 @@ function renderProjets() {
   $("#prows").innerHTML = ids.map(id => {
     const p = state.projets[id];
     const taches = p.taches || [];
-    const fait = taches.filter(t => t.etat === "fait").length;
-    const cours = taches.filter(t => t.etat === "cours" || t.etat === "charles").length;
+    const fait = taches.filter(t => normEtat(t.etat) === "fait").length;
+    const cours = taches.filter(t => ["en_cours","attend_charles"].includes(normEtat(t.etat))).length;
     const afaire = taches.length - fait - cours;
     const agents = [...new Set(taches.map(t => t.responsable).filter(Boolean))];
     return `<div class="prow${id === state.sel ? " cur" : ""}" data-proj="${esc(id)}">
@@ -128,7 +147,7 @@ function renderEquipe() {
   const agents = Object.values(parAgent);
   const actif = agents.filter(a => a.etat === "actif").length;
   const silence = agents.filter(a => a.etat === "silencieux").length;
-  const attend = state.taches.filter(t => t.etat === "charles").length;
+  const attend = state.taches.filter(t => normEtat(t.etat) === "attend_charles").length;
 
   $("#esum").innerHTML = `
     <div class="sum"><b>${actif}</b><span>agent(s) actif(s)</span></div>
@@ -166,11 +185,11 @@ function renderCarte() {
     const done = de.length && de.every(t => t.etat === "fait");
     const isNow = i === (state.etape ?? etapeDuProjet(taches)) && !done;
     return `<div class="col"><h3>${i + 1}. ${NOM_ETAPES[e]}</h3>${
-      de.map(t => `<button class="node${veille ? " veille" : ""}" data-node="${esc(t.id)}" data-s="${t.etat === "fait" ? "fait" : t.etat === "charles" ? "charles" : t.etat === "bloque" ? "bloque" : t.etat === "cours" ? "cours" : "afaire"}">
+      de.map(t => { const st = normEtat(t.etat); return `<button class="node${veille ? " veille" : ""}" data-node="${esc(t.id)}" data-s="${st}">
         <span class="t">${esc(t.titre)}</span>
         <span class="w">${esc(t.responsable || "")}${t.critere ? " · " + esc(t.critere) : ""}</span>
-        <span class="w"><span class="pill ${ETAT_CLS[t.etat] || "s-afaire"}">${esc(ETAT_TACHE[t.etat] || t.etat)}</span></span>
-      </button>`).join("") ||
+        <span class="w"><span class="pill ${ETAT_CLS[st] || "s-afaire"}">${esc(ETAT_TACHE[st] || t.etat)}</span></span>
+      </button>`; }).join("") ||
       (done ? "" : `<div class="w" style="font-size:11.5px;color:var(--ink3)">aucune tâche</div>`)
     }</div>`;
   }).join("");
@@ -258,9 +277,13 @@ async function loadProjet() {
   ]);
 
   if (t.ok && t.data) {
-    // v0.2 : {taches, etape, etapes} ; v0.1 : liste nue
+    // v0.2 : {taches, etape, etapes} ; v0.1 : liste nue. `etape` est le nom d'étape (ex. "concepts").
     if (Array.isArray(t.data)) state.taches = t.data;
-    else { state.taches = t.data.taches || []; state.etape = (t.data.etape != null) ? t.data.etape : null; }
+    else {
+      state.taches = t.data.taches || [];
+      const idx = t.data.etape ? ETAPES.indexOf(t.data.etape) : -1;
+      state.etape = (idx >= 0) ? idx : (state.taches.length ? ETAPES.length : 0);
+    }
   }
   if (e.ok && e.data) state.executions = Array.isArray(e.data) ? e.data : (e.data.executions || []);
   if (h.ok && h.data) state.hist = h.data;
@@ -319,7 +342,8 @@ async function nouvelleTache(e) {
   const titre = $("#tk-t").value.trim();
   if (!titre || !state.sel) { toast("Donne un titre à la tâche."); return; }
   // La route POST /api/v2/taches est du lot de claude ; on tente, et on le dit si absent.
-  const r = await postJSON(`/api/v2/taches`, {projet_id: state.sel, titre, etape: $("#tk-c").value, responsable: $("#tk-r").value, equipe: [{agent: $("#tk-r").value, role: "responsable"}]});
+  // Rôles du contrat S2 : producteur, verificateur, relecteur, proposant (pas de « responsable »).
+  const r = await postJSON(`/api/v2/taches`, {projet_id: state.sel, titre, etape: $("#tk-c").value, responsable: $("#tk-r").value, equipe: [{agent: $("#tk-r").value, role: "producteur"}]});
   toast(r.ok ? "Tâche ajoutée." : "Ajout refusé (route POST /api/v2/taches non branchée pour l'instant).");
   if (r.ok) { e.target.hidden = true; await loadProjet(); }
 }
