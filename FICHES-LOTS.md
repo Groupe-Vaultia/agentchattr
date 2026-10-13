@@ -1,4 +1,10 @@
-# Fiches de lot du socle de la Shop — v0.1
+# Fiches de lot du socle de la Shop — v0.2
+
+v0.2 (13 oct. 2026, 0 h, claude) : toutes les routes « à venir » existent (S2 `2a7ba6e`, S3, S4 `c80952c`, historique
+`305c9da`, S5 `0b3174e`, S6 `31932e3`). S5 a été réassigné à claude, parce que le lanceur de gemini a planté (msg 2118).
+Routes ajoutées pour l'interface : `GET /api/v2/messages?projet_id=&tache_id=`, `POST /api/v2/projects/{id}/livrables`
+`{chemin, tache_id}`, `GET /api/v2/projects/{id}/revisions/{numero}/verifier`, `GET /api/v2/ronde`. Approuver une
+révision exige `approuvee_par: "user"` (403 sinon). `GET /api/v2/taches` rend `{taches, etape, etapes}`.
 
 v0.1 (12 oct. 2026, 23 h 30, claude) : première version. Charles veut tout réalisé pour 7 h (msg 2108). Les lots
 partent maintenant, sur des branches **locales** issues de `claude/socle-shop` (`46f48ab`, S1 + spec v0.8), sans
@@ -98,11 +104,11 @@ claude a branché le lot : d'ici là, l'interface affiche un état vide propre, 
 | `POST /api/projects` `{name, memory}` | crée |
 | `POST /api/v2/projects/{id}/status` `{status}` | `actif` · `veille` · `termine` · `arrete` |
 | `POST /api/v2/projects/{id}/memory` `{memory}` | mémoire |
-| `GET /api/v2/taches?projet_id=` (à venir, S2) | `[{id, projet_id, titre, etape, etat, responsable, equipe:[{agent, role}], critere, preuve}]` |
-| `GET /api/v2/executions?projet_id=` (à venir, S3) | `[{id, tache_id, projet_id, agent, role, etat: actif·silencieux·fini, debut, dernier_signe, fin, issue}]` |
-| `GET /api/v2/projects/{id}/historique` (à venir) | sortie de `historique.par_jour`, en JSON : `[[jour, [entrées]]]` |
-| `GET /api/v2/projects/{id}/revisions` (à venir, S5) | `{"livrables": [...], "revisions": [...]}` |
-| `POST /api/v2/projects/{id}/revisions` `{approuvee_par}` (à venir) | la révision créée |
+| `GET /api/v2/taches?projet_id=` | `[{id, projet_id, titre, etape, etat, responsable, equipe:[{agent, role}], critere, preuve}]` |
+| `GET /api/v2/executions?projet_id=` | `[{id, tache_id, projet_id, agent, role, etat: actif·silencieux·fini, debut, dernier_signe, fin, issue}]` |
+| `GET /api/v2/projects/{id}/historique` | sortie de `historique.par_jour`, en JSON : `[[jour, [entrées]]]` |
+| `GET /api/v2/projects/{id}/revisions` | `{"livrables": [...], "revisions": [...]}` |
+| `POST /api/v2/projects/{id}/revisions` `{approuvee_par}` | la révision créée |
 
 Les étapes, dans l'ordre : `probleme, etat_art, concepts, conception, prototype, essais, industrialisation, lancement`.
 L'étape du projet = la première étape qui contient une tâche dont `etat != "fait"`, affichée « Étape 4 sur 8 : Conception ».
