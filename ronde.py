@@ -4,10 +4,36 @@ v1 (12 oct. 2026, claude) : fonction pure. La ronde planifiee (schedules.py, tou
 GET /api/v2/ronde, puis agit : relancer ou reassigner une execution silencieuse, debloquer une tache, signaler a
 Charles ce qui l'attend. « Rien a faire » se dit en une ligne. Seuls les projets actifs comptent : un projet en
 veille, arrete ou termine n'a pas de ronde.
+
+v2 (13 oct. 2026, claude, SOCLE-SHOP v1.1 P1/P4) : la ronde devient le moteur. Elle rend aussi `jalons_en_attente`
+(prepares, sans decision de Charles), `jalons_dus` (claude doit les preparer) et `prochaines` (taches a lancer sans
+attendre Charles, avec la methode de leur etape). Un projet dont un jalon est du ou en attente n'a pas de
+`prochaines` : la porte du jalon est fermee tant que Charles n'a pas dit go.
 """
 
+ETAPES = ("probleme", "etat_art", "concepts", "conception", "prototype", "essais", "industrialisation", "lancement")
+# Jalon -> etapes dont toutes les taches doivent etre faites pour qu'il soit du.
+_AVANT = {"J1": ETAPES[:3], "J2": ("essais",), "revue": ("industrialisation",)}
+_JALONS_PAR_NIVEAU = {"leger": ("J2",), "moyen": ("J1", "J2"), "lourd": ("J1", "J2", "revue")}
 
-def ronde(projets: dict, taches: list[dict], executions: list[dict]) -> dict:
+
+def _jalons_dus(pid: str, niveau: str, taches: list[dict], jalons: list[dict]) -> list[str]:
+    dus = []
+    for nom in _JALONS_PAR_NIVEAU.get(niveau, _JALONS_PAR_NIVEAU["moyen"]):
+        avant = [t for t in taches if t.get("etape") in _AVANT[nom]]
+        passe = any(j["jalon"] == nom and j.get("decision") == "go" for j in jalons)
+        if avant and all(t.get("etat") == "fait" for t in avant) and not passe:
+            dus.append(nom)
+    return dus
+
+
+def _etape_courante(taches: list[dict]) -> str:
+    ouvertes = {t.get("etape") for t in taches if t.get("etat") != "fait"}
+    return next((e for e in ETAPES if e in ouvertes), "")
+
+
+def ronde(projets: dict, taches: list[dict], executions: list[dict], jalons: list[dict] = (),
+          methodes: dict | None = None) -> dict:
     """projets : {id: {nom, statut, …}} (forme v2). taches : celles de jobs.taches. executions : vues de
     ExecutionStore.lister (avec `etat`). Rend des listes courtes, prêtes a afficher."""
     actifs = {pid for pid, p in projets.items() if p.get("statut", "actif") == "actif"}
@@ -28,5 +54,25 @@ def ronde(projets: dict, taches: list[dict], executions: list[dict]) -> dict:
                                      if not any(t.get("projet_id") == pid and t.get("etat") != "fait"
                                                 for t in taches)),
     }
+    methodes = methodes or {}
+    occupes = {e["agent"] for e in executions if e.get("etat") in ("actif", "silencieux")}
+    sortie["jalons_en_attente"] = [{"jalon_id": j["id"], "projet_id": j["projet_id"], "jalon": j["jalon"],
+                                    "recommandation": j["recommandation"]}
+                                   for j in jalons if j["projet_id"] in actifs and not j.get("decision")]
+    sortie["jalons_dus"], sortie["prochaines"] = [], []
+    for pid in sorted(actifs):
+        tp = [t for t in taches if t.get("projet_id") == pid]
+        jp = [j for j in jalons if j["projet_id"] == pid]
+        if any(not j.get("decision") for j in jp):
+            continue  # en attente de Charles : ni jalon a preparer, ni tache a lancer
+        dus = _jalons_dus(pid, projets[pid].get("niveau") or "moyen", tp, jp)
+        if dus:
+            sortie["jalons_dus"].append({"projet_id": pid, "jalon": dus[0]})
+            continue
+        etape = _etape_courante(tp)
+        sortie["prochaines"] += [{"projet_id": pid, "tache_id": t["id"], "titre": t.get("titre", ""), "etape": etape,
+                                  "responsable": t.get("responsable", ""), "methode_etape": methodes.get(etape, "")}
+                                 for t in tp if t.get("etape") == etape and t.get("etat") == "a_faire"
+                                 and t.get("responsable") not in occupes]
     sortie["rien_a_faire"] = not any(sortie[k] for k in sortie)
     return sortie

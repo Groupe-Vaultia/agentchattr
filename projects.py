@@ -163,6 +163,92 @@ def definir_statut(cle: str, statut: str, par_id: bool = False) -> bool:
         return True
 
 
+# SOCLE-SHOP v1.1 P2 : fiche projet du skill pilote-rd. Chaque champ est valide ; un champ inconnu est refuse.
+NIVEAUX = ("leger", "moyen", "lourd")
+HORIZONS = ("H1", "H2", "H3")
+TYPES_RISQUE = ("technique", "cout", "marche", "fabrication", "reglementaire")
+ETATS_HYPOTHESE = ("a_verifier", "confirmee", "infirmee")
+SOURCES_HYPOTHESE = ("charles", "claude")
+
+
+def _liste(valeur, cles: dict, requis: str):
+    """[{...}] dont chaque cle vaut une chaine, ou une valeur d'une liste fermee ; `requis` non vide. None si invalide."""
+    if not isinstance(valeur, list):
+        return None
+    out = []
+    for e in valeur:
+        if not isinstance(e, dict) or set(e) - set(cles) or not str(e.get(requis, "")).strip():
+            return None
+        ligne = {}
+        for c, permis in cles.items():
+            v = e.get(c, permis[0] if permis else "")
+            if permis and v not in permis:
+                return None
+            ligne[c] = str(v).strip() if not permis else v
+        out.append(ligne)
+    return out
+
+
+def _fiche_valide(champs: dict) -> tuple[dict | None, str]:
+    if not isinstance(champs, dict):
+        return None, "objet attendu"
+    texte = ("objectif", "livrable_attendu", "code", "type", "ambition")
+    listes = {
+        "criteres": ({"nom": (), "cible": ()}, "nom"),
+        "hypotheses": ({"texte": (), "source": SOURCES_HYPOTHESE, "etat": ETATS_HYPOTHESE}, "texte"),
+        "risques": ({"texte": (), "type": TYPES_RISQUE, "etape": ()}, "texte"),
+        "questions": ({"texte": (), "reponse": ()}, "texte"),
+    }
+    inconnus = set(champs) - set(texte) - set(listes) - {"niveau", "trl", "horizon"}
+    if inconnus:
+        return None, f"champs inconnus : {', '.join(sorted(inconnus))}"
+    out = {}
+    for c in texte:
+        if c in champs:
+            out[c] = str(champs[c]).strip()
+    if "niveau" in champs:
+        if champs["niveau"] not in NIVEAUX:
+            return None, f"niveau parmi {', '.join(NIVEAUX)}"
+        out["niveau"] = champs["niveau"]
+    if "horizon" in champs:
+        if champs["horizon"] not in HORIZONS:
+            return None, f"horizon parmi {', '.join(HORIZONS)}"
+        out["horizon"] = champs["horizon"]
+    if "trl" in champs:
+        if isinstance(champs["trl"], bool) or not isinstance(champs["trl"], int) or not 1 <= champs["trl"] <= 9:
+            return None, "trl : entier de 1 a 9"
+        out["trl"] = champs["trl"]
+    for c, (cles, requis) in listes.items():
+        if c in champs:
+            v = _liste(champs[c], cles, requis)
+            if v is None:
+                permis = {k: list(p) for k, p in cles.items() if p}
+                return None, f"{c} : [{{{', '.join(cles)}}}], {requis} non vide" + (f", valeurs {permis}" if permis else "")
+            out[c] = v
+    return out, ""
+
+
+def definir_fiche(pid: str, champs: dict) -> tuple[dict | None, str]:
+    """Route v2 (identifiant strict). Rend (projet, '') ou (None, erreur) ; 'inconnu' = 404."""
+    fiche, err = _fiche_valide(champs)
+    if err:
+        return None, err
+    with _LOCK:
+        if pid not in _state["projets"]:
+            return None, "inconnu"
+        p = _state["projets"][pid]
+        p.update(fiche)
+        p["maj"] = time.time()
+        _sauver()
+        return json.loads(json.dumps(p)), ""
+
+
+def niveau(pid: str) -> str:
+    with _LOCK:
+        p = _state["projets"].get(pid) or {}
+        return p.get("niveau") if p.get("niveau") in NIVEAUX else "moyen"
+
+
 def activer(cle: str) -> bool:
     """Route v1 : choisit le projet par defaut (affichage seulement, n'injecte plus de memoire)."""
     with _LOCK:
