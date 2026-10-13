@@ -2607,6 +2607,12 @@ async def decide_jalon(jalon_id: int, request: Request):
     statut = _EFFET_DECISION.get(jalon["decision"])
     if statut:
         _projets.definir_statut(jalon["projet_id"], statut, par_id=True)
+    # `par: "user"` n'est qu'une convention (revue codex, msg 2277) : la decision est donc toujours annoncee dans le
+    # canal, ou Charles voit tout de suite une decision qu'il n'aurait pas prise.
+    canal = _CANAL_PILOTE if _CANAL_PILOTE in room_settings["channels"] else "general"
+    vers = f" vers {jalon['recycle_etape']}" if jalon["recycle_etape"] else ""
+    store.add("system", f"Jalon {jalon['jalon']} du projet {jalon['projet_id']} : décision « {jalon['decision']}{vers} » "
+              "enregistrée au nom de Charles depuis l'atelier.", channel=canal, projet_id=jalon["projet_id"])
     return JSONResponse(jalon)
 
 
@@ -2641,6 +2647,13 @@ async def lancer_projet(request: Request):
     objectif = str(body.get("objectif", "")).strip()
     if not nom:
         return JSONResponse({"error": "nom requis"}, status_code=400)
+    # Photos et documents d'idee : deja deposes par POST /api/upload, qui rend {name, url}.
+    pieces = body.get("pieces_jointes") or []
+    if not isinstance(pieces, list) or not all(
+            isinstance(p, dict) and _re.fullmatch(r"/uploads/[0-9a-f]{8}\.[A-Za-z0-9]{1,8}", str(p.get("url", "")))
+            for p in pieces):
+        return JSONResponse({"error": "pieces_jointes : [{name, url}] rendus par /api/upload"}, status_code=400)
+    pieces = [{"name": str(p.get("name", ""))[:200], "url": p["url"]} for p in pieces]
     if _projets.lister()["projets"].get(nom):
         return JSONResponse({"error": "un projet porte deja ce nom"}, status_code=409)
     pid = _projets.creer(nom, objectif)
@@ -2649,7 +2662,7 @@ async def lancer_projet(request: Request):
     store.add("user", f"@claude Lancement guidé du projet « {nom} » ({pid}). Objectif : {objectif or '(à préciser)'}\n"
               "Applique pilote-rd : au plus 3 questions qui changent le projet (fiche.questions), le reste en "
               f"hypothèses écrites, niveau, risques et critères (PATCH /api/v2/projects/{pid}/fiche), puis les tâches "
-              "des étapes 1 à 3 avec leur méthode (docs/PILOTE.md).", channel=canal, projet_id=pid)
+              "des étapes 1 à 3 avec leur méthode (docs/PILOTE.md).", channel=canal, projet_id=pid, attachments=pieces)
     return JSONResponse({"projet_id": pid, "channel": canal, **_projets.lister()})
 
 

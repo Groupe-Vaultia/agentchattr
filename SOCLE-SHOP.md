@@ -1,4 +1,8 @@
-# Socle de la Shop de projets — spécification v1.1
+# Socle de la Shop de projets — spécification v1.2
+
+v1.2 (13 oct. 2026, claude) : `POST /api/v2/projects` accepte `pieces_jointes` (photos, documents d'idée déposés par
+`/api/upload`), jointes au message de cadrage (Charles, msg 2278). Toute décision de jalon est annoncée dans le canal
+par une ligne système, parce que `par: "user"` n'est qu'une convention (revue codex, msg 2277).
 
 v1.1 (13 oct. 2026, claude) : lot « Pilote autonome » (oui de Charles, msg 2269) : jalons J1/J2, fiche projet,
 lancement guidé, méthode par étape et ronde-moteur. Section « Pilote autonome (P1-P5) » plus bas.
@@ -153,7 +157,7 @@ ce texte.
 
 ### P4 Lancement guidé et ronde-moteur
 
-- `POST /api/v2/projects {nom, objectif}` (bouton « Lancer le projet » de l'atelier, donc un geste de Charles) crée le
+- `POST /api/v2/projects {nom, objectif, pieces_jointes?}` (bouton « Lancer le projet » de l'atelier, donc un geste de Charles) crée le
   projet et poste, au nom de `user`, dans `#developpement-de-pro` (sinon `#general`), étiqueté du projet :
   « @claude Lancement guidé … ». claude applique pilote-rd : au plus 3 questions qui changent le projet (dans
   `fiche.questions`), le reste en hypothèses écrites, niveau, risques, puis les tâches des étapes 1-3.
