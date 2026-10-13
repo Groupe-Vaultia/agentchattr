@@ -1,4 +1,8 @@
-# Socle de la Shop de projets — spécification v0.2
+# Socle de la Shop de projets — spécification v0.3
+
+v0.3 (12 oct. 2026, claude) : 2e revue de codex (msg 2029) : chaque déclenchement transporte son `projet_id`, un ID
+inconnu est une erreur, `defaut` n'injecte plus rien, fixture synthétique (R4), lignes corrigées par grok (msg 2028).
+Répartition approuvée par Charles, gemini et grok compris (msg 2030).
 
 v0.2 (12 oct. 2026, claude) : ajoute la revue de codex (msg 2023) : identité stable, invariants, migration de
 `projects.json`, injection de la mémoire par projet (point bloquant), tests de S1, et la répartition du code
@@ -101,27 +105,38 @@ Contraintes mesurées :
 
 ## Injection de la mémoire : point bloquant (S1)
 
-Aujourd'hui, `wrapper.py` (`_fetch_project_memory`, injection l. 584-586) et `wrapper_api.py`
+Aujourd'hui, `wrapper.py` (`_fetch_project_memory` l. 468, injection l. 576-586) et `wrapper_api.py`
 (`get_project_memory`, l. 223-232) injectent la mémoire du projet global `actif` dans **chaque** déclenchement.
 
-S1 change la règle : la mémoire injectée est celle du projet **du déclenchement**, résolue côté serveur dans cet
-ordre :
-1. `projet_id` du job, quand le déclenchement vient d'un job;
-2. sinon, le projet du canal (`assigner_canal`);
-3. sinon, le projet `defaut`;
-4. sinon, aucune mémoire.
+S1 change la règle (v0.3) : **chaque déclenchement transporte son `projet_id`**.
 
-Les deux wrappers appellent `GET /api/projects/memory?channel=…&job=…` au lieu de lire `actif`. Tant que S1
-n'est pas fusionné, **un seul projet peut porter une mémoire** : le multi-projet reste désactivé côté mémoire.
+1. S1 ajoute un champ facultatif `projet_id` aux messages (`store.py`). Le serveur le recopie dans l'entrée de
+   file de l'agent déclenché (`agents.py`, `trigger` et `trigger_sync`, qui écrivent `<agent>_queue.jsonl`). Un job (S2) le recopiera de la même façon.
+2. Les deux wrappers lisent `projet_id` dans l'entrée de file, puis demandent
+   `GET /api/projects/{projet_id}/memory`.
+3. Règles de résolution :
+
+| Déclenchement | Mémoire injectée |
+|---|---|
+| `projet_id` présent et connu | celle de ce projet, et d'aucun autre |
+| `projet_id` présent mais **inconnu** | **aucune**. La route répond 404 et le wrapper l'écrit au journal, sans repli sur un autre projet |
+| `projet_id` absent, canal rattaché à un projet (`assigner_canal`, canaux d'avant la Shop) | celle du projet du canal |
+| `projet_id` absent, canal non rattaché (dont la conversation multi-projet de l'atelier) | **aucune** |
+
+4. `defaut` (l'ancien `actif`) **n'injecte plus rien**. Il reste dans `GET /api/projects` sous le nom `actif`,
+   pour l'affichage des anciens clients.
+
+Ce contrat ne dépend pas de S2. Les jobs s'y brancheront quand ils auront leur `projet_id`.
 
 ## Tests de S1 (proposés par codex, retenus)
 
-1. Migration réelle d'un `projects.json` v1, copié de `data/`, vers v2 : aucun projet, mémoire ni canal perdu,
+1. Migration d'un `projects.json` v1 **synthétique** (fixture, aucune mémoire réelle : R4) vers v2 : aucun projet, mémoire ni canal perdu,
    `projects.v1.json` présent.
 2. Redémarrage : le v2 se recharge à l'identique, sans nouvelle migration.
-3. Deux déclenchements A et B intercalés (canaux rattachés à deux projets) : chacun reçoit **uniquement** la
-   mémoire de son projet.
-4. Projet inconnu ou absent, sans `defaut` : aucune mémoire injectée.
+3. Deux déclenchements A et B intercalés, l'un avec `projet_id=a`, l'autre avec `projet_id=b`, dans le même canal : chacun
+   reçoit **uniquement** la mémoire de son projet.
+4. `projet_id` inconnu : 404 et aucune mémoire. `projet_id` absent dans un canal non rattaché : aucune mémoire,
+   même si `defaut` est défini.
 5. Compatibilité : les routes existantes rendent la même forme qu'avant pour un client v1.
 6. Slugs en collision : `-2`, puis `-3`.
 
@@ -140,8 +155,8 @@ chacun dans son worktree, sur des fichiers distincts (R7).
 | Historique, lecture seule | **grok** | `historique.py` (nouveau) | codex |
 | Interface, d'après la maquette v0.6 | **qwencode** | `static/atelier.js`, `static/atelier.css` (nouveaux) | codex, puis Charles |
 
-- gemini et grok sont « avis » selon R1 v1.5. Leur faire écrire du code demande le **oui de Charles**. Chacun
-  aurait un module neuf et isolé, derrière les tests de codex.
+- gemini et grok codent par **exception à R1 v1.5, accordée par Charles** (msg 2030). Chacun a un module neuf et
+  isolé, derrière les tests de codex.
 - qwencode peut commencer l'interface avant S1, avec des données d'essai qui suivent le contrat des routes.
 - claude garde les lots qui touchent au cœur de la salle (wrappers, jobs) : une erreur à cet endroit coupe tous
   les agents.
