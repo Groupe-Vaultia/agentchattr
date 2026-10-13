@@ -1,65 +1,79 @@
-/* vaultia-mobile.css — lisibilité téléphone (Vaultia, 21 sept. 2026). Tout sous @media,
-   desktop intact. Chargé après style.css pour surcharger. */
+/* vaultia-mobile.css — la salle au téléphone (Vaultia). Tout sous @media : le bureau est intact.
+   Chargé APRÈS vaultia-theme.css : n'ajuste que ce qui change au pouce. */
 @media (max-width: 768px) {
   html, body { overflow-x: hidden; max-width: 100vw; width: 100%; }
   #app { max-width: 100vw; width: 100%; min-width: 0; }
-  /* RACINE du debordement : forcer toute la colonne du fil au viewport, et laisser les enfants
-     (dont les blocs de code non cassables) retrecir/defiler DANS leur bloc au lieu de gonfler. */
+  /* RACINE du débordement : la colonne du fil tient dans l'écran ; les blocs non cassables
+     (code, tableaux) rétrécissent ou défilent DANS leur bloc au lieu de gonfler la page. */
   #content-area, main#timeline, #messages { width: 100% !important; max-width: 100vw !important; min-width: 0 !important; overflow-x: hidden; box-sizing: border-box; }
   #messages .message, #messages .message > *, .chat-bubble, .msg-text, .msg-text > * { min-width: 0 !important; max-width: 100% !important; }
-  .msg-text pre { width: 100%; max-width: 100% !important; overflow-x: hidden; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 
-  /* En-tête : ne pas déborder ; le nom compact, les pastilles d'agents défilent au lieu d'être coupées */
-  header { flex-wrap: wrap; row-gap: 4px; padding: 8px 10px 8px 44px; }
-  header h1 { font-size: 18px; }
-  .header-logo { height: 22px; }
-  .header-right { gap: 4px; min-width: 0; flex: 1 1 auto; justify-content: flex-end; }
-  #agent-status { display: flex; gap: 4px; overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; max-width: 100%; }
-  #agent-status::-webkit-scrollbar { display: none; }
-  .settings-btn { padding: 4px 6px; }
+  /* En-tête : UNE rangée de 52 px, comme l'app Claude — menu, conversation, jobs, réglages, « plus ».
+     Les présences vivent dans la ligne « réfléchit » ; règles, épingles et aide dans « plus ». */
+  header { flex-wrap: nowrap; height: 52px; padding: 0 8px 0 54px; gap: 4px; align-items: center; }
+  .header-left { flex: 1 1 auto; min-width: 0; flex-shrink: 1; }
+  .header-logo { display: none; }
+  .vt-titre-canal { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 15.5px/1.2 var(--v-ui); color: var(--v-ink); }
+  .header-right { gap: 2px; min-width: 0; flex: 0 0 auto; justify-content: flex-end; }
+  #agent-status { display: none !important; }
+  #rules-toggle, #pins-toggle, #help-btn { display: none !important; }
+  #vt-plus-entete { display: inline-flex; }
+  .settings-btn { width: 38px; height: 38px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 
-  /* Barre des canaux : défile horizontalement, ne casse pas la page */
-  #channel-tabs { overflow-x: auto; flex-wrap: nowrap; }
+  /* Onglets : le tiroir du menu liste déjà les conversations (avec renommer, supprimer, non-lus). */
+  #channel-bar { display: none !important; }
 
-  /* Messages : la bulle tient dans l'écran, le texte et les URLs reviennent à la ligne.
-     CLÉ : min-width:0 sur .message ET ses enfants flex, sinon une longue ligne de code
-     empêche la bulle de rétrécir et pousse toute la conversation hors écran. */
-  /* Vue lecture facon app Claude : une colonne, grande typo, marges genereuses.
-     L'avatar est masque (le nom colore de l'agent suffit) pour rendre toute la largeur au texte. */
-  main#timeline { padding: 8px 0 14px; }
-  #messages { max-width: 100%; gap: 2px; }
-  .message { flex-direction: column; align-items: stretch; min-width: 0; max-width: 100%; padding: 12px 20px; gap: 3px; }
-  .message.self { flex-direction: column; }
+  /* Le fil : une colonne de lecture pleine largeur, comme l'app Claude au téléphone. */
+  main#timeline { padding: 18px 0 14px; }
+  #messages { max-width: 100%; gap: 24px; }
+  .message { flex-direction: column; align-items: stretch; min-width: 0; max-width: 100%; padding: 0 18px; gap: 4px; }
   .message > * { min-width: 0; }
-  .message .avatar-wrap, .message .avatar { display: none !important; }
-  .bubble-header { margin-bottom: 2px; }
-  .msg-sender { font-size: 14px; font-weight: 700; }
-  /* Bulles a plat, pleine largeur : un bloc de lecture, pas une carte etroite */
-  .chat-bubble { max-width: 100% !important; min-width: 0 !important; background: transparent !important; border: 0 !important; border-radius: 0 !important; padding: 0 !important; overflow-wrap: anywhere; word-break: break-word; }
-  .msg-text { min-width: 0; font-size: 16px; line-height: 1.6; overflow-wrap: anywhere; word-break: break-word; }
-  /* La personne : un liseré discret a gauche pour la distinguer des agents, sans carte etroite */
-  .message.self .chat-bubble { border-left: 2px solid var(--accent, #5b8def) !important; padding-left: 12px !important; }
-  .message.self { align-items: stretch; }
+  .message .avatar-wrap, .message .avatar { display: none !important; }   /* le nom suffit, la largeur va au texte */
+  .bubble-header { margin-bottom: 3px; }
+  .msg-time, .msg-num { font-size: 13px; }
+  /* Actions d'un message : sorties du flux (elles laissaient ~66 px de vide sous chaque message),
+     en rangée, révélées au toucher. */
+  .msg-actions { position: absolute; top: -8px; right: 14px; flex-direction: row; gap: 4px; opacity: 0; pointer-events: none; z-index: 4; }
+  .message:hover .msg-actions, .message:focus-within .msg-actions { opacity: 1; pointer-events: auto; }
+  .msg-actions button { min-height: 32px; padding: 0 10px; }
+  .message.other .msg-sender { font-size: 14px; }
+  .message.other .chat-bubble { overflow-wrap: anywhere; word-break: break-word; }
+  .message.other .msg-text { font-size: 17px; line-height: 1.62; overflow-wrap: anywhere; word-break: break-word; }
+  /* Toi : une bulle neutre alignée à droite (et non un liseré coloré). */
+  .message.self { flex-direction: column; align-items: flex-end; }
+  .message.self .chat-bubble { max-width: 88% !important; padding: 10px 15px; border-radius: 20px; }
+  .message.self .msg-text { font-size: 16px; }
+  /* Une décision : l'encart tient dans l'écran, les choix restent gros et tappables. */
+  .message.other .chat-bubble:has(.decision-choice) { margin-left: 0; padding: 14px; }
+  .decision-choice { min-height: 48px; font-size: 15.5px; padding: 12px 14px; }
+  .decision-libre { min-height: 48px; font-size: 15.5px; padding: 12px 14px; }
+  .decision-texte-actions .vt-btn { min-height: 44px; }
+  /* Pendant qu'on écrit sa réponse, les actions du message (répondre, suppr.) restent rangées. */
+  .message:has(.decision-texte:focus-within) .msg-actions { opacity: 0; pointer-events: none; }
 
-  /* Blocs de code : défilent DANS la bulle au lieu de pousser la page */
-  .msg-text pre { max-width: 100% !important; overflow-x: hidden; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+  /* Blocs de code : reviennent à la ligne dans leur bloc au lieu de pousser la page. */
+  .msg-text pre { width: 100%; max-width: 100% !important; overflow-x: hidden; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
   .msg-text pre code { white-space: pre-wrap !important; overflow-wrap: anywhere; word-break: break-word; }
   .msg-text code { overflow-wrap: anywhere; }
 
-  /* Panneaux lateraux (jobs/rules/pins) : hors-flux sur mobile, sinon ils gardent la page a 500 px.
-     Caches = repousses hors ecran ; ouverts = en surimpression a droite. */
-  #jobs-panel, #rules-panel, #pins-panel { position: fixed !important; top: 0; right: 0; bottom: 0; z-index: 1200; width: min(92vw, 340px) !important; max-width: 92vw !important; margin: 0 !important; }
+  /* Panneaux latéraux (jobs, règles, épingles) : hors-flux, en surimpression à droite. */
+  #jobs-panel, #rules-panel, #pins-panel { position: fixed !important; top: 0; right: 0; bottom: 0; z-index: 1200; width: min(92vw, 340px) !important; max-width: 92vw !important; margin: 0 !important; box-shadow: var(--v-shadow-lg); }
   #jobs-panel.hidden, #rules-panel.hidden, #pins-panel.hidden { transform: translateX(106%) !important; margin: 0 !important; }
 
-  /* Composer epure facon Claude : on retire la ligne de conseils du bas */
-  .input-hint { display: none !important; }
-  /* Cartes de decision : choix en gros boutons pleine largeur, tappables (avant : trop petits/masques) */
-  .decision-choices { display: flex; flex-direction: column; gap: 8px; position: relative; z-index: 5; margin-top: 8px; }
-  .decision-choice { display: block; width: 100%; min-height: 46px; padding: 12px 14px; font-size: 15px; border-radius: 10px; text-align: left; }
-  /* Boutons de survol (convert to job / copier) : masques sur mobile, ils recouvraient les choix */
+  /* Actions de survol : il n'y a pas de survol au pouce, et elles recouvraient les choix. */
   .convert-job-pill, .bubble-copy { display: none !important; }
 
-  /* Composer : plein largeur, boutons qui tiennent */
-  #input-row { gap: 6px; }
-  #mention-toggles { flex-wrap: wrap; }
+  /* La saisie : la carte prend la largeur, au-dessus de la zone gestuelle du téléphone. */
+  footer { padding: 2px 12px max(12px, env(safe-area-inset-bottom)); }
+  #input-row { border-radius: 22px; padding: 10px 8px 6px 12px; }
+  #input { font-size: 16px; }
+  .input-hint { display: none !important; }
+  /* @mentions : une seule ligne qui défile ; « Effacer » au bout. */
+  #mention-toggles-row { flex-wrap: nowrap; gap: 6px; margin-bottom: 8px; }
+  #mention-toggles { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; min-width: 0; flex: 1 1 auto; }
+  #mention-toggles::-webkit-scrollbar { display: none; }
+  #mention-toggles > * { flex-shrink: 0; }
+  #clear-chat-btn { flex-shrink: 0; }
+  #vaultia-reflexion { padding: 0 6px 8px; font-size: 15px; }
+  .vt-attente { font-size: 14px; padding: 9px 14px 9px 12px; }
 }

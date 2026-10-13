@@ -22,7 +22,12 @@ cli(){ # $1 = nom ; $2.. = flags
   local a="$1"; shift
   # la session TUI reelle (agentchattr-<a>) meurt quand le CLI meurt ; c'est le vrai signal
   if ! tmux has-session -t "agentchattr-$a" 2>/dev/null; then
-    tmux kill-session -t "ac-$a" 2>/dev/null; dereg "$a"
+    tmux kill-session -t "ac-$a" 2>/dev/null
+    # tuer le wrapper orphelin (sinon il garde le nom "en ligne" -> <a>-2). Motif ANCRE sur le processus
+    # python : la ligne de commande du SERVEUR tmux contient aussi "wrapper.py <agent>" (celui qui l'a
+    # demarre) -- un pkill -f non ancre tuait tmux, donc TOUS les agents (26 sept. 2026).
+    # Pas de dereg : l'API exige le jeton propre a l'agent (403) ; le serveur libere le nom seul.
+    pkill -f "^[^ ]*python[^ ]* wrapper\.py $a( |\$)" 2>/dev/null; sleep 2
     tmux new-session -d -s "ac-$a" -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py $a $*; read"
     note "agent CLI relance : $a"
   fi
@@ -35,10 +40,10 @@ while true; do
     ./vaultia-start.sh >> "$LOG" 2>&1
     sleep 25; continue
   fi
-  pont qwenlocal; pont cursor; pont gemini
+  pont gemini   # cursor et qwenlocal retires le 4 oct. 2026
   cli claude --dangerously-skip-permissions
-  cli codex --dangerously-bypass-approvals-and-sandbox
-  cli qwencode
+  cli codex --dangerously-bypass-approvals-and-sandbox --config=check_for_update_on_startup=false
+  cli qwencode --approval-mode=yolo
   cli grok
   sleep 30
 done

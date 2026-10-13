@@ -577,12 +577,12 @@ function _updateSupportLabel() {
     if (!label) return;
     const inSidebar = document.body.classList.contains('channels-in-sidebar');
     if (!inSidebar) {
-        label.textContent = ' Support development';
+        label.textContent = ' Soutenir agentchattr';
         return;
     }
     const panel = document.getElementById('channel-sidebar');
     const w = panel ? panel.offsetWidth : 200;
-    label.textContent = w < 200 ? ' Support' : ' Support development';
+    label.textContent = w < 200 ? ' Soutenir' : ' Soutenir agentchattr';
 }
 
 function setupChannelSidebarGrip() {

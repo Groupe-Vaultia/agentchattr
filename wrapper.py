@@ -18,6 +18,7 @@ How it works:
   4. The agent picks up the prompt as if the user typed it.
 """
 
+import hashlib
 import json
 import os
 import shutil
@@ -34,6 +35,15 @@ SERVER_NAME = "agentchattr"
 # ---------------------------------------------------------------------------
 # Per-instance provider config
 # ---------------------------------------------------------------------------
+
+def _prive(chemin) -> None:
+    """Vaultia : les configs MCP portent le jeton Bearer de l'agent -> lisibles par ce compte seul
+    (elles sortaient en 664, lisibles par tout compte de la machine)."""
+    try:
+        os.chmod(chemin, 0o600)
+    except OSError:
+        pass
+
 
 def _write_json_mcp_settings(config_file: Path, url: str, transport: str = "http",
                               *, token: str = "", http_key: str = "httpUrl") -> Path:
@@ -79,6 +89,7 @@ def _write_json_mcp_settings(config_file: Path, url: str, transport: str = "http
     existing["security"] = security
 
     config_file.write_text(json.dumps(existing, indent=2) + "\n", "utf-8")
+    _prive(config_file)
     return config_file
 
 
@@ -95,6 +106,80 @@ def _read_project_mcp_servers(project_dir: Path) -> dict:
         except Exception:
             pass
     return {}
+
+
+def _read_agent_extra_mcp_servers(data_dir: Path, instance_name: str) -> dict:
+    """Serveurs MCP propres a UN agent : data/extra-mcp/<agent>.json (local, non versionne).
+    Contrairement au .mcp.json de projet -- partage par tous les agents du meme cwd et lu
+    nativement par codex --, ce fichier ne sert qu'a cet agent : il peut porter son identite
+    (ex. ECC_MEMORY_HARNESS pour le coffre de memoire commune)."""
+    tete, _, queue = instance_name.rpartition("-")
+    base = tete if (tete and queue.isdigit()) else instance_name
+    fichier = data_dir / "extra-mcp" / f"{base}.json"
+    if not fichier.exists():
+        return {}
+    try:
+        servers = json.loads(fichier.read_text("utf-8")).get("mcpServers", {})
+        servers.pop(SERVER_NAME, None)
+        return servers
+    except Exception:
+        return {}
+
+
+def _codex_flags_for_servers(servers: dict) -> list[str]:
+    """Traduit des serveurs MCP (format .mcp.json) en options `-c mcp_servers.<nom>.*` pour codex.
+    Chaque valeur est du TOML : json.dumps donne des chaines/tableaux TOML valides pour des chemins."""
+    flags: list[str] = []
+    for nom, srv in servers.items():
+        cle = f"mcp_servers.{nom}"
+        if srv.get("url"):
+            flags += ["-c", f"{cle}.url={json.dumps(srv['url'])}"]
+            continue
+        if srv.get("command"):
+            flags += ["-c", f"{cle}.command={json.dumps(srv['command'])}"]
+        if srv.get("args"):
+            flags += ["-c", f"{cle}.args=[{','.join(json.dumps(a) for a in srv['args'])}]"]
+        if srv.get("env"):
+            table = ",".join(f"{k}={json.dumps(v)}" for k, v in srv["env"].items())
+            flags += ["-c", f"{cle}.env={{{table}}}"]
+    return flags
+
+
+def _qwen_mcp_hash(cfg: dict) -> str:
+    """Empreinte d'un serveur MCP calculee EXACTEMENT comme Qwen Code (hashMcpServerConfig,
+    qwen-code 0.24.6) : sha256 du JSON a cles triees, hors scope/extensionName/description.
+    Verifie le 26 sept. 2026 : meme valeur que celle stockee par Qwen pour le coffre."""
+    beh = {k: v for k, v in cfg.items() if k not in ("scope", "extensionName", "description")}
+
+    def trie(o):
+        if isinstance(o, dict):
+            return {k: trie(o[k]) for k in sorted(o)}
+        if isinstance(o, list):
+            return [trie(x) for x in o]
+        return o
+
+    texte = json.dumps(trie(beh), separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(texte.encode("utf-8")).hexdigest()
+
+
+def _qwen_preapprove(settings_file: Path, project_root: Path) -> None:
+    """Qwen Code lie son approbation MCP a l'empreinte exacte de chaque serveur, en-tetes compris.
+    Le jeton de la salle change a chaque lancement : sans ceci, qwencode reste bloque sur
+    « Approve this server » a CHAQUE relance. On approuve les serveurs que la salle vient
+    d'ecrire dans le settings.json de CE projet -- et seulement ceux-la."""
+    try:
+        servers = json.loads(settings_file.read_text("utf-8")).get("mcpServers", {})
+        chemin = Path(os.environ.get("QWEN_CODE_MCP_APPROVALS_PATH")
+                      or Path.home() / ".qwen" / "mcpApprovals.json")
+        data = json.loads(chemin.read_text("utf-8")) if chemin.exists() else {}
+        projet = data.setdefault(str(project_root), {})
+        for nom, cfg in servers.items():
+            projet[nom] = {"hash": _qwen_mcp_hash(cfg), "status": "approved"}
+        tmp = chemin.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(data, indent=2) + "\n", "utf-8")
+        os.replace(tmp, chemin)
+    except Exception:
+        pass
 
 
 def _write_claude_mcp_config(
@@ -121,6 +206,7 @@ def _write_claude_mcp_config(
 
     payload = {"mcpServers": servers}
     config_file.write_text(json.dumps(payload, indent=2) + "\n", "utf-8")
+    _prive(config_file)
     return config_file
 
 
@@ -246,6 +332,21 @@ def _apply_mcp_inject(
         settings_path = _write_json_mcp_settings(target, server_url,
                                                   transport=transport, token=token,
                                                   http_key=http_key)
+        # Serveurs propres a cet agent (data/extra-mcp/<agent>.json), au format gemini/qwen :
+        # command/args/env/trust, sans la cle "type".
+        extra = _read_agent_extra_mcp_servers(data_dir, instance_name)
+        if extra and settings_path:
+            try:
+                data = json.loads(Path(settings_path).read_text("utf-8"))
+                servers = data.setdefault("mcpServers", {})
+                for nom, srv in extra.items():
+                    servers[nom] = {k: v for k, v in srv.items() if k != "type"}
+                Path(settings_path).write_text(json.dumps(data, indent=2) + "\n", "utf-8")
+                _prive(settings_path)
+            except Exception:
+                pass
+        if settings_path and Path(settings_path).parent.name == ".qwen":
+            _qwen_preapprove(Path(settings_path), Path(project_dir) if project_dir else Path.cwd())
         # Optionally set an env var pointing to the settings file
         env_var = inject_cfg.get("mcp_env_var")
         if env_var:
@@ -282,6 +383,7 @@ def _apply_mcp_inject(
                             servers[name] = entry
                     data["mcpServers"] = servers
                     settings_path.write_text(json.dumps(data, indent=2) + "\n", "utf-8")
+                    _prive(settings_path)
                 except Exception:
                     pass
         inject_env[env_var] = str(settings_path)
@@ -291,6 +393,7 @@ def _apply_mcp_inject(
         flag = inject_cfg.get("mcp_flag", "--mcp-config")
         merge_project = inject_cfg.get("mcp_merge_project", False)
         project_servers = _read_project_mcp_servers(project_dir) if (merge_project and project_dir) else {}
+        project_servers = {**project_servers, **_read_agent_extra_mcp_servers(data_dir, instance_name)}
         settings_path = _write_claude_mcp_config(
             config_dir / f"{instance_name}-mcp.json",
             server_url, token=token, project_servers=project_servers,
@@ -307,6 +410,10 @@ def _apply_mcp_inject(
         if token:
             entry["headers"] = {"Authorization": f"Bearer {token}"}
         payload = {"mcp": {SERVER_NAME: entry}}
+        # Serveurs propres a cet agent (ex. coffre de memoire commune) : c'est le lanceur qui les
+        # declare (grok-launch.sh -> `grok mcp add`), dans le meme format que data/extra-mcp/<agent>.json.
+        for nom, srv in _read_agent_extra_mcp_servers(data_dir, instance_name).items():
+            payload["mcp"].setdefault(nom, srv)
         inject_env[env_var] = json.dumps(payload)
 
     elif mode == "proxy_flag":
@@ -315,6 +422,7 @@ def _apply_mcp_inject(
                                   '-c mcp_servers.{server}.url="{url}"')
         expanded = template.format(server=SERVER_NAME, url=proxy_url or "")
         launch_args = expanded.split()
+        launch_args += _codex_flags_for_servers(_read_agent_extra_mcp_servers(data_dir, instance_name))
 
     return launch_args, inject_env, settings_path
 

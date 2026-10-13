@@ -164,6 +164,7 @@ header {
     display: flex;
     align-items: center;
     gap: 10px;
+    flex-shrink: 0;
 }
 
 .header-logo {
@@ -224,13 +225,20 @@ header h1 {
     display: flex;
     align-items: center;
     gap: 12px;
+    /* Vaultia : retrecit dans la place restante (menu de gauche ouvert = 250 px de moins) au lieu de
+       deborder de la page ; les pastilles defilent dans #agent-status. */
+    min-width: 0;
+    flex: 1 1 auto;
+    justify-content: flex-end;
 }
 
 #agent-status {
     display: flex;
     gap: 12px;
     overflow-x: auto;
-    max-width: 60vw;
+    /* etait max-width: 60vw -- relatif a l'ecran, pas a l'en-tete : debordait de 102 px a 1280 px */
+    min-width: 0;
+    flex: 0 1 auto;
     scrollbar-width: none;
 }
 #agent-status::-webkit-scrollbar { display: none; }
@@ -3239,6 +3247,24 @@ footer {
 }
 #attachments .attachment-preview img:hover {
     border-color: var(--accent);
+}
+#attachments .attachment-preview .attachment-doc {
+    width: 60px;
+    height: 60px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 4px;
+    font-size: 10px;
+    line-height: 1.15;
+    text-align: center;
+    word-break: break-all;
+    overflow: hidden;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    color: var(--text-dim, inherit);
 }
 
 #attachments .attachment-preview .remove-btn {

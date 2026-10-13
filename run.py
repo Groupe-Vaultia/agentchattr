@@ -3,6 +3,7 @@
 import argparse
 import asyncio
 import secrets
+import os
 import sys
 import threading
 import time
@@ -54,8 +55,21 @@ def main():
 
     config = load_config(ROOT)
 
-    # --- Security: generate a random session token (in-memory only) ---
-    session_token = secrets.token_hex(32)
+    # --- Security: session token, STABLE entre les redemarrages ---
+    # Un token neuf a chaque demarrage deconnectait toute page deja ouverte (403 sur /api/upload
+    # et le WS -> « je n'arrive plus a me connecter », les photos qui « ne joignent pas »). On le
+    # persiste (local seulement, mode 600) et on le reutilise ; VAULTIA_NEW_TOKEN=1 force la rotation.
+    _token_file = ROOT / "data" / "session_token"
+    _token_file.parent.mkdir(parents=True, exist_ok=True)
+    if os.environ.get("VAULTIA_NEW_TOKEN") == "1" or not _token_file.exists():
+        session_token = secrets.token_hex(32)
+        _token_file.write_text(session_token, encoding="utf-8")
+        try:
+            _token_file.chmod(0o600)
+        except OSError:
+            pass
+    else:
+        session_token = _token_file.read_text(encoding="utf-8").strip() or secrets.token_hex(32)
 
     # Configure the FastAPI app (creates shared store)
     from app import app, configure, set_event_loop, store as _store_ref

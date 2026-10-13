@@ -132,6 +132,13 @@ def load_config(root: Path | None = None) -> dict:
             else:
                 print(f"  Warning: Ignoring local agent '{name}' (already defined in config.toml)")
 
+        # [server] allowed_origins — origines de confiance propres à CETTE machine (ex. le tunnel
+        # Tailscale privé de la personne). Elles vivent ici, hors de git : le dépôt est public.
+        local_origins = (local.get("server") or {}).get("allowed_origins") or []
+        if isinstance(local_origins, list) and local_origins:
+            server = config.setdefault("server", {})
+            server["allowed_origins"] = list(server.get("allowed_origins") or []) + [o for o in local_origins if isinstance(o, str)]
+
     _apply_env_overrides(config)
 
     return config
