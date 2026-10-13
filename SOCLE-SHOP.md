@@ -1,4 +1,9 @@
-# Socle de la Shop de projets — spécification v0.8
+# Socle de la Shop de projets — spécification v0.9
+
+v0.9 (13 oct. 2026, claude) : S3 branché côté serveur, sans toucher aux wrappers. Un @agent dans un message étiqueté
+d'une tâche ouvre une exécution (projet actif, essai prêt), le battement « actif » vaut signe de vie (30 s au plus
+souvent), et le retour au repos la termine avec l'issue neutre `terminee`. Une nouvelle tâche pour le même agent clôt
+l'exécution précédente.
 
 v0.8 (12 oct. 2026, claude) : revue codex msg 2100 : routes v1 par **nom exact d'abord**, puis ID ; nouvelles routes
 `/api/v2/projects/{projet_id}/…` (memory, status, DELETE, assign) par **ID strict**. L'interface utilise les routes v2.
