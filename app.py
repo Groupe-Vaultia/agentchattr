@@ -21,6 +21,7 @@ from jobs import JobStore
 import jobs as _jobs_mod
 from executions import ExecutionStore
 import historique as _historique
+from revisions import RevisionStore
 from schedules import ScheduleStore, parse_schedule_spec
 from router import Router
 from agents import AgentTrigger
@@ -38,7 +39,7 @@ rules: RuleStore | None = None
 summaries: SummaryStore | None = None
 jobs: JobStore | None = None
 executions: ExecutionStore | None = None  # SOCLE-SHOP S3
-revisions = None  # SOCLE-SHOP S5 (RevisionStore de gemini), branche a sa livraison
+revisions: RevisionStore | None = None  # SOCLE-SHOP S5
 schedules: ScheduleStore | None = None
 router: Router | None = None
 agents: AgentTrigger | None = None
@@ -264,7 +265,7 @@ def _install_security_middleware(token: str, cfg: dict):
 
 
 def configure(cfg: dict, session_token: str = ""):
-    global store, rules, summaries, jobs, executions, schedules, router, agents, registry, session_store, session_engine, config
+    global store, rules, summaries, jobs, executions, revisions, schedules, router, agents, registry, session_store, session_engine, config
     config = cfg
     # --- Security: store the session token and install middleware ---
     _install_security_middleware(session_token, cfg)
@@ -302,6 +303,9 @@ def configure(cfg: dict, session_token: str = ""):
     jobs = JobStore(str(jobs_path))
     jobs.on_change(_on_job_change)
     executions = ExecutionStore(str(Path(data_dir) / "executions.json"))
+    # Les livrables vivent dans les worktrees de l'atelier ; un chemin hors de cette racine est refuse.
+    racine = cfg.get("socle", {}).get("racine_livrables", str(Path.home() / "atelier"))
+    revisions = RevisionStore(str(Path(data_dir) / "revisions.json"), racine)
 
     schedules = ScheduleStore(str(Path(data_dir) / "schedules.json"))
     schedules.on_change(_on_schedule_change)
@@ -2404,6 +2408,63 @@ async def projet_historique(projet_id: str, limite: int = 200):
     lignes = _historique.historique(projet_id, messages=msgs, executions=execs, revisions=revs,
                                     limite=max(1, min(limite, 1000)))
     return JSONResponse([[jour, entrees] for jour, entrees in _historique.par_jour(lignes)])
+
+
+# SOCLE-SHOP S5 : livrables et revisions figees. Seul Charles (« user ») approuve une revision.
+@app.get("/api/v2/projects/{projet_id}/revisions")
+async def projet_revisions(projet_id: str):
+    if not _projets.existe(projet_id):
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    return JSONResponse({"livrables": revisions.livrables(projet_id), "revisions": revisions.revisions(projet_id)})
+
+
+@app.post("/api/v2/projects/{projet_id}/livrables")
+async def projet_ajouter_livrable(projet_id: str, request: Request):
+    if not _projets.existe(projet_id):
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    tache_id = body.get("tache_id")
+    if tache_id not in (None, ""):
+        _, _, err = _etiquettes(projet_id, tache_id)
+        if err:
+            return JSONResponse({"error": err}, status_code=422)
+    try:
+        l = revisions.ajouter_livrable(projet_id, str(tache_id or ""), str(body.get("chemin", "")))
+    except FileNotFoundError:
+        return JSONResponse({"error": "fichier absent"}, status_code=404)
+    except ValueError as err:
+        return JSONResponse({"error": str(err)}, status_code=400)
+    return JSONResponse(l)
+
+
+@app.post("/api/v2/projects/{projet_id}/revisions")
+async def projet_approuver(projet_id: str, request: Request):
+    if not _projets.existe(projet_id):
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    if str(body.get("approuvee_par", "")) != "user":
+        return JSONResponse({"error": "seul Charles approuve une revision"}, status_code=403)
+    try:
+        r = revisions.approuver(projet_id, "user")
+    except FileNotFoundError as err:
+        return JSONResponse({"error": f"livrable disparu : {err}"}, status_code=409)
+    except ValueError as err:
+        return JSONResponse({"error": str(err)}, status_code=409)
+    return JSONResponse(r)
+
+
+@app.get("/api/v2/projects/{projet_id}/revisions/{numero}/verifier")
+async def projet_verifier(projet_id: str, numero: str):
+    try:
+        return JSONResponse({"livrables": revisions.verifier(projet_id, numero)})
+    except KeyError:
+        return JSONResponse({"error": "revision inconnue"}, status_code=404)
 
 
 # SOCLE-SHOP S2 : taches de projet (un job avec projet_id, etape, responsable, equipe, preuve).
