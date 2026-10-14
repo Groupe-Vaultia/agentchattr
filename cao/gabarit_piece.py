@@ -1,5 +1,6 @@
-"""Gabarit CAO v2.4 (14 oct. 2026). Vues en 3e angle, prouvées par un coin.
+"""Gabarit CAO v2.5 (14 oct. 2026). Vues en 3e angle, prouvées par un coin.
 
+v2.5 : notes dans le cadre imprimable ; le contrôle refuse une boîte hors cadre.
 v2.4 : lignes de cote, repère du perçage, traits cachés, notes en anglais hors du cartouche.
 v2.3 : la démo écrit dans ~/atelier/cao-essais, jamais dans cao-pieces.
 v2.1 : cotes X et Y depuis les arêtes, préfixe 2X Ø … THRU, bloc de tolérances.
@@ -49,6 +50,12 @@ ESSAI = {
 
 NOTE_UNITES = "DIMENSIONS ARE IN INCHES [MILLIMETERS]. INCHES GOVERN."
 BLOC_TOLERANCES = ".XX ±.01 [±0.25]   .XXX ±.005 [±0.13]   ANGLES ±1°"
+# Cadre intérieur ASME, ANSIA_Landscape.svg rect3675
+# (x=20.107, y=14.473, w=239.52, h=187.2). Origine de feuille en bas à gauche.
+CADRE = (20.107, 14.227, 239.52, 187.2)
+# Cartouche, rect2985 (x=112.63, y=153.5, w=146.66, h=48.074).
+CARTOUCHE = (112.63, 14.326, 146.66, 48.074)
+NOTE_X = 22.0
 
 # Centres des vues, mm, origine en bas à gauche. 3e angle.
 # Direction : de la pièce vers l'observateur. +X droite, −Y face, +Z dessus.
@@ -254,13 +261,13 @@ def produire(piece, dossier):
     note.Text = [NOTE_UNITES]
     note.TextSize = 2.5
     page.addView(note)
-    note.X = 40
+    note.X = NOTE_X
     note.Y = 56
     tolerances = doc.addObject("TechDraw::DrawViewAnnotation", "Tolerances")
     tolerances.Text = [BLOC_TOLERANCES]
     tolerances.TextSize = 2.2
     page.addView(tolerances)
-    tolerances.X = 40
+    tolerances.X = NOTE_X
     tolerances.Y = 50
     _poser(vues)
 
@@ -554,11 +561,11 @@ def _svg_habillage(piece, cotes_texte):
         ),
         _repere(cotes_texte["D"], h2[0] + 18.0, h2[1] + 10.0, h2[0], h2[1], rayon),
         _traits_caches(piece),
-        _groupe("note-unites", [_texte_plan(12, 56, NOTE_UNITES)], _boite(12, 56, NOTE_UNITES)),
+        _groupe("note-unites", [_texte_plan(NOTE_X, 56, NOTE_UNITES)], _boite(NOTE_X, 56, NOTE_UNITES)),
         _groupe(
             "note-tolerances",
-            [_texte_plan(12, 50, BLOC_TOLERANCES)],
-            _boite(12, 50, BLOC_TOLERANCES),
+            [_texte_plan(NOTE_X, 50, BLOC_TOLERANCES)],
+            _boite(NOTE_X, 50, BLOC_TOLERANCES),
         ),
         _groupe("vue-dessus", [], (gauche, bas, longueur, largeur)),
         _groupe("vue-face", [], (fx - longueur / 2.0, fy - piece["T"] / 2.0, longueur, piece["T"])),
@@ -567,13 +574,13 @@ def _svg_habillage(piece, cotes_texte):
             [],
             (VUES["Droite"][2] - largeur / 2.0, VUES["Droite"][3] - piece["T"] / 2.0, largeur, piece["T"]),
         ),
-        _groupe("cartouche", [], (110.0, 0.0, 169.4, 42.0)),
+        _groupe("cartouche", [], CARTOUCHE),
     ]
     return "".join(blocs)
 
 
 def juger_habillage(svg):
-    """Échoue sans ligne de cote, sans repère, ou si deux blocs se chevauchent."""
+    """Échoue sans ligne de cote, sans repère, hors cadre, ou si deux blocs se chevauchent."""
     ecarts = []
     groupes = re.findall(r'<g id="([^"]+)" data-boite="([^"]+)">(.*?)</g>', svg, flags=re.S)
     par_nom = {nom: corps for nom, _boite, corps in groupes}
@@ -597,6 +604,11 @@ def juger_habillage(svg):
                 and a[1] < b[1] + b[3] - 0.3 and b[1] < a[1] + a[3] - 0.3
             ):
                 ecarts.append(f"chevauchement {gauche} {droite}")
+    gauche, bas, largeur, hauteur = CADRE
+    droite, sommet = gauche + largeur, bas + hauteur
+    for nom, (x, y, w, h) in boites:
+        if x < gauche - 0.05 or y < bas - 0.05 or x + w > droite + 0.05 or y + h > sommet + 0.05:
+            ecarts.append(f"hors cadre {nom}")
     return ecarts
 
 
@@ -622,6 +634,9 @@ def preuve_habillage():
     )
     if not any(e.startswith("chevauchement") for e in juger_habillage(chevauche)):
         raise AssertionError("chevauchement")
+    hors = '<svg><g id="note-unites" data-boite="12.00,56.00,40.00,2.20"></g></svg>'
+    if not any(e.startswith("hors cadre") for e in juger_habillage(hors)):
+        raise AssertionError("cadre")
     return True
 
 
