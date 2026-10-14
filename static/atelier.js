@@ -819,12 +819,13 @@ window.addEventListener("resize", () => {});
 // Vider uniquement sur 404 (route absente) ou sur une réponse valide dont la liste est vide.
 async function loadAlertes() {
   const r = await getJSON("/api/v2/ronde");
-  if (r.status === 404) {
+  if (r.err === 404) {
+    // Route absente → vider
     state.alertes = [];
   } else if (r.ok && r.data && Array.isArray(r.data.alertes)) {
     state.alertes = r.data.alertes;
   }
-  // sinon : garder le dernier état connu (erreur transitoire)
+  // sinon : garder le dernier état connu (erreur transitoire 5xx, réseau)
   renderAlertes();
 }
 
