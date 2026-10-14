@@ -41,7 +41,7 @@ const state = {
   executions: [],   // exécutions du projet sélectionné
   jalons: [],       // jalons du projet (P1) : {id, jalon, criteres, risque, recommandation, decision, …}
   fiche: null,      // fiche projet (P2) : {objectif, niveau, trl, hypotheses, risques, questions, …}
-  methode: null,    // méthode de l'étape courante (P3, joint par la route /prochaines) — null si absent
+  methodes: null,   // méthode de chaque étape (P3) : {etape: texte} via GET /api/v2/methodes — null si absent
 };
 
 // ---------- accès réseau : état vide propre si la route n'est pas encore branchée ----------
@@ -190,22 +190,24 @@ function renderCarte() {
   // options du sélecteur « + Tâche »
   $("#tk-c").innerHTML = ETAPES.map((e, i) => `<option value="${e}">${i + 1}. ${NOM_ETAPES[e]}</option>`).join("");
 
-  if (!state.sel) { $("#map").innerHTML = ""; return; }
+  if (!state.sel) { $("#map").innerHTML = ""; $("#pourquoi").hidden = true; $("#pourquoi").innerHTML = ""; return; }
   const veille = p && p.statut === "veille";
   const idx = state.etape ?? etapeDuProjet(taches);
   const courante = ETAPES[idx];
-  // « Pourquoi » visible sur la carte : la méthode de l'étape courante (P3, jointe par la ronde).
-  const pourquoi = (state.methode && state.methode.etape === courante)
-    ? `<div class="pourquoi" id="pourquoi"><div class="lbl">Pourquoi, cette étape</div><p>${esc(state.methode.texte)}</p></div>`
-    : "";
+  // « Pourquoi » visible sur la carte : la méthode de l'étape courante (P3), au-dessus de la grille (pas une colonne).
+  const mCourante = (state.methodes && state.methodes[courante]) || "";
+  const pq = $("#pourquoi");
+  pq.innerHTML = mCourante ? `<div class="lbl">Pourquoi, cette étape</div><p>${esc(mCourante)}</p>` : "";
+  pq.hidden = !mCourante;
 
-  $("#map").innerHTML = pourquoi + ETAPES.map((e, i) => {
+  $("#map").innerHTML = ETAPES.map((e, i) => {
     const de = taches.filter(t => t.etape === e);
     const done = de.length && de.every(t => t.etat === "fait");
     const isNow = i === (state.etape ?? etapeDuProjet(taches)) && !done;
     return `<div class="col${de.length ? "" : " vide"}"><h3><button type="button" class="steph" data-step="${e}">${i + 1}. ${NOM_ETAPES[e]}</button></h3>${
       de.map(t => { const st = normEtat(t.etat); return `<div class="node${veille ? " veille" : ""}" data-node="${esc(t.id)}" data-s="${st}">
         <div class="t">${esc(t.titre)}</div>
+        ${t.conclusion ? `<div class="pourquoi-t" title="${esc(t.conclusion)}">${esc(court(t.conclusion, 120))}</div>` : ""}
         <div class="w">${esc(t.responsable || "")}${t.critere ? " · " + esc(t.critere) : ""}</div>
         <div class="w"><span class="pill ${ETAT_CLS[st] || "s-afaire"}">${esc(ETAT_TACHE[st] || t.etat)}</span> <button class="btn disc" type="button" data-disc="${esc(t.id)}">Discuter</button></div>
       </div>`; }).join("") ||
@@ -286,16 +288,16 @@ function renderLivrable() {
 async function loadProjet() {
   const id = state.sel;
   state.taches = []; state.executions = []; state.hist = null; state.liv = null; state.etape = null;
-  state.jalons = []; state.fiche = null; state.methode = null;
+  state.jalons = []; state.fiche = null;
   if (!id) { renderTous(); return; }
 
-  const [t, e, h, l, j, pr] = await Promise.all([
+  const [t, e, h, l, j, m] = await Promise.all([
     getJSON(`/api/v2/taches?projet_id=${encodeURIComponent(id)}`),
     getJSON(`/api/v2/executions?projet_id=${encodeURIComponent(id)}`),
     getJSON(`/api/v2/projects/${encodeURIComponent(id)}/historique`),
     getJSON(`/api/v2/projects/${encodeURIComponent(id)}/revisions`),
     getJSON(`/api/v2/projects/${encodeURIComponent(id)}/jalons`),          // P1
-    getJSON(`/api/v2/ronde?projet_id=${encodeURIComponent(id)}`),          // P4 : prochaines[] + methode_etape
+    getJSON(`/api/v2/methodes`),                                          // P3 : {etape: texte}, indépendant du projet
   ]);
 
   if (t.ok && t.data) {
@@ -313,13 +315,8 @@ async function loadProjet() {
   if (j.ok && j.data) state.jalons = j.data.jalons || (Array.isArray(j.data) ? j.data : []);
   // P2 : la fiche projet vit dans le projet (GET /api/projects → v2.projets[id]) ; on lit l'objet projet.
   state.fiche = state.projets[id] || null;
-  // P3 : la méthode de l'étape courante est jointe dans `prochaines[].methode_etape` par la ronde.
-  if (pr.ok && pr.data) {
-    const prochaines = pr.data.prochaines || [];
-    const courante = ETAPES[state.etape ?? etapeDuProjet(state.taches)];
-    const hit = prochaines.find(x => x.etape === courante && x.methode_etape);
-    if (hit) state.methode = {etape: courante, texte: hit.methode_etape};
-  }
+  // P3 : la méthode de chaque étape (docs/PILOTE.md), servie par /api/v2/methodes. Indépendant du projet.
+  if (m.ok && m.data && typeof m.data === "object") state.methodes = m.data;
 
   // enrichit la fiche projet pour la vue Projets (étape, taches) sans re-fetch
   const p = state.projets[id];
@@ -361,13 +358,34 @@ async function changerStatut(id, statut) {
   if (r.ok) { await loadProjets(); await loadProjet(); }
 }
 
+// Upload d'un fichier vers POST /api/upload (rend {name, url}) — pour joindre des photos/documents au lancement.
+async function uploadFichier(f) {
+  try {
+    const fd = new FormData();
+    fd.append("file", f);
+    const r = await fetch("/api/upload", {method: "POST", headers: headers(), body: fd});
+    if (!r.ok) return null;
+    const d = await r.json().catch(() => null);
+    return (d && d.name && d.url) ? {name: d.name, url: d.url} : null;
+  } catch (_) { return null; }
+}
+
 async function nouveauProjet(e) {
   e.preventDefault();
   const nom = $("#np-nom").value.trim();
   if (!nom) { toast("Donne un nom au projet."); return; }
-  // P4 : c'est POST /api/v2/projects {nom, objectif} qui crée le projet ET appelle @claude (lancement guidé).
-  const r = await postJSON("/api/v2/projects", {nom, objectif: $("#np-but").value.trim()});
-  toast(r.ok ? `Projet « ${nom} » lancé. claude démarre le cadrage.` : "Création refusée (route non branchée ou nom déjà pris).");
+  const objectif = $("#np-but").value.trim();
+  // P4 : c'est POST /api/v2/projects {nom, objectif, pieces_jointes} qui crée le projet ET appelle @claude.
+  // Les photos/documents choisis sont d'abord déposés via POST /api/upload, puis passés en [{name, url}].
+  const fichiers = Array.from($("#np-fich").files || []);
+  let pieces = [];
+  if (fichiers.length) {
+    toast(`Dépôt de ${fichiers.length} fichier(s)…`);
+    pieces = (await Promise.all(fichiers.map(uploadFichier))).filter(Boolean);
+    if (pieces.length < fichiers.length) toast(`${fichiers.length - pieces.length} fichier(s) refusé(s) (type ou taille).`);
+  }
+  const r = await postJSON("/api/v2/projects", {nom, objectif, pieces_jointes: pieces});
+  toast(r.ok ? `Projet « ${nom} » lancé. claude démarre le cadrage.` : (r.msg || "Création refusée (route non branchée ou nom déjà pris)."));
   if (r.ok) { e.target.reset(); await loadProjets(); await loadProjet(); }
 }
 
@@ -448,7 +466,7 @@ const CRIT_CLS = {atteint: "crit-ok", partiel: "crit-part", rate: "crit-rate", a
 
 // Les étapes antérieures à un jalon (recycle_etape doit être antérieure au jalon).
 // J1 : probleme, etat_art ou concepts ; J2 : jusqu'à essais.
-const JALON_RECYCLE = {J1: ["probleme", "etat_art", "concepts"], J2: ["probleme", "etat_art", "concepts", "conception", "prototype"], revue: ETAPES.slice(0, 7)};
+const JALON_RECYCLE = {J1: ["probleme", "etat_art", "concepts"], J2: ["probleme", "etat_art", "concepts", "conception", "prototype", "essais"], revue: ETAPES.slice(0, 7)};
 
 // Rend le bloc « Jalon » d'une étape : les jalons rattachés à cette étape, avec leurs boutons de décision.
 function blocJalons(etape) {
@@ -472,7 +490,7 @@ function blocJalons(etape) {
         `<button class="btn dec${v === "go" ? " pri" : v === "kill" ? " stop" : ""}" type="button" data-dec="${esc(j.id)}" data-val="${v}">${l}</button>`).join("") +
       `</div>` +
       `<label class="lbl" for="recy-${esc(j.id)}">ou recycler vers</label><select id="recy-${esc(j.id)}" data-recy="${esc(j.id)}"><option value="">—</option>${(JALON_RECYCLE[j.jalon] || []).map(e2 => `<option value="${e2}">${NOM_ETAPES[e2]}</option>`).join("")}</select>` +
-      `<label class="lbl" for="not-${esc(j.id)}">note (facultatif)</label><input id="not-${esc(j.id)}" data-not="${esc(j.id)}" placeholder="ex. : on recyle sur la masse">` +
+      `<label class="lbl" for="not-${esc(j.id)}">note (facultatif)</label><input id="not-${esc(j.id)}" data-not="${esc(j.id)}" placeholder="ex. : on recycle sur la masse">` +
       `</div>`;
     return `<div class="jalon">
       <div class="jalon-hd"><b>${esc(JALON_NOM[j.jalon] || j.jalon)}</b><span class="pill ${JALON_CLS[decise ? j.decision : ""] || "s-attente"}">${decise ? j.decision : "en attente de Charles"}</span>${j.decision_date ? `<span class="cap">${esc(heure(j.decision_date))}</span>` : ""}</div>
@@ -537,14 +555,15 @@ function ouvrirFicheProjet() {
   const questions = (f.questions || []).map(q =>
     `<li><span>${esc(q.texte || "")}</span>${q.reponse ? `<span class="cap">réponse : ${esc(q.reponse)}</span>` : `<span class="cap" style="color:var(--warn)">sans réponse</span>`}</li>`).join("");
   const c = f.criteres || [];
-  const contenu =
-    (f.objectif || p.objectif) ? `<div class="fc"><div class="lbl">Objectif</div><p>${esc(f.objectif || p.objectif)}</p></div>` : ""
-    + (f.livrable_attendu || p.livrable_attendu) ? `<div class="fc"><div class="lbl">Livrable attendu</div><p>${esc(f.livrable_attendu || p.livrable_attendu)}</p></div>` : ""
-    + (c.length ? `<div class="fc"><div class="lbl">Critères</div><ul class="flist">${c.map(x => `<li><span>${esc(x.nom || "")}</span>${x.cible ? `<span class="cap">cible : ${esc(x.cible)}</span>` : ""}</li>`).join("")}</ul></div>` : "")
-    + (hypo ? `<div class="fc"><div class="lbl">Hypothèses</div><ul class="flist hypo">${hypo}</ul></div>` : "")
-    + (risques ? `<div class="fc"><div class="lbl">Risques</div><ul class="flist">${risques}</ul></div>` : "")
-    + (questions ? `<div class="fc"><div class="lbl">Questions posées par claude</div><ul class="flist">${questions}</ul></div>` : "")
-    || `<p class="cap">La fiche projet n'est pas encore remplie. claude la remplit pendant le lancement guidé (objectif, niveau, hypothèses, risques, questions).</p>`;
+  // Un tableau de blocs puis join("") — la concaténation avec ?: en chaîne avalait tout après le premier bloc vide.
+  const blocs = [];
+  if (f.objectif || p.objectif) blocs.push(`<div class="fc"><div class="lbl">Objectif</div><p>${esc(f.objectif || p.objectif)}</p></div>`);
+  if (f.livrable_attendu || p.livrable_attendu) blocs.push(`<div class="fc"><div class="lbl">Livrable attendu</div><p>${esc(f.livrable_attendu || p.livrable_attendu)}</p></div>`);
+  if (c.length) blocs.push(`<div class="fc"><div class="lbl">Critères</div><ul class="flist">${c.map(x => `<li><span>${esc(x.nom || "")}</span>${x.cible ? `<span class="cap">cible : ${esc(x.cible)}</span>` : ""}</li>`).join("")}</ul></div>`);
+  if (hypo) blocs.push(`<div class="fc"><div class="lbl">Hypothèses</div><ul class="flist hypo">${hypo}</ul></div>`);
+  if (risques) blocs.push(`<div class="fc"><div class="lbl">Risques</div><ul class="flist">${risques}</ul></div>`);
+  if (questions) blocs.push(`<div class="fc"><div class="lbl">Questions posées par claude</div><ul class="flist">${questions}</ul></div>`);
+  const contenu = blocs.join("") || `<p class="cap">La fiche projet n'est pas encore remplie. claude la remplit pendant le lancement guidé (objectif, niveau, hypothèses, risques, questions).</p>`;
   ouvrirFiche(enteteFiche("Fiche projet", p.nom || id) + meta + contenu);
 }
 

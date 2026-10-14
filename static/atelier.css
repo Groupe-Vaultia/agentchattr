@@ -190,9 +190,11 @@ button.step:hover,.steph:hover{background:var(--slate-soft)}
 .jb .btn.dec{font-size:12.5px;padding:6px 11px}
 .jb select,.jb input{font:13px var(--ui);background:var(--paper);color:var(--ink);border:1px solid var(--line2);border-radius:7px;padding:5px 8px;width:100%}
 .jb .lbl{margin-top:2px}
-/* ---- P5 : « pourquoi » sur la carte (méthode de l'étape courante) ---- */
-.pourquoi{grid-column:1/-1;background:var(--slate-soft);border:1px solid var(--slate-line);border-radius:10px;padding:9px 12px;margin-bottom:12px;font-size:13px}
+/* ---- P5 : « pourquoi » sur la carte (méthode de l'étape courante, au-dessus de la grille) ---- */
+.pourquoi{background:var(--slate-soft);border:1px solid var(--slate-line);border-radius:10px;padding:9px 12px;margin-bottom:12px;font-size:13px}
 .pourquoi p{margin:5px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink2)}
+/* Le « pourquoi » d'une tâche : son raisonnement (conclusion), sous le titre du nœud. */
+.node .pourquoi-t{font-size:12px;color:var(--ink2);line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
 /* ---- P5 : liste d'hypothèses de la fiche projet ---- */
 .flist.hypo li{display:flex;flex-direction:column;gap:3px}
 @media (max-width:900px){
