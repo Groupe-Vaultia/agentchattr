@@ -2548,8 +2548,23 @@ async def get_ronde():
     taches = [t for pid in v2 for t in jobs.taches(pid)]
     sortie = _ronde(v2, taches, executions.lister(), jalons.lister() if jalons else [], _methodes_etapes())
     sortie["alertes"] = _alertes_sauvegarde(bool(_copie_pieces[0])) if pieces is not None else []
-    sortie["rien_a_faire"] = sortie["rien_a_faire"] and not sortie["alertes"]
+    sortie["agents_inactifs"] = _agents_inactifs()
+    sortie["rien_a_faire"] = sortie["rien_a_faire"] and not sortie["alertes"] and not sortie["agents_inactifs"]
     return JSONResponse(sortie)
+
+
+_DEMARRAGE = time.time()
+
+
+def _agents_inactifs() -> list[dict]:
+    """Agents en ligne (presence fraiche) sans activite depuis 20 min (ronde v3)."""
+    import mcp_bridge
+    from ronde import agents_inactifs
+    maintenant = time.time()
+    with mcp_bridge._presence_lock:
+        en_ligne = {n for n, ts in mcp_bridge._presence.items() if maintenant - ts < mcp_bridge.PRESENCE_TIMEOUT}
+        activite = dict(mcp_bridge._activity_ts)
+    return agents_inactifs(en_ligne, activite, maintenant, _DEMARRAGE)
 
 
 # SOCLE-SHOP v1.1 P3 : la methode de chaque etape vient de docs/PILOTE.md (une section `## <etape>` par etape).
