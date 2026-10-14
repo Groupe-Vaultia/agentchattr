@@ -9,7 +9,12 @@ v2 (13 oct. 2026, claude, SOCLE-SHOP v1.1 P1/P4) : la ronde devient le moteur. E
 (prepares, sans decision de Charles), `jalons_dus` (claude doit les preparer) et `prochaines` (taches a lancer sans
 attendre Charles, avec la methode de leur etape). Un projet dont un jalon est du ou en attente n'a pas de
 `prochaines` : la porte du jalon est fermee tant que Charles n'a pas dit go.
+
+v3 (14 oct. 2026, claude, msg 2475-2477) : `agents_inactifs` dit quels agents en ligne n'ont rien fait depuis
+SEUIL_INACTIF secondes, pour que claude leur donne un lot au lieu de les laisser attendre.
 """
+
+SEUIL_INACTIF = 20 * 60  # 20 min sans activite = l'agent attend un lot
 
 ETAPES = ("probleme", "etat_art", "concepts", "conception", "prototype", "essais", "industrialisation", "lancement")
 # Jalon -> etapes dont toutes les taches doivent etre faites pour qu'il soit du.
@@ -93,3 +98,17 @@ def ronde(projets: dict, taches: list[dict], executions: list[dict], jalons: lis
                                  and t.get("responsable") not in occupes]
     sortie["rien_a_faire"] = not any(sortie[k] for k in sortie)
     return sortie
+
+
+def agents_inactifs(en_ligne: set[str], derniere_activite: dict[str, float], maintenant: float, demarrage: float,
+                    exclus: tuple[str, ...] = ("claude",), seuil: float = SEUIL_INACTIF) -> list[dict]:
+    """Agents en ligne sans activite depuis `seuil` s. Sans activite connue, on compte depuis le demarrage du
+    serveur (l'historique d'activite ne survit pas a une relance). `exclus` : le gestionnaire lui-meme."""
+    out = []
+    for nom in sorted(en_ligne):
+        if nom in exclus:
+            continue
+        depuis = max(derniere_activite.get(nom, 0), demarrage)
+        if maintenant - depuis >= seuil:
+            out.append({"agent": nom, "inactif_min": int((maintenant - depuis) // 60)})
+    return out
