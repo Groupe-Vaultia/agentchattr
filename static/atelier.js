@@ -313,7 +313,7 @@ function renderLivrable() {
 }
 
 // ---------- vue Pièces (N3) : tableau filtrable, fiche pièce, nomenclature en arbre, achats ----------
-const fmtCAD = n => { if (n == null || isNaN(n)) return "—"; return "CAD " + Number(n).toLocaleString("fr-CA", {minimumFractionDigits: 2, maximumFractionDigits: 2}); };
+const fmtCAD = (n, dev = "CAD") => { if (n == null || isNaN(n)) return "—"; return dev + " " + Number(n).toLocaleString("fr-CA", {minimumFractionDigits: 2, maximumFractionDigits: 2}); };
 
 function pillStatutPiece(s) {
   const [lib, cls] = PIECE_STATUT[s] || [s || "?", "s-attente"];
@@ -376,7 +376,7 @@ async function ouvrirPiece(id) {
   // offres sourcées
   const offres = (p.offres || []);
   const offresHtml = offres.length
-    ? `<div class="fc"><div class="lbl">Offres (${offres.length})</div><ul class="fhist">${offres.map(o => `<li><time>${esc(o.devise || "CAD")}</time><span><b>${esc(o.reference || "")}</b>${o.fournisseur ? ` <span class="cap">(${esc(o.fournisseur.nom || o.fournisseur)})</span>` : ""} · ${fmtCAD(o.prix)}${o.livraison != null ? " + liv. " + fmtCAD(o.livraison) : ""}${o.source ? ` <a href="${esc(o.source)}" target="_blank" rel="noopener">source</a>` : `<span class="cap" style="color:var(--bad)">sans source</span>`}${o.date ? ` <span class="cap">${esc(heure(o.date))}</span>` : ""}</span></li>`).join("")}</ul></div>`
+    ? `<div class="fc"><div class="lbl">Offres (${offres.length})</div><ul class="fhist">${offres.map(o => `<li><time>${esc(o.devise || "CAD")}</time><span><b>${esc(o.reference || "")}</b>${o.fournisseur ? ` <span class="cap">(${esc(o.fournisseur.nom || o.fournisseur)})</span>` : ""} · ${fmtCAD(o.prix, o.devise)}${o.livraison != null ? " + liv. " + fmtCAD(o.livraison, o.devise) : ""}${o.source ? ` <a href="${esc(o.source)}" target="_blank" rel="noopener">source</a>` : `<span class="cap" style="color:var(--bad)">sans source</span>`}${o.date ? ` <span class="cap">${esc(heure(o.date))}</span>` : ""}</span></li>`).join("")}</ul></div>`
     : (p.origine === "acheter" ? `<div class="fc"><div class="lbl">Offres</div><p class="cap" style="color:var(--warn)">Aucune offre sourcée. grok magasine au moins 3 offres pour cette pièce.</p></div>` : "");
   // Où elle est utilisée : les assemblages parents (champ serveur utilisee_dans), à part des enfants.
   const ud = p.utilisee_dans || [];
@@ -429,13 +429,13 @@ function renderAchats() {
     const o = l.offre; // objet : {fournisseur, reference, prix, devise, livraison, source, date, …}
     const offreCell = o
       ? `<div><b>${esc(o.reference || "")}</b>${o.fournisseur ? `<div class="sub">${esc(o.fournisseur)}</div>` : ""}</div>` +
-        `<span class="cap">${fmtCAD(o.prix)} ${esc(o.devise || "")}${o.source ? ` · <a href="${esc(o.source)}" target="_blank" rel="noopener">source</a>` : `<span style="color:var(--bad)">sans source</span>`}</span>`
+        `<span class="cap">${fmtCAD(o.prix, o.devise)}${o.source ? ` · <a href="${esc(o.source)}" target="_blank" rel="noopener">source</a>` : `<span style="color:var(--bad)">sans source</span>`}</span>`
       : `<span class="cap" style="color:var(--warn)">sans offre</span>`;
     return `<tr>
     <td><code>${esc(l.numero || "")}</code><div class="sub">${esc(l.nom || "")}</div></td>
     <td class="n">${esc(l.quantite != null ? l.quantite : "")}</td>
     <td>${offreCell}</td>
-    <td class="n">${fmtCAD(l.total)} <span class="cap">${esc(o ? (o.devise || "CAD") : "")}</span></td>
+    <td class="n">${fmtCAD(l.total, o ? o.devise : "CAD")}</td>
     <td>${l.a_convertir ? `<span class="pill s-attente" title="devise autre que CAD ou mixte — claude source le taux">à convertir</span>` : ""}${l.age_jours > 30 ? `<span class="pill s-silence" title="prix de plus de 30 jours — grok relève de nouveau">prix à revérifier</span>` : ""}</td>
   </tr>`;
   };
