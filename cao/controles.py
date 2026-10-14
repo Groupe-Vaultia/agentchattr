@@ -1,7 +1,7 @@
-"""Contrôles de niveau 1, v1.3 (13 oct. 2026).
+"""Contrôles de niveau 1, v1.4 (14 oct. 2026).
 
-v1.2 : sans fiche matière, une masse vide est acceptée ; une masse chiffrée ne l'est pas.
 v1.3 : tout nombre non fini (NaN, infini) dans le rapport est refusé.
+v1.4 : une cote absente ou nulle est refusée.
 Aucune géométrie ici : le script FreeCAD mesure, ce module juge.
 """
 
@@ -97,8 +97,17 @@ def cotes_valeurs(mesures, attendu, tolerance=0.05):
     for nom, cible in attendu.items():
         valeur = mesures.get(nom)
         if valeur is None:
+            ecarts.append(f"cote absente : {nom}")
+            continue
+        try:
+            nombre = float(valeur)
+        except (TypeError, ValueError):
             ecarts.append(f"cote illisible : {nom}")
-        elif abs(float(valeur) - float(cible)) > tolerance:
+            continue
+        if not math.isfinite(nombre) or nombre == 0.0:
+            ecarts.append(f"cote nulle : {nom}")
+            continue
+        if abs(nombre - float(cible)) > tolerance:
             ecarts.append(f"cote {nom} : {valeur} != {cible}")
     return ecarts
 
@@ -323,6 +332,8 @@ if __name__ == "__main__":
     assert any("volume_mm3" in e for e in ecarts_finis)
     assert any("encombrement_mm.z" in e for e in ecarts_finis)
     assert any("epaisseur_min_mm" in e for e in ecarts_finis)
+    assert "cote nulle : D" in cotes_valeurs({"D": 0.0}, {"D": 4.0})
+    assert "cote absente : E" in cotes_valeurs({}, {"E": 16.0})
     assert any(e.startswith("cartouche vide") for e in mauvais)
     assert any(e.startswith("cote en double") for e in mauvais)
     assert "masse nulle" in mauvais

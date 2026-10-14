@@ -1,7 +1,7 @@
-"""Gabarit N2b v1.4 (13 oct. 2026). Masse vide sans fiche matière.
+"""Gabarit CAO v2.0 (14 oct. 2026). Cotes TechDraw du trou et de l'entraxe.
 
-v1.3 : le PDF est produit par Qt dans freecad.cmd, sans rsvg sur l'hôte.
 v1.4 : sans densité sourcée, masse_g reste vide et le cartouche écrit « ? ».
+v2.0 : hors-tout, diamètre et entraxe sont des cotes TechDraw ; 0 ou absente échoue.
 Remplacer solide() pour la vraie géométrie. Lancer depuis ce dépôt :
     freecad.cmd -c "import runpy; runpy.run_path('cao/gabarit_piece.py', run_name='__main__')"
 """
@@ -39,6 +39,9 @@ ESSAI = {
     "L": 40.0,
     "W": 20.0,
     "T": 3.0,
+    "D": 4.0,
+    "trous": ((12.0, 10.0), (28.0, 10.0)),
+    "E": 16.0,
 }
 
 NOTE_UNITES = "COTES EN POUCES [MILLIMÈTRES]. LES POUCES GOUVERNENT."
@@ -54,8 +57,14 @@ VUES = {
 
 
 def solide(part, piece):
-    """Plaque L x W x T. A remplacer par la pièce."""
-    return part.makeBox(piece["L"], piece["W"], piece["T"])
+    """Plaque L x W x T, avec les trous traversants de l'essai."""
+    plaque = part.makeBox(piece["L"], piece["W"], piece["T"])
+    for x, y in piece.get("trous") or ():
+        outil = part.makeCylinder(
+            piece["D"] / 2.0, piece["T"] + 2.0, App.Vector(x, y, -1.0)
+        )
+        plaque = plaque.cut(outil)
+    return plaque
 
 
 def _double_cote(mm):
@@ -105,11 +114,17 @@ def _vue(doc, page, feature, nom):
 
 
 def _cotes(doc, dessus, face, piece):
-    """Trois cotes 3D. Pas de cote sur la vue de droite ni sur l'iso."""
+    """Cotes TechDraw. Pas de cote sur la vue de droite ni sur l'iso.
+    Le diamètre est une distance 3D : TechDraw n'a pas de cote de diamètre."""
+    (x1, y1), (x2, y2) = piece["trous"]
+    rayon = piece["D"] / 2.0
+    haut = piece["T"]
     specs = (
         (dessus, "L", "DistanceX", App.Vector(0, 0, 0), App.Vector(piece["L"], 0, 0)),
         (dessus, "W", "DistanceY", App.Vector(0, 0, 0), App.Vector(0, piece["W"], 0)),
-        (face, "T", "DistanceY", App.Vector(0, 0, 0), App.Vector(0, 0, piece["T"])),
+        (face, "T", "DistanceY", App.Vector(0, 0, 0), App.Vector(0, 0, haut)),
+        (dessus, "D", "Distance", App.Vector(x1 - rayon, y1, haut), App.Vector(x1 + rayon, y1, haut)),
+        (dessus, "E", "Distance", App.Vector(x1, y1, haut), App.Vector(x2, y2, haut)),
     )
     mesures = {}
     textes = {}
@@ -233,7 +248,13 @@ def produire(piece, dossier):
         "cotes": list(mesures),
         "cotes_mm": mesures,
         "cotes_texte": cotes_texte,
-        "attendu_mm": {"L": piece["L"], "W": piece["W"], "T": piece["T"]},
+        "attendu_mm": {
+            "L": piece["L"],
+            "W": piece["W"],
+            "T": piece["T"],
+            "D": piece["D"],
+            "E": piece["E"],
+        },
         "brep_valide": bool(feature.Shape.isValid()),
         "solides": len(feature.Shape.Solids),
         "volume_mm3": volume,
@@ -330,6 +351,8 @@ def _composer_svg(textes, vues, cotes_texte, chemin):
         (80, 148, cotes_texte.get("L", "")),
         (48, 130, cotes_texte.get("W", "")),
         (48, 90, cotes_texte.get("T", "")),
+        (112, 136, cotes_texte.get("D", "")),
+        (112, 128, cotes_texte.get("E", "")),
         (55, 40, NOTE_UNITES),
     )
     for x, y, ligne in etiquettes:
