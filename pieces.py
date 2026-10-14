@@ -295,13 +295,13 @@ class PieceStore:
             return n > 0
 
     def arbre(self, piece_id: int) -> dict:
-        """{piece, quantite (cumulee depuis la racine), unite, enfants: [...]}."""
+        """Champs de la piece + `quantite` (par parent), `quantite_cumulee` (depuis la racine), `unite`, `enfants`."""
         with self._lock:
-            def noeud(pid: int, qte: float, unite: str) -> dict:
-                p = self._ligne(pid)
-                return {"piece": p, "quantite": qte, "unite": unite,
-                        "enfants": [noeud(r["enfant_id"], qte * r["quantite"], r["unite"]) for r in self._enfants(pid)]}
-            return noeud(piece_id, 1.0, "u")
+            def noeud(pid: int, qte: float, cumul: float, unite: str) -> dict:
+                return {**self._ligne(pid), "quantite": qte, "quantite_cumulee": cumul, "unite": unite,
+                        "enfants": [noeud(r["enfant_id"], r["quantite"], cumul * r["quantite"], r["unite"])
+                                    for r in self._enfants(pid)]}
+            return noeud(piece_id, 1.0, 1.0, "u")
 
     # ---------- achats et cout ----------
     def _racines(self, projet_id: str) -> list[int]:
