@@ -1,5 +1,6 @@
-"""Liste de pièces ASME v1.2 (14 oct. 2026).
+"""Liste de pièces ASME v1.3 (14 oct. 2026).
 
+v1.3 : la démo écrit dans ~/atelier/cao-essais, jamais dans cao-pieces.
 v1.2 : essai d'une révision refusée, et d'un lien qui sort de la sortie.
 v1.1 : le jeton ne part que vers VAULTIA_ORIGINE, et le fichier reste sous la sortie.
 v1.0 : enfants directs de GET /api/v2/pieces/{id}/nomenclature, au-dessus du cartouche.
@@ -404,7 +405,7 @@ def essai():
         assert list(Path(dehors).rglob("*")) == []
     assert all("prix" not in r and "12.5" not in "".join(r.values()) for r in rangs)
     assert "VLT-10012" not in {r["numero"] for r in rangs}
-    rapport = produire(ESSAI, gabarit.racine_sortie())
+    rapport = produire(ESSAI, gabarit.racine_essai())
     texte = Path(rapport["svg"]).read_text(encoding="utf-8")
     ajouts = texte[texte.rfind("REPÈRE"):]
     assert "VLT-10001" in ajouts and "plaque-gabarit" in ajouts and "PETG" in ajouts
