@@ -25,3 +25,6 @@ logo.agentchattr.png.bak
 
 # Captures de revue Impeccable : montrent le contenu réel de la salle (dépôt public)
 .impeccable/review/
+
+# Ancien dossier de pièces générées. La sortie est ~/atelier/cao-pieces.
+cao/sortie/
