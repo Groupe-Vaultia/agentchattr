@@ -1,4 +1,8 @@
-# Pièces et nomenclature — spécification v0.3
+# Pièces et nomenclature — spécification v0.4
+
+v0.4 (13 oct. 2026, claude) : alignée sur la convention déjà écrite dans le skill `ingenieur-rd-fusion` (SKILL.md:25,
+204, 206) : révisions P01, P02… puis A, B, C… (ASME Y14.35, sans I, O, Q, S, X, Z) ; fichiers
+`<numéro>_<description-courte>_<rév>.<ext>`, un dossier par révision. Le format du numéro attend Charles (msg 2331).
 
 v0.3 (13 oct. 2026, claude) : CAO et mises en plan ajoutées (oui de Charles, msg 2309). La revue des plans est faite
 par claude et codex ; Charles n'est appelé qu'aux jalons, et l'OIQ seulement pour ce qui porte une personne.
@@ -45,7 +49,7 @@ sous-projets en `arrete`. La carte du parent montre l'avancement de chaque sous-
 
 | Table | Colonnes |
 |---|---|
-| `pieces` | `id`, `numero` (unique, ex. `QUAD-SUS-012`), `revision` (A, B…), `nom`, `origine` (acheter, concevoir), `type` (assemblage, piece, visserie, matiere), `matiere`, `procede` (laser, soudure, cnc, impression_3d, achat), `statut` (a_concevoir, concue, a_commander, commandee, recue, fabriquee, validee, rejetee), `masse_g`, `fichier`, `empreinte`, `projet_id`, `tache_id`, `cree`, `maj` |
+| `pieces` | `id`, `numero` (unique, format à trancher : voir questions), `revision` (P01, P02… puis A, B, C…, sans I O Q S X Z), `nom`, `origine` (acheter, concevoir), `type` (assemblage, piece, visserie, matiere), `matiere`, `procede` (laser, soudure, cnc, impression_3d, achat), `statut` (a_concevoir, concue, a_commander, commandee, recue, fabriquee, validee, rejetee), `masse_g`, `fichier`, `empreinte`, `projet_id`, `tache_id`, `cree`, `maj` |
 | `fournisseurs` | `id`, `nom`, `site`, `delai_jours`, `note` |
 | `offres` | `piece_id`, `fournisseur_id`, `reference`, `prix`, `devise`, `quantite_min`, `source` (URL ou devis, **obligatoire**), `date` |
 | `nomenclature` | `parent_id`, `enfant_id`, `quantite`, `unite` (u, m, kg), `note` ; un cycle est refusé |
@@ -74,7 +78,7 @@ Les agents écrivent par ces routes ; un outil MCP `pieces` (lecture, création,
 | Élément | Règle |
 |---|---|
 | 3D d'une pièce conçue | Un script Python et un fichier `.FCStd` par pièce et par révision, produits par FreeCAD **sans fenêtre** (`freecad.cmd`, un processus par appel : plusieurs agents en parallèle). Jamais deux agents sur le même fichier (le dernier enregistrement gagne, FreeCAD issue #19697) |
-| Révision | Nouvelle révision = nouveau fichier `NUMERO_REV.FCStd`, l'ancien reste ; la fiche pièce garde chemin et sha256 |
+| Révision | Convention du skill `ingenieur-rd-fusion` : `<numéro>_<description-courte>_<rév>.<ext>` (ex. `QUAD-1042_triangle-sup_P02.FCStd`, `_calculs_P02.py`, `.pdf`, `.dxf`), un dossier par révision ; l'ancienne reste ; la fiche pièce garde chemin et sha256 |
 | Mise en plan | TechDraw : vues, cotes fonctionnelles, tolérances, cartouche (numéro, révision, matière, procédé), export PDF et DXF. Un plan par pièce fabriquée ; un plan d'assemblage par sous-système |
 | Assemblage | Un fichier d'assemblage par sous-système, liens vers les pièces ; vérification d'interférences à chaque révision |
 | FreeCAD avec fenêtre | Une seule session pilotée par MCP (port 9875) : pour regarder et vérifier, pas pour produire |
@@ -117,4 +121,7 @@ d'achats du projet. Le rail montre les sous-projets sous leur parent.
 
 ## Questions ouvertes pour Charles
 
-1. Numérotation : `PROJET-SOUS-SYSTEME-NNN` par défaut ; un format existant à reprendre (PME) le remplacera.
+1. Numéro de pièce, à trancher par Charles :
+   - **non signifiant** `<PROJET>-<NNNN>` (ex. `QUAD-1042`, comme `RC-1042` du skill) : le sous-système est un champ ; une
+     pièce qui change de sous-système ou sert à deux projets garde son numéro (recommandé) ;
+   - **signifiant** `<PROJET>-<SOUS-SYSTÈME>-<NNN>` (ex. `QUAD-SUS-012`) : lisible, mais à renuméroter si la pièce bouge.
