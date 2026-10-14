@@ -139,6 +139,12 @@ def load_config(root: Path | None = None) -> dict:
             server = config.setdefault("server", {})
             server["allowed_origins"] = list(server.get("allowed_origins") or []) + [o for o in local_origins if isinstance(o, str)]
 
+        # [socle] copie_pieces — destination de la copie des sauvegardes de pieces (un hote de CETTE machine,
+        # ex. "x1:vaultia-sauvegardes/"). Hors de git pour la meme raison.
+        copie = (local.get("socle") or {}).get("copie_pieces")
+        if isinstance(copie, str) and copie.strip():
+            config.setdefault("socle", {})["copie_pieces"] = copie.strip()
+
     _apply_env_overrides(config)
 
     return config
