@@ -202,6 +202,14 @@ class PieceStore:
         with self._lock:
             return [dict(r) for r in self._db.execute(sql + " ORDER BY numero", args)]
 
+    def utilisee_dans(self, piece_id: int) -> list[dict]:
+        """Les assemblages parents directs (« ou elle est utilisee »)."""
+        with self._lock:
+            self._ligne(piece_id)
+            return [dict(r) for r in self._db.execute(
+                "SELECT p.id, p.numero, p.nom, n.quantite, n.unite FROM nomenclature n JOIN pieces p ON p.id = n.parent_id "
+                "WHERE n.enfant_id = ? ORDER BY p.numero", (piece_id,))]
+
     def revisions(self, piece_id: int) -> list[dict]:
         with self._lock:
             self._ligne(piece_id)

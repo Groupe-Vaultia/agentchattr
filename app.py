@@ -3622,6 +3622,7 @@ def _tache_faite(tache_id: int) -> bool:
 async def get_piece(piece_id: int):
     return JSONResponse({**pieces.get(piece_id), "offres": pieces.offres(piece_id),
                          "historique": pieces.historique(piece_id), "revisions": pieces.revisions(piece_id),
+                         "utilisee_dans": pieces.utilisee_dans(piece_id),
                          "stock": pieces.stock(piece_id)})
 
 
