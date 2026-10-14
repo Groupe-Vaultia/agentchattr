@@ -181,6 +181,8 @@ def _load_settings():
         room_settings["channels"] = ["general"]
     elif "general" not in room_settings["channels"]:
         room_settings["channels"].insert(0, "general")
+    # Anti-tournage-a-vide : battements de ronde recurrente sans progres toleres avant la mise en veille.
+    room_settings.setdefault("anti_spin_ticks", 3)
 
 
 def _save_settings():
@@ -330,6 +332,7 @@ def configure(cfg: dict, session_token: str = ""):
     schedules.on_change(_on_schedule_change)
 
     max_hops = cfg.get("routing", {}).get("max_agent_hops", 4)
+    anti_spin_ticks = cfg.get("routing", {}).get("anti_spin_ticks", 3)
 
     # Registry: single source of truth for all live agent state
     registry = RuntimeRegistry(data_dir=data_dir)
@@ -344,6 +347,7 @@ def configure(cfg: dict, session_token: str = ""):
         default_mention=cfg.get("routing", {}).get("default", "none"),
         max_hops=max_hops,
         online_checker=lambda: set(registry.get_active_names()) if registry else set(),
+        anti_spin_ticks=anti_spin_ticks,
     )
     agents = AgentTrigger(registry, data_dir=data_dir)
 
@@ -366,6 +370,9 @@ def configure(cfg: dict, session_token: str = ""):
     # Apply saved loop guard setting
     if "max_agent_hops" in room_settings:
         router.max_hops = room_settings["max_agent_hops"]
+    # Apply saved anti-spin setting (exactement comme max_agent_hops)
+    if "anti_spin_ticks" in room_settings:
+        router.anti_spin_ticks = room_settings["anti_spin_ticks"]
 
     # Background thread: check for wrapper recovery flag files
     _data_dir = Path(data_dir)
@@ -526,6 +533,24 @@ def configure(cfg: dict, session_token: str = ""):
                     if not prompt or not targets:
                         schedules.mark_run(s["id"])
                         continue
+                    # Anti-tournage-a-vide : un battement de ronde (planification recurrente qui
+                    # relance claude) ne fouette plus la ronde apres anti_spin_ticks battements
+                    # consecutifs SANS progres reel (note_progress). On previent Charles une fois,
+                    # puis on cesse de relancer claude jusqu'au prochain progres.
+                    if router and not s.get("one_shot") and _vise_claude(targets):
+                        compte, franchi = router.note_heartbeat(channel)
+                        if compte >= router.anti_spin_ticks:
+                            if franchi:
+                                uname = room_settings.get("username", "user")
+                                store.add(
+                                    "system",
+                                    f"Ronde en veille : aucun progrès depuis {router.anti_spin_ticks} "
+                                    f"battements. @{uname} relance quand tu veux.",
+                                    msg_type="system",
+                                    channel=channel,
+                                )
+                            schedules.mark_run(s["id"])
+                            continue
                     sender = s.get("created_by", "user")
                     mention_str = " ".join(f"@{t}" for t in targets)
                     full_text = f"{mention_str} {prompt}" if mention_str else prompt
@@ -1395,6 +1420,14 @@ async def websocket_endpoint(websocket: WebSocket):
                         hops = max(1, min(hops, 50))
                         room_settings["max_agent_hops"] = hops
                         router.max_hops = hops
+                    except (ValueError, TypeError):
+                        pass
+                if "anti_spin_ticks" in new:
+                    try:
+                        ticks = int(new["anti_spin_ticks"])
+                        ticks = max(1, min(ticks, 20))
+                        room_settings["anti_spin_ticks"] = ticks
+                        router.anti_spin_ticks = ticks
                     except (ValueError, TypeError):
                         pass
                 if "contrast" in new and new["contrast"] in ("normal", "high"):
@@ -2511,6 +2544,8 @@ async def projet_ajouter_livrable(projet_id: str, request: Request):
         return JSONResponse({"error": "fichier absent"}, status_code=404)
     except ValueError as err:
         return JSONResponse({"error": str(err)}, status_code=400)
+    # Progres reel : un livrable produit fait avancer la ronde (canal de la tache, sinon orchestration).
+    _note_round_progress(_jobs_mod.canal_tache(tache_id) if tache_id not in (None, "") else _canal_orchestration())
     return JSONResponse(l)
 
 
@@ -2530,6 +2565,8 @@ async def projet_approuver(projet_id: str, request: Request):
         return JSONResponse({"error": f"livrable disparu : {err}"}, status_code=409)
     except ValueError as err:
         return JSONResponse({"error": str(err)}, status_code=409)
+    # Progres reel : une revision figee (revue rendue) fait avancer la ronde du projet.
+    _note_round_progress(_canal_orchestration())
     return JSONResponse(r)
 
 
@@ -2637,6 +2674,8 @@ async def create_jalon(projet_id: str, request: Request):
     jalon, err = jalons.preparer(projet_id, body)
     if err:
         return JSONResponse({"error": err}, status_code=409 if err.startswith("en attente") else 400)
+    # Progres reel : un jalon prepare fait avancer la ronde du projet.
+    _note_round_progress(_canal_orchestration())
     return JSONResponse(jalon)
 
 
@@ -2670,6 +2709,8 @@ async def decide_jalon(jalon_id: int, request: Request):
     vers = f" vers {jalon['recycle_etape']}" if jalon["recycle_etape"] else ""
     store.add("system", f"Jalon {jalon['jalon']} du projet {jalon['projet_id']} : décision « {jalon['decision']}{vers} » "
               "enregistrée au nom de Charles depuis l'atelier.", channel=canal, projet_id=jalon["projet_id"])
+    # Progres reel : un jalon franchi (decide par Charles) fait avancer la ronde du projet.
+    _note_round_progress(canal)
     return JSONResponse(jalon)
 
 
@@ -2782,6 +2823,9 @@ async def update_tache(tache_id: int, request: Request):
     tache, err = jobs.update_tache(tache_id, body)
     if err:
         return JSONResponse({"error": err}, status_code=404 if err == "tache inconnue" else 400)
+    # Progres reel : une transition d'etat de tache fait avancer la ronde.
+    if "etat" in body:
+        _note_round_progress(_jobs_mod.canal_tache(tache_id))
     return JSONResponse(tache)
 
 
@@ -2836,6 +2880,40 @@ def _battement_execution(agent: str, actif: bool, etait_actif: bool) -> None:
         executions.signe(ouverte["id"])
     elif etait_actif and not actif:
         executions.terminer(ouverte["id"], "terminee")
+
+
+# --- Garde-fou conscient du progres (SOCLE-SHOP) ---
+# Le loop guard par canal (router) met un canal en pause apres max_agent_hops relais agent->agent
+# sans message humain. Il ne distingue pas le sur-place du progres reel : une ronde qui avance se
+# faisait couper. On branche donc un signal de progres sur chaque ecriture d'avancement du socle Shop
+# (transition d'etat de tache, execution terminee, revue/revision postee, jalon franchi), qui remet
+# le canal concerne a zero comme un message humain.
+
+def _vise_claude(targets) -> bool:
+    """Un battement de ronde relance claude : vrai si une cible est claude (ou une de ses instances
+    claude-*), ou une mention large (@all / @both)."""
+    for t in targets or []:
+        n = str(t).strip().lstrip("@").lower()
+        if n in ("all", "both", "everyone"):
+            return True
+        if n == "claude" or n.startswith("claude-"):
+            return True
+    return False
+
+
+def _canal_orchestration() -> str:
+    """Canal ou la ronde de projet est orchestree et annoncee (pilote si present, sinon general).
+    Sert de canal par defaut pour un progres de niveau projet (sans tache)."""
+    return _CANAL_PILOTE if _CANAL_PILOTE in room_settings.get("channels", []) else "general"
+
+
+def _note_round_progress(channel: str) -> None:
+    """Un progres reel enregistre cote serveur. Remet le loop guard ET le compteur anti-tournage-a-vide
+    du canal a zero, sans router de message. Sans routeur (demarrage partiel) ou sans canal : sans effet."""
+    if not router or not channel:
+        return
+    router.note_progress(channel)
+    log.info("garde-fou : progrès réel sur « %s » — compteurs remis à zéro", channel)
 
 
 @app.post("/api/v2/executions")
@@ -2893,6 +2971,9 @@ async def execution_fin(exec_id: str, request: Request):
         return JSONResponse({"error": str(err)}, status_code=400)
     if e is None:
         return JSONResponse({"error": "execution inconnue"}, status_code=404)
+    # Progres reel : une execution terminee fait avancer la ronde, sur le canal de sa tache.
+    if e.get("tache_id"):
+        _note_round_progress(_jobs_mod.canal_tache(e["tache_id"]))
     return JSONResponse(e)
 
 
