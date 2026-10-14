@@ -1,5 +1,6 @@
-"""Gabarit CAO v2.2 (14 oct. 2026). Vues en 3e angle, prouvées par un coin.
+"""Gabarit CAO v2.3 (14 oct. 2026). Vues en 3e angle, prouvées par un coin.
 
+v2.3 : la démo écrit dans ~/atelier/cao-essais, jamais dans cao-pieces.
 v2.1 : cotes X et Y depuis les arêtes, préfixe 2X Ø … THRU, bloc de tolérances.
 v2.2 : Dessus depuis +Z, Droite depuis +X. Un coin mal placé fait échouer le rapport.
 Remplacer solide() pour la vraie géométrie. Lancer depuis ce dépôt :
@@ -196,11 +197,11 @@ def _maison():
     return ICI.parent.parent.parent
 
 
-def racine_sortie():
-    """Hors du dépôt. VAULTIA_CAO_SORTIE remplace ~/atelier/cao-pieces."""
+def _resoudre_sortie(defaut):
+    """Hors du dépôt. VAULTIA_CAO_SORTIE remplace le dossier nommé."""
     brut = os.environ.get("VAULTIA_CAO_SORTIE", "").strip()
     if not brut:
-        racine = _maison() / "atelier" / "cao-pieces"
+        racine = _maison() / "atelier" / defaut
     elif brut.startswith("~/"):
         racine = _maison() / brut[2:]
     else:
@@ -209,6 +210,20 @@ def racine_sortie():
     depot = ICI.parent.resolve()
     if racine == depot or depot in racine.parents:
         raise RuntimeError(f"sortie dans le dépôt refusée : {racine}")
+    return racine
+
+
+def racine_sortie():
+    """Pièce de la base : ~/atelier/cao-pieces, sauf VAULTIA_CAO_SORTIE."""
+    return _resoudre_sortie("cao-pieces")
+
+
+def racine_essai():
+    """Démo __main__ : ~/atelier/cao-essais. Jamais cao-pieces."""
+    racine = _resoudre_sortie("cao-essais")
+    pieces = (_maison() / "atelier" / "cao-pieces").resolve()
+    if racine == pieces or pieces in racine.parents:
+        raise RuntimeError(f"démo refusée dans cao-pieces : {racine}")
     return racine
 
 
@@ -515,7 +530,7 @@ def preuve_vues():
 
 def essai():
     coin = preuve_vues()
-    rapport = produire(ESSAI, racine_sortie())
+    rapport = produire(ESSAI, racine_essai())
     ecarts = controles.juger(rapport)
     rapport["coin"] = coin
     lignes = [
