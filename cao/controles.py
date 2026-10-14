@@ -1,10 +1,11 @@
-"""Contrôles de niveau 1, v1.2 (13 oct. 2026).
+"""Contrôles de niveau 1, v1.3 (13 oct. 2026).
 
-v1.1 : cartouche ANSI A, B-Rep, encombrement, 3e angle, STEP AP214, empreinte.
 v1.2 : sans fiche matière, une masse vide est acceptée ; une masse chiffrée ne l'est pas.
+v1.3 : tout nombre non fini (NaN, infini) dans le rapport est refusé.
 Aucune géométrie ici : le script FreeCAD mesure, ce module juge.
 """
 
+import math
 import re
 from pathlib import Path
 
@@ -181,8 +182,31 @@ def dossier_revision(chemin, numero, revision):
     return []
 
 
+def nombres_non_finis(valeur, chemin=""):
+    """NaN et infini passent les comparaisons « > 0 ». On les nomme à part."""
+    if isinstance(valeur, bool) or valeur is None or isinstance(valeur, str):
+        return []
+    if isinstance(valeur, (int, float)):
+        if not math.isfinite(valeur):
+            return [f"nombre non fini : {chemin or 'rapport'}"]
+        return []
+    if isinstance(valeur, dict):
+        ecarts = []
+        for cle, item in valeur.items():
+            suite = f"{chemin}.{cle}" if chemin else str(cle)
+            ecarts += nombres_non_finis(item, suite)
+        return ecarts
+    if isinstance(valeur, (list, tuple)):
+        ecarts = []
+        for i, item in enumerate(valeur):
+            ecarts += nombres_non_finis(item, f"{chemin}[{i}]")
+        return ecarts
+    return []
+
+
 def juger(rapport):
     ecarts = []
+    ecarts += nombres_non_finis(rapport)
     ecarts += cartouche(rapport.get("cartouche", {}), rapport.get("cartouche_attendu"))
     ecarts += cotes(rapport.get("cotes", []))
     if "attendu_mm" in rapport:
@@ -281,6 +305,24 @@ if __name__ == "__main__":
     assert masse_calculee(2400, 0.001, "") == (None, False)
     calculee, fiche = masse_calculee(2400, 0.001, "fiche PETG")
     assert fiche is True and abs(calculee - 2.4) < 1e-9
+    non_fini = {
+        "cartouche": {cle: "x" for cle in REQUIS_CARTOUCHE},
+        "cotes": ["L"],
+        "masse_g": float("nan"),
+        "interferences_mm3": [float("inf")],
+        "procede": "",
+        "mesures": {"epaisseur_min_mm": float("inf")},
+        "brep_valide": True,
+        "solides": 1,
+        "volume_mm3": float("inf"),
+        "encombrement_mm": {"x": 1.0, "y": 1.0, "z": float("-inf")},
+    }
+    ecarts_finis = juger(non_fini)
+    assert any(e == "nombre non fini : masse_g" for e in ecarts_finis), ecarts_finis
+    assert any("interferences_mm3" in e for e in ecarts_finis)
+    assert any("volume_mm3" in e for e in ecarts_finis)
+    assert any("encombrement_mm.z" in e for e in ecarts_finis)
+    assert any("epaisseur_min_mm" in e for e in ecarts_finis)
     assert any(e.startswith("cartouche vide") for e in mauvais)
     assert any(e.startswith("cote en double") for e in mauvais)
     assert "masse nulle" in mauvais
