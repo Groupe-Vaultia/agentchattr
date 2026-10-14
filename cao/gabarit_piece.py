@@ -1,13 +1,14 @@
-"""Gabarit CAO v2.0 (14 oct. 2026). Cotes TechDraw du trou et de l'entraxe.
+"""Gabarit CAO v2.2 (14 oct. 2026). Vues en 3e angle, prouvées par un coin.
 
-v1.4 : sans densité sourcée, masse_g reste vide et le cartouche écrit « ? ».
-v2.0 : hors-tout, diamètre et entraxe sont des cotes TechDraw ; 0 ou absente échoue.
+v2.1 : cotes X et Y depuis les arêtes, préfixe 2X Ø … THRU, bloc de tolérances.
+v2.2 : Dessus depuis +Z, Droite depuis +X. Un coin mal placé fait échouer le rapport.
 Remplacer solide() pour la vraie géométrie. Lancer depuis ce dépôt :
     freecad.cmd -c "import runpy; runpy.run_path('cao/gabarit_piece.py', run_name='__main__')"
 """
 
 import hashlib
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -45,15 +46,18 @@ ESSAI = {
 }
 
 NOTE_UNITES = "COTES EN POUCES [MILLIMÈTRES]. LES POUCES GOUVERNENT."
+BLOC_TOLERANCES = ".XX ±.01 [±0.25]   .XXX ±.005 [±0.13]   ANGLES ±1°"
 
-# Centres des vues, mm, origine en bas à gauche. 3e angle : dessus au-dessus,
-# droite à droite. L'iso n'est pas cotée.
+# Centres des vues, mm, origine en bas à gauche. 3e angle.
+# Direction : de la pièce vers l'observateur. +X droite, −Y face, +Z dessus.
+# L'iso n'est pas cotée.
 VUES = {
     "Face": ((0, -1, 0), (1, 0, 0), 80, 90),
-    "Dessus": ((0, 0, -1), (1, 0, 0), 80, 130),
-    "Droite": ((-1, 0, 0), (0, -1, 0), 150, 90),
+    "Dessus": ((0, 0, 1), (1, 0, 0), 80, 130),
+    "Droite": ((1, 0, 0), (0, 1, 0), 150, 90),
     "Iso": ((1, -1, 1), (1, 1, 0), 210, 145),
 }
+COIN_ATTENDU = {"Face": "droite-haut", "Dessus": "droite-bas", "Droite": "gauche-haut"}
 
 
 def solide(part, piece):
@@ -113,9 +117,26 @@ def _vue(doc, page, feature, nom):
     return obj
 
 
+def _axes(piece):
+    """Traits d'axe. Dessus regarde depuis +Z : un trait sur la face est caché
+    hors du trou. On les lève de 0,2 mm. Le volume ne change pas.
+    Pas de type d'axe sans fenêtre : traits continus."""
+    traits = []
+    debord = piece["D"] / 2.0 + 2.0
+    z = piece["T"] + 0.2
+    for x, y in piece["trous"]:
+        traits.append(Part.makeLine(
+            App.Vector(x - debord, y, z), App.Vector(x + debord, y, z)
+        ))
+        traits.append(Part.makeLine(
+            App.Vector(x, y - debord, z), App.Vector(x, y + debord, z)
+        ))
+    return Part.Compound(traits)
+
+
 def _cotes(doc, dessus, face, piece):
     """Cotes TechDraw. Pas de cote sur la vue de droite ni sur l'iso.
-    Le diamètre est une distance 3D : TechDraw n'a pas de cote de diamètre."""
+    Le diamètre est une distance 3D : cette version n'a pas de cote Ø native."""
     (x1, y1), (x2, y2) = piece["trous"]
     rayon = piece["D"] / 2.0
     haut = piece["T"]
@@ -123,6 +144,8 @@ def _cotes(doc, dessus, face, piece):
         (dessus, "L", "DistanceX", App.Vector(0, 0, 0), App.Vector(piece["L"], 0, 0)),
         (dessus, "W", "DistanceY", App.Vector(0, 0, 0), App.Vector(0, piece["W"], 0)),
         (face, "T", "DistanceY", App.Vector(0, 0, 0), App.Vector(0, 0, haut)),
+        (dessus, "X", "DistanceX", App.Vector(0, y1, haut), App.Vector(x1, y1, haut)),
+        (dessus, "Y", "DistanceY", App.Vector(x1, 0, haut), App.Vector(x1, y1, haut)),
         (dessus, "D", "Distance", App.Vector(x1 - rayon, y1, haut), App.Vector(x1 + rayon, y1, haut)),
         (dessus, "E", "Distance", App.Vector(x1, y1, haut), App.Vector(x2, y2, haut)),
     )
@@ -145,7 +168,10 @@ def _cotes(doc, dessus, face, piece):
         mesures[nom] = valeur
         if hasattr(cote, "Arbitrary"):
             cote.Arbitrary = True
-        cote.FormatSpec = _double_cote(valeur)
+        if nom == "D":
+            cote.FormatSpec = f"{len(piece['trous'])}X Ø{_double_cote(valeur)} THRU"
+        else:
+            cote.FormatSpec = _double_cote(valeur)
         doc.recompute()
         textes[nom] = str(cote.getText())
     return mesures, textes
@@ -202,6 +228,9 @@ def produire(piece, dossier):
     template.Template = str(GABARIT)
     page.Template = template
     vues = {nom: _vue(doc, page, feature, nom) for nom in VUES}
+    axes = doc.addObject("Part::Feature", "Axes")
+    axes.Shape = _axes(piece)
+    vues["Dessus"].Source = [feature, axes]
     _poser(vues)
     doc.recompute()
     mesures, cotes_texte = _cotes(doc, vues["Dessus"], vues["Face"], piece)
@@ -211,6 +240,12 @@ def produire(piece, dossier):
     page.addView(note)
     note.X = 55
     note.Y = 40
+    tolerances = doc.addObject("TechDraw::DrawViewAnnotation", "Tolerances")
+    tolerances.Text = [BLOC_TOLERANCES]
+    tolerances.TextSize = 2.2
+    page.addView(tolerances)
+    tolerances.X = 150
+    tolerances.Y = 28
     _poser(vues)
 
     volume = float(feature.Shape.Volume)
@@ -254,7 +289,11 @@ def produire(piece, dossier):
             "T": piece["T"],
             "D": piece["D"],
             "E": piece["E"],
+            "X": piece["trous"][0][0],
+            "Y": piece["trous"][0][1],
         },
+        "habillage_requis": True,
+        "tolerances": " ".join(str(ligne) for ligne in tolerances.Text),
         "brep_valide": bool(feature.Shape.isValid()),
         "solides": len(feature.Shape.Solids),
         "volume_mm3": volume,
@@ -353,7 +392,10 @@ def _composer_svg(textes, vues, cotes_texte, chemin):
         (48, 90, cotes_texte.get("T", "")),
         (112, 136, cotes_texte.get("D", "")),
         (112, 128, cotes_texte.get("E", "")),
+        (96, 116, cotes_texte.get("X", "")),
+        (62, 116, cotes_texte.get("Y", "")),
         (55, 40, NOTE_UNITES),
+        (150, 28, BLOC_TOLERANCES),
     )
     for x, y, ligne in etiquettes:
         if not ligne:
@@ -412,9 +454,70 @@ def _exporter_pdf(svg, chemin):
     return str(chemin) if chemin.is_file() else "echec: fichier absent"
 
 
+def _points_svg(fragment):
+    return [
+        (float(x), float(y))
+        for x, y in re.findall(r"[ML]\s*([-+0-9.eE]+)\s+([-+0-9.eE]+)", fragment)
+    ]
+
+
+def _coin_coupe(points):
+    """Où est le cran. +x à droite de la feuille, +y en haut."""
+    minx = min(p[0] for p in points)
+    maxx = max(p[0] for p in points)
+    miny = min(p[1] for p in points)
+    maxy = max(p[1] for p in points)
+    cran = [p for p in points if minx + 0.5 < p[0] < maxx - 0.5]
+    if not cran:
+        return "indetermine"
+    mx = (minx + maxx) / 2.0
+    my = (miny + maxy) / 2.0
+    horizontal = "droite" if sum(p[0] for p in cran) / len(cran) > mx else "gauche"
+    vertical = "haut" if sum(p[1] for p in cran) / len(cran) > my else "bas"
+    return f"{horizontal}-{vertical}"
+
+
+def preuve_vues():
+    """Coin avant-droit-haut : +X, y=0, +Z. Le 3e angle le place ainsi :
+    face à droite et en haut, dessus à droite et en bas, droite à gauche et en haut."""
+    doc = App.newDocument("coin")
+    feature = doc.addObject("Part::Feature", "Solide")
+    feature.Shape = Part.makeBox(40, 20, 3).cut(Part.makeBox(4, 4, 1.5, App.Vector(36, 0, 1.5)))
+    doc.recompute()
+    page = doc.addObject("TechDraw::DrawPage", "Page")
+    template = doc.addObject("TechDraw::DrawSVGTemplate", "Gabarit")
+    template.Template = str(GABARIT)
+    page.Template = template
+    vues = {}
+    for nom in COIN_ATTENDU:
+        direction, xdir, x, y = VUES[nom]
+        obj = doc.addObject("TechDraw::DrawViewPart", "V" + nom)
+        obj.Source = [feature]
+        obj.Direction = App.Vector(*direction)
+        obj.XDirection = App.Vector(*xdir)
+        obj.Scale = 1
+        page.addView(obj)
+        obj.X = x
+        obj.Y = y
+        vues[nom] = obj
+    doc.recompute()
+    resultat = {}
+    for nom, obj in vues.items():
+        fragment = TechDraw.viewPartAsSvg(obj)
+        # viewPartAsSvg a +y vers le bas. scale(1,-1) de la feuille le remet vers le haut.
+        points = [(x, -y) for x, y in _points_svg(fragment)]
+        if not points:
+            raise RuntimeError(f"vue {nom} sans geometrie : {fragment!r}")
+        resultat[nom] = _coin_coupe(points)
+    App.closeDocument(doc.Name)
+    return resultat
+
+
 def essai():
+    coin = preuve_vues()
     rapport = produire(ESSAI, racine_sortie())
     ecarts = controles.juger(rapport)
+    rapport["coin"] = coin
     lignes = [
         f"fichier {rapport['fichier']}",
         f"step {rapport['step']}",
@@ -425,12 +528,16 @@ def essai():
         f"empreinte {rapport['empreinte']}",
         f"cotes {rapport['cotes_mm']}",
         f"cotes_texte {rapport['cotes_texte']}",
+        f"tolerances {rapport['tolerances']}",
         f"brep {rapport['brep_valide']} solides {rapport['solides']} volume {rapport['volume_mm3']}",
         f"encombrement {rapport['encombrement_mm']}",
         f"interferences {rapport['interferences_mm3']}",
         f"vues {rapport['vues']}",
+        f"coin {coin}",
         f"payload {rapport['payload']}",
     ]
+    if coin != COIN_ATTENDU:
+        ecarts = list(ecarts) + [f"vues 3e angle : {coin}"]
     if ecarts:
         lignes.append("ecarts")
         lignes.extend(f"- {ecart}" for ecart in ecarts)

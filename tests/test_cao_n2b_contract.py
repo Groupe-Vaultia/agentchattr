@@ -1,6 +1,7 @@
 """Contrat du gabarit CAO N2b.
 
-v0.6 (2026-10-14, codex) : valide le volume avec deux trous et les cotes D/E.
+v0.7 (2026-10-14, codex) : valide les positions X/Y, l’appel Ø/THRU et les tolérances G3.
+v0.6 : valide le volume avec deux trous et les cotes D/E.
 v0.5 : place les fichiers de sortie hors du dépôt.
 v0.4 : compare le volume commun avec tolérance flottante.
 v0.3 : expose FreeCAD dans le runner pour TechDraw.
@@ -87,7 +88,15 @@ class CaoN2bContractTests(unittest.TestCase):
             self.assertAlmostEqual(report["volume_mm3"], 2324.6018, delta=0.01)
             self.assertEqual(
                 report["cotes_mm"],
-                {"L": 40.0, "W": 20.0, "T": 3.0, "D": 4.0, "E": 16.0},
+                {
+                    "L": 40.0, "W": 20.0, "T": 3.0, "D": 4.0,
+                    "E": 16.0, "X": 12.0, "Y": 10.0,
+                },
+            )
+            self.assertEqual(report["cotes_texte"]["D"], "2X Ø.157 [4.00] THRU")
+            self.assertEqual(
+                report["tolerances"],
+                ".XX ±.01 [±0.25]   .XXX ±.005 [±0.13]   ANGLES ±1°",
             )
             self.assertEqual(len(data["overlap"]), 1)
             self.assertAlmostEqual(data["overlap"][0], 500.0)
