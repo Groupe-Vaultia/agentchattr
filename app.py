@@ -23,6 +23,8 @@ import jobs as _jobs_mod
 from executions import ExecutionStore
 import historique as _historique
 from revisions import RevisionStore
+from jalons import JalonStore
+import jalons as _jalons_mod
 from ronde import ronde as _ronde
 from schedules import ScheduleStore, parse_schedule_spec
 from router import Router
@@ -42,6 +44,7 @@ summaries: SummaryStore | None = None
 jobs: JobStore | None = None
 executions: ExecutionStore | None = None  # SOCLE-SHOP S3
 revisions: RevisionStore | None = None  # SOCLE-SHOP S5
+jalons: JalonStore | None = None  # SOCLE-SHOP v1.1 P1
 schedules: ScheduleStore | None = None
 router: Router | None = None
 agents: AgentTrigger | None = None
@@ -273,7 +276,7 @@ def _install_security_middleware(token: str, cfg: dict):
 
 
 def configure(cfg: dict, session_token: str = ""):
-    global store, rules, summaries, jobs, executions, revisions, schedules, router, agents, registry, session_store, session_engine, config
+    global store, rules, summaries, jobs, executions, revisions, jalons, schedules, router, agents, registry, session_store, session_engine, config
     config = cfg
     # --- Security: store the session token and install middleware ---
     _install_security_middleware(session_token, cfg)
@@ -314,6 +317,7 @@ def configure(cfg: dict, session_token: str = ""):
     # Les livrables vivent dans les worktrees de l'atelier ; un chemin hors de cette racine est refuse.
     racine = cfg.get("socle", {}).get("racine_livrables", str(Path.home() / "atelier"))
     revisions = RevisionStore(str(Path(data_dir) / "revisions.json"), racine)
+    jalons = JalonStore(str(Path(data_dir) / "jalons.json"))
 
     schedules = ScheduleStore(str(Path(data_dir) / "schedules.json"))
     schedules.on_change(_on_schedule_change)
@@ -1546,7 +1550,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # --- REST endpoints ---
 
-ALLOWED_UPLOAD_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.heic', '.heif', '.pdf', '.txt', '.md', '.csv', '.json', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.rtf', '.odt'}
+ALLOWED_UPLOAD_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg', '.heic', '.heif', '.pdf', '.txt', '.md', '.csv', '.json', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.rtf', '.odt', '.dxf', '.step', '.stp', '.stl', '.3mf', '.fcstd'}
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB default
 
 
@@ -2467,7 +2471,8 @@ async def projet_historique(projet_id: str, limite: int = 200):
     msgs = [{**m, "id": str(m["id"])} for m in store.filtrer(projet_id, None, -1, 0)]
     execs = [{**e, "id": str(e["id"])} for e in executions.lister(projet_id)]
     revs = revisions.revisions(projet_id) if revisions else []
-    lignes = _historique.historique(projet_id, messages=msgs, executions=execs, revisions=revs,
+    jals = _jalons_mod.pour_historique(jalons.lister(projet_id)) if jalons else []
+    lignes = _historique.historique(projet_id, messages=msgs, executions=execs, revisions=revs, jalons=jals,
                                     limite=max(1, min(limite, 1000)))
     return JSONResponse([[jour, entrees] for jour, entrees in _historique.par_jour(lignes)])
 
@@ -2534,7 +2539,137 @@ async def projet_verifier(projet_id: str, numero: str):
 async def get_ronde():
     v2 = _projets.lister()["v2"]["projets"]
     taches = [t for pid in v2 for t in jobs.taches(pid)]
-    return JSONResponse(_ronde(v2, taches, executions.lister()))
+    return JSONResponse(_ronde(v2, taches, executions.lister(), jalons.lister() if jalons else [], _methodes_etapes()))
+
+
+# SOCLE-SHOP v1.1 P3 : la methode de chaque etape vient de docs/PILOTE.md (une section `## <etape>` par etape).
+_PILOTE_MD = Path(__file__).parent / "docs" / "PILOTE.md"
+
+
+def _methodes_etapes() -> dict:
+    try:
+        texte = _PILOTE_MD.read_text("utf-8")
+    except OSError:
+        return {}
+    out, courante, lignes = {}, None, []
+    for ligne in texte.splitlines() + ["## "]:
+        if ligne.startswith("## "):
+            if courante in _jobs_mod.ETAPES:
+                out[courante] = "\n".join(lignes).strip()
+            courante, lignes = ligne[3:].strip(), []
+        else:
+            lignes.append(ligne)
+    return out
+
+
+@app.get("/api/v2/methodes")
+async def get_methodes():
+    """La methode de chaque etape (docs/PILOTE.md), pour l'atelier : {etape: texte}."""
+    return JSONResponse(_methodes_etapes())
+
+
+# SOCLE-SHOP v1.1 P1 : jalons J1/J2. claude les prepare ; seul Charles decide (corps `par: "user"`).
+@app.get("/api/v2/projects/{projet_id}/jalons")
+async def list_jalons(projet_id: str):
+    if not _projets.existe(projet_id):
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    return JSONResponse({"jalons": jalons.lister(projet_id)})
+
+
+@app.post("/api/v2/projects/{projet_id}/jalons")
+async def create_jalon(projet_id: str, request: Request):
+    if not _projets.existe(projet_id):
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "objet attendu"}, status_code=400)
+    jalon, err = jalons.preparer(projet_id, body)
+    if err:
+        return JSONResponse({"error": err}, status_code=409 if err.startswith("en attente") else 400)
+    return JSONResponse(jalon)
+
+
+_EFFET_DECISION = {"hold": "veille", "kill": "arrete"}
+
+
+@app.post("/api/v2/jalons/{jalon_id}/decision")
+async def decide_jalon(jalon_id: int, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "objet attendu"}, status_code=400)
+    if body.get("par") != "user":
+        return JSONResponse({"error": "seul Charles decide un jalon"}, status_code=403)
+    jalon, err = jalons.decider(jalon_id, str(body.get("decision", "")), str(body.get("note", "")),
+                                str(body.get("recycle_etape", "")))
+    if err:
+        code = 404 if err == "inconnu" else 409 if err.startswith("deja") else 400
+        return JSONResponse({"error": err}, status_code=code)
+    statut = _EFFET_DECISION.get(jalon["decision"])
+    if statut:
+        _projets.definir_statut(jalon["projet_id"], statut, par_id=True)
+    # `par: "user"` n'est qu'une convention (revue codex, msg 2277) : la decision est donc toujours annoncee dans le
+    # canal, ou Charles voit tout de suite une decision qu'il n'aurait pas prise.
+    canal = _CANAL_PILOTE if _CANAL_PILOTE in room_settings["channels"] else "general"
+    vers = f" vers {jalon['recycle_etape']}" if jalon["recycle_etape"] else ""
+    store.add("system", f"Jalon {jalon['jalon']} du projet {jalon['projet_id']} : décision « {jalon['decision']}{vers} » "
+              "enregistrée au nom de Charles depuis l'atelier.", channel=canal, projet_id=jalon["projet_id"])
+    return JSONResponse(jalon)
+
+
+# SOCLE-SHOP v1.1 P2 : fiche projet (champs du skill pilote-rd).
+@app.patch("/api/v2/projects/{projet_id}/fiche")
+async def patch_fiche(projet_id: str, request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    projet, err = _projets.definir_fiche(projet_id, body)
+    if err:
+        return JSONResponse({"error": "projet inconnu" if err == "inconnu" else err},
+                            status_code=404 if err == "inconnu" else 400)
+    return JSONResponse(projet)
+
+
+# SOCLE-SHOP v1.1 P4 : lancement guide. Le bouton « Lancer le projet » de l'atelier est un geste de Charles : le
+# message de cadrage part donc a son nom, etiquete du projet, et declenche claude par sa mention.
+_CANAL_PILOTE = "developpement-de-pro"
+
+
+@app.post("/api/v2/projects")
+async def lancer_projet(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "objet attendu"}, status_code=400)
+    nom = str(body.get("nom", "")).strip()
+    objectif = str(body.get("objectif", "")).strip()
+    if not nom:
+        return JSONResponse({"error": "nom requis"}, status_code=400)
+    # Photos et documents d'idee : deja deposes par POST /api/upload, qui rend {name, url}.
+    pieces = body.get("pieces_jointes") or []
+    if not isinstance(pieces, list) or not all(
+            isinstance(p, dict) and _re.fullmatch(r"/uploads/[0-9a-f]{8}\.[A-Za-z0-9]{1,8}", str(p.get("url", "")))
+            for p in pieces):
+        return JSONResponse({"error": "pieces_jointes : [{name, url}] rendus par /api/upload"}, status_code=400)
+    pieces = [{"name": str(p.get("name", ""))[:200], "url": p["url"]} for p in pieces]
+    if _projets.lister()["projets"].get(nom):
+        return JSONResponse({"error": "un projet porte deja ce nom"}, status_code=409)
+    pid = _projets.creer(nom, objectif)
+    _projets.definir_fiche(pid, {"objectif": objectif})
+    canal = _CANAL_PILOTE if _CANAL_PILOTE in room_settings["channels"] else "general"
+    store.add("user", f"@claude Lancement guidé du projet « {nom} » ({pid}). Objectif : {objectif or '(à préciser)'}\n"
+              "Applique pilote-rd : au plus 3 questions qui changent le projet (fiche.questions), le reste en "
+              f"hypothèses écrites, niveau, risques et critères (PATCH /api/v2/projects/{pid}/fiche), puis les tâches "
+              "des étapes 1 à 3 avec leur méthode (docs/PILOTE.md).", channel=canal, projet_id=pid, attachments=pieces)
+    return JSONResponse({"projet_id": pid, "channel": canal, **_projets.lister()})
 
 
 # SOCLE-SHOP S2 : taches de projet (un job avec projet_id, etape, responsable, equipe, preuve).

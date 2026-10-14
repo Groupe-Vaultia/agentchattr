@@ -52,7 +52,8 @@
         <form class="form" id="newproj">
           <label class="lbl" for="np-nom">Nom</label><input id="np-nom" placeholder="Ex. : boîtier pour capteur de porte">
           <label class="lbl" for="np-but">Objectif, en une ou deux phrases</label><textarea id="np-but" rows="2" placeholder="Ex. : tenir un capteur Zigbee sur un cadre de porte"></textarea>
-          <div><button class="btn pri" type="submit">Lancer le projet</button> <span class="cap">claude découpe le travail et assigne les agents.</span></div>
+          <label class="lbl" for="np-fich">Photos ou documents d'idée (facultatif)</label><input id="np-fich" type="file" multiple accept="image/*,.pdf,.txt,.md,.csv,.json,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.rtf,.odt,.dxf,.step,.stp,.stl,.3mf,.fcstd">
+          <div><button class="btn pri" type="submit">Lancer le projet</button> <span class="cap">claude découpe le travail et assigne les agents. Tes photos/documents sont joints au lancement.</span></div>
         </form>
       </div>
     </section>
@@ -72,6 +73,7 @@
         <div><button class="btn pri" type="submit">Ajouter la tâche</button> <button class="btn" type="button" data-act="canceltask">Annuler</button></div>
       </form>
       <div class="legend"><span class="pill s-fait">fait</span><span class="pill s-cours">en cours</span><span class="pill s-afaire">à faire</span><span class="pill s-charles">attend Charles</span><span class="pill s-bloque">bloqué</span></div>
+      <div class="pourquoi" id="pourquoi" hidden></div>
       <div class="mapbox" id="mapbox"><svg class="links" id="links"></svg><div class="map" id="map"></div></div>
       <p class="cap">Clique une tâche pour sa fiche (ce qui a été fait, pourquoi, preuve, historique), ou une étape pour ce qu'elle couvre.</p>
     </section>
