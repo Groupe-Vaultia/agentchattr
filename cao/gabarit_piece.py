@@ -1,5 +1,7 @@
-"""Gabarit CAO v2.3 (14 oct. 2026). Vues en 3e angle, prouvées par un coin.
+"""Gabarit CAO v2.5 (14 oct. 2026). Vues en 3e angle, prouvées par un coin.
 
+v2.5 : notes dans le cadre imprimable ; le contrôle refuse une boîte hors cadre.
+v2.4 : lignes de cote, repère du perçage, traits cachés, notes en anglais hors du cartouche.
 v2.3 : la démo écrit dans ~/atelier/cao-essais, jamais dans cao-pieces.
 v2.1 : cotes X et Y depuis les arêtes, préfixe 2X Ø … THRU, bloc de tolérances.
 v2.2 : Dessus depuis +Z, Droite depuis +X. Un coin mal placé fait échouer le rapport.
@@ -46,8 +48,14 @@ ESSAI = {
     "E": 16.0,
 }
 
-NOTE_UNITES = "COTES EN POUCES [MILLIMÈTRES]. LES POUCES GOUVERNENT."
+NOTE_UNITES = "DIMENSIONS ARE IN INCHES [MILLIMETERS]. INCHES GOVERN."
 BLOC_TOLERANCES = ".XX ±.01 [±0.25]   .XXX ±.005 [±0.13]   ANGLES ±1°"
+# Cadre intérieur ASME, ANSIA_Landscape.svg rect3675
+# (x=20.107, y=14.473, w=239.52, h=187.2). Origine de feuille en bas à gauche.
+CADRE = (20.107, 14.227, 239.52, 187.2)
+# Cartouche, rect2985 (x=112.63, y=153.5, w=146.66, h=48.074).
+CARTOUCHE = (112.63, 14.326, 146.66, 48.074)
+NOTE_X = 22.0
 
 # Centres des vues, mm, origine en bas à gauche. 3e angle.
 # Direction : de la pièce vers l'observateur. +X droite, −Y face, +Z dessus.
@@ -253,14 +261,14 @@ def produire(piece, dossier):
     note.Text = [NOTE_UNITES]
     note.TextSize = 2.5
     page.addView(note)
-    note.X = 55
-    note.Y = 40
+    note.X = NOTE_X
+    note.Y = 56
     tolerances = doc.addObject("TechDraw::DrawViewAnnotation", "Tolerances")
     tolerances.Text = [BLOC_TOLERANCES]
     tolerances.TextSize = 2.2
     page.addView(tolerances)
-    tolerances.X = 150
-    tolerances.Y = 28
+    tolerances.X = NOTE_X
+    tolerances.Y = 50
     _poser(vues)
 
     volume = float(feature.Shape.Volume)
@@ -279,7 +287,7 @@ def produire(piece, dossier):
     step = _exporter_step(feature, dossier / f"{nom_fichier}.step")
     dxf = _exporter_dxf(page, dossier / f"{nom_fichier}.dxf")
     svg = dossier / f"{nom_fichier}.svg"
-    _composer_svg(textes, vues, cotes_texte, svg)
+    _composer_svg(textes, vues, cotes_texte, svg, piece)
     pdf = _exporter_pdf(svg, svg.with_suffix(".pdf"))
 
     boite = feature.Shape.BoundBox
@@ -391,7 +399,248 @@ def _remplir(svg, textes):
     return svg
 
 
-def _composer_svg(textes, vues, cotes_texte, chemin):
+def _sy(y):
+    return PAGE_H - y
+
+
+def _ligne(x1, y1, x2, y2, classe, pointille=None):
+    trait = f' stroke-dasharray="{pointille}"' if pointille else ""
+    return (
+        f'<line class="{classe}" x1="{x1:.2f}" y1="{_sy(y1):.2f}" '
+        f'x2="{x2:.2f}" y2="{_sy(y2):.2f}" stroke="#000" stroke-width="0.2" '
+        f'fill="none"{trait}/>'
+    )
+
+
+def _fleche(x, y, dx, dy):
+    longueur, largeur = 2.2, 0.55
+    norme = (dx * dx + dy * dy) ** 0.5 or 1.0
+    ux, uy = dx / norme, dy / norme
+    px, py = -uy, ux
+    x2, y2 = x - ux * longueur, y - uy * longueur
+    return (
+        f'<polygon class="fleche" fill="#000" points="'
+        f'{x:.2f},{_sy(y):.2f} '
+        f'{x2 + px * largeur:.2f},{_sy(y2 + py * largeur):.2f} '
+        f'{x2 - px * largeur:.2f},{_sy(y2 - py * largeur):.2f}"/>'
+    )
+
+
+def _boite(x, y, texte, taille=2.2, ancre="start"):
+    largeur = 0.52 * taille * max(len(texte), 1)
+    if ancre == "middle":
+        x -= largeur / 2.0
+    elif ancre == "end":
+        x -= largeur
+    return (x, y, largeur, taille)
+
+
+def _texte_plan(x, y, texte, ancre="start", taille=2.2):
+    return (
+        f'<text x="{x:.2f}" y="{_sy(y):.2f}" font-size="{taille}" '
+        f'font-family="sans-serif" text-anchor="{ancre}">{_xml(texte)}</text>'
+    )
+
+
+def _groupe(nom, corps, boite):
+    x, y, w, h = boite
+    return (
+        f'<g id="{nom}" data-boite="{x:.2f},{y:.2f},{w:.2f},{h:.2f}">'
+        + "".join(corps) + "</g>"
+    )
+
+
+def _rappel(x_geom, y_geom, x_dim, y_dim, horizontal):
+    """Ligne de rappel : retrait de 1,2 mm, débord de 2 mm."""
+    if horizontal:
+        sens = 1 if y_dim >= y_geom else -1
+        return _ligne(x_geom, y_geom + 1.2 * sens, x_geom, y_dim + 2.0 * sens, "rappel")
+    sens = 1 if x_dim >= x_geom else -1
+    return _ligne(x_geom + 1.2 * sens, y_geom, x_dim + 2.0 * sens, y_geom, "rappel")
+
+
+def _dim_h(nom, xa, ya, xb, yb, y_dim, texte):
+    if xa > xb:
+        xa, xb, ya, yb = xb, xa, yb, ya
+    dehors = (xb - xa) < 14.0
+    corps = [
+        _rappel(xa, ya, xa, y_dim, True),
+        _rappel(xb, yb, xb, y_dim, True),
+    ]
+    if dehors:
+        corps.append(_ligne(xa - 4.0, y_dim, xb + 4.0, y_dim, "cote"))
+        corps.append(_fleche(xa, y_dim, 1, 0))
+        corps.append(_fleche(xb, y_dim, -1, 0))
+        ancre, tx, ty = "end", xa - 4.6, y_dim + 0.8
+    else:
+        corps.append(_ligne(xa, y_dim, xb, y_dim, "cote"))
+        corps.append(_fleche(xa, y_dim, -1, 0))
+        corps.append(_fleche(xb, y_dim, 1, 0))
+        ancre, tx, ty = "middle", (xa + xb) / 2.0, y_dim + 0.8
+    corps.append(_texte_plan(tx, ty, texte, ancre))
+    return _groupe(f"cote-{nom}", corps, _boite(tx, ty, texte, ancre=ancre))
+
+
+def _dim_v(nom, xa, ya, xb, yb, x_dim, texte):
+    if ya > yb:
+        xa, xb, ya, yb = xb, xa, yb, ya
+    dehors = (yb - ya) < 14.0
+    corps = [
+        _rappel(xa, ya, x_dim, ya, False),
+        _rappel(xb, yb, x_dim, yb, False),
+    ]
+    if dehors:
+        corps.append(_ligne(x_dim, ya - 4.0, x_dim, yb + 4.0, "cote"))
+        corps.append(_fleche(x_dim, ya, 0, 1))
+        corps.append(_fleche(x_dim, yb, 0, -1))
+        ancre, tx, ty = "end", x_dim - 1.2, (ya + yb) / 2.0
+    else:
+        corps.append(_ligne(x_dim, ya, x_dim, yb, "cote"))
+        corps.append(_fleche(x_dim, ya, 0, -1))
+        corps.append(_fleche(x_dim, yb, 0, 1))
+        ancre, tx, ty = "end", x_dim - 1.2, (ya + yb) / 2.0
+    corps.append(_texte_plan(tx, ty, texte, ancre))
+    return _groupe(f"cote-{nom}", corps, _boite(tx, ty, texte, ancre=ancre))
+
+
+def _repere(texte, x_texte, y_texte, cx, cy, rayon):
+    dx, dy = x_texte - cx, y_texte - cy
+    norme = (dx * dx + dy * dy) ** 0.5 or 1.0
+    px, py = cx + rayon * dx / norme, cy + rayon * dy / norme
+    corps = [
+        _ligne(x_texte - 1.5, y_texte, px, py, "repere"),
+        _fleche(px, py, px - x_texte, py - y_texte),
+        _texte_plan(x_texte, y_texte, texte, "start"),
+    ]
+    return _groupe("repere-D", corps, _boite(x_texte, y_texte, texte))
+
+
+def _traits_caches(piece):
+    """Perçages vus de profil : deux traits cachés et un axe, par vue."""
+    longueur, largeur, epaisseur = piece["L"], piece["W"], piece["T"]
+    rayon = piece["D"] / 2.0
+    corps = []
+    cx, cy = VUES["Face"][2], VUES["Face"][3]
+    z0, z1 = cy - epaisseur / 2.0, cy + epaisseur / 2.0
+    for mx, _my in piece["trous"]:
+        px = cx + (mx - longueur / 2.0)
+        for signe in (-1, 1):
+            corps.append(_ligne(px + signe * rayon, z0, px + signe * rayon, z1, "cache", "1.6,0.8"))
+        corps.append(_ligne(px, z0 - 2.5, px, z1 + 2.5, "axe", "3.2,0.8,0.4,0.8"))
+    cx, cy = VUES["Droite"][2], VUES["Droite"][3]
+    z0, z1 = cy - epaisseur / 2.0, cy + epaisseur / 2.0
+    px = cx + (piece["trous"][0][1] - largeur / 2.0)
+    for signe in (-1, 1):
+        corps.append(_ligne(px + signe * rayon, z0, px + signe * rayon, z1, "cache", "1.6,0.8"))
+    corps.append(_ligne(px, z0 - 2.5, px, z1 + 2.5, "axe", "3.2,0.8,0.4,0.8"))
+    corps.append(_ligne(cx - largeur / 2.0 - 2.5, cy, cx + largeur / 2.0 + 2.5, cy, "axe", "3.2,0.8,0.4,0.8"))
+    return '<g id="caches">' + "".join(corps) + "</g>"
+
+
+def _svg_habillage(piece, cotes_texte):
+    """Cotes et repère en coordonnées de feuille, origine en bas à gauche."""
+    longueur, largeur = piece["L"], piece["W"]
+    cx, cy = VUES["Dessus"][2], VUES["Dessus"][3]
+    gauche, droite = cx - longueur / 2.0, cx + longueur / 2.0
+    bas, sommet = cy - largeur / 2.0, cy + largeur / 2.0
+    (mx, my), (nx, ny) = piece["trous"]
+    h1 = (cx + (mx - longueur / 2.0), cy + (my - largeur / 2.0))
+    h2 = (cx + (nx - longueur / 2.0), cy + (ny - largeur / 2.0))
+    fx, fy = VUES["Face"][2], VUES["Face"][3]
+    rayon = piece["D"] / 2.0
+    blocs = [
+        _dim_h("L", gauche, sommet, droite, sommet, sommet + 26.0, cotes_texte["L"]),
+        _dim_h("X", gauche, sommet, h1[0], h1[1], sommet + 16.0, cotes_texte["X"]),
+        _dim_h("E", h1[0], h1[1], h2[0], h2[1], sommet + 8.0, cotes_texte["E"]),
+        _dim_v("W", gauche, bas, gauche, sommet, gauche - 16.0, cotes_texte["W"]),
+        _dim_v("Y", gauche, bas, h1[0], h1[1], gauche - 8.0, cotes_texte["Y"]),
+        _dim_v(
+            "T", fx - longueur / 2.0, fy - piece["T"] / 2.0,
+            fx - longueur / 2.0, fy + piece["T"] / 2.0,
+            fx - longueur / 2.0 - 12.0, cotes_texte["T"],
+        ),
+        _repere(cotes_texte["D"], h2[0] + 18.0, h2[1] + 10.0, h2[0], h2[1], rayon),
+        _traits_caches(piece),
+        _groupe("note-unites", [_texte_plan(NOTE_X, 56, NOTE_UNITES)], _boite(NOTE_X, 56, NOTE_UNITES)),
+        _groupe(
+            "note-tolerances",
+            [_texte_plan(NOTE_X, 50, BLOC_TOLERANCES)],
+            _boite(NOTE_X, 50, BLOC_TOLERANCES),
+        ),
+        _groupe("vue-dessus", [], (gauche, bas, longueur, largeur)),
+        _groupe("vue-face", [], (fx - longueur / 2.0, fy - piece["T"] / 2.0, longueur, piece["T"])),
+        _groupe(
+            "vue-droite",
+            [],
+            (VUES["Droite"][2] - largeur / 2.0, VUES["Droite"][3] - piece["T"] / 2.0, largeur, piece["T"]),
+        ),
+        _groupe("cartouche", [], CARTOUCHE),
+    ]
+    return "".join(blocs)
+
+
+def juger_habillage(svg):
+    """Échoue sans ligne de cote, sans repère, hors cadre, ou si deux blocs se chevauchent."""
+    ecarts = []
+    groupes = re.findall(r'<g id="([^"]+)" data-boite="([^"]+)">(.*?)</g>', svg, flags=re.S)
+    par_nom = {nom: corps for nom, _boite, corps in groupes}
+    for nom in ("L", "W", "T", "X", "Y", "E"):
+        corps = par_nom.get(f"cote-{nom}", "")
+        if 'class="cote"' not in corps:
+            ecarts.append(f"ligne de cote absente {nom}")
+        if corps.count('class="fleche"') < 2:
+            ecarts.append(f"fleches absentes {nom}")
+    if 'class="repere"' not in par_nom.get("repere-D", ""):
+        ecarts.append("ligne de repere absente")
+    boites = []
+    for nom, brut, _corps in groupes:
+        x, y, w, h = (float(v) for v in brut.split(","))
+        if w > 0 and h > 0:
+            boites.append((nom, (x, y, w, h)))
+    for i, (gauche, a) in enumerate(boites):
+        for droite, b in boites[i + 1:]:
+            if (
+                a[0] < b[0] + b[2] - 0.3 and b[0] < a[0] + a[2] - 0.3
+                and a[1] < b[1] + b[3] - 0.3 and b[1] < a[1] + a[3] - 0.3
+            ):
+                ecarts.append(f"chevauchement {gauche} {droite}")
+    gauche, bas, largeur, hauteur = CADRE
+    droite, sommet = gauche + largeur, bas + hauteur
+    for nom, (x, y, w, h) in boites:
+        if x < gauche - 0.05 or y < bas - 0.05 or x + w > droite + 0.05 or y + h > sommet + 0.05:
+            ecarts.append(f"hors cadre {nom}")
+    return ecarts
+
+
+def preuve_habillage():
+    textes = {
+        "L": "1.575 [40.00]", "W": ".787 [20.00]", "T": ".118 [3.00]",
+        "X": ".472 [12.00]", "Y": ".394 [10.00]", "E": ".630 [16.00]",
+        "D": "2X Ø.157 [4.00] THRU",
+    }
+    plein = "<svg>" + _svg_habillage(ESSAI, textes) + "</svg>"
+    ecarts = juger_habillage(plein)
+    if ecarts:
+        raise AssertionError("; ".join(ecarts))
+    sans_cote = plein.replace('class="cote"', 'class="retire"', 1)
+    if not any(e.startswith("ligne de cote absente") for e in juger_habillage(sans_cote)):
+        raise AssertionError("cote")
+    sans_repere = plein.replace('class="repere"', 'class="retire"', 1)
+    if "ligne de repere absente" not in juger_habillage(sans_repere):
+        raise AssertionError("repere")
+    chevauche = (
+        '<svg><g id="a" data-boite="0,0,10,10"></g>'
+        '<g id="b" data-boite="5,5,10,10"></g></svg>'
+    )
+    if not any(e.startswith("chevauchement") for e in juger_habillage(chevauche)):
+        raise AssertionError("chevauchement")
+    hors = '<svg><g id="note-unites" data-boite="12.00,56.00,40.00,2.20"></g></svg>'
+    if not any(e.startswith("hors cadre") for e in juger_habillage(hors)):
+        raise AssertionError("cadre")
+    return True
+
+
+def _composer_svg(textes, vues, cotes_texte, chemin, piece):
     """La page TechDraw ne s'exporte pas en PDF sans fenêtre. On pose les vues
     sur le gabarit ASME, puis l'hôte le convertit."""
     svg = _remplir(GABARIT.read_text(encoding="utf-8"), textes)
@@ -401,24 +650,7 @@ def _composer_svg(textes, vues, cotes_texte, chemin):
         blocs.append(
             f'<g transform="translate({x:.2f},{PAGE_H - y:.2f}) scale(1,-1)">{fragment}</g>'
         )
-    etiquettes = (
-        (80, 148, cotes_texte.get("L", "")),
-        (48, 130, cotes_texte.get("W", "")),
-        (48, 90, cotes_texte.get("T", "")),
-        (112, 136, cotes_texte.get("D", "")),
-        (112, 128, cotes_texte.get("E", "")),
-        (96, 116, cotes_texte.get("X", "")),
-        (62, 116, cotes_texte.get("Y", "")),
-        (55, 40, NOTE_UNITES),
-        (150, 28, BLOC_TOLERANCES),
-    )
-    for x, y, ligne in etiquettes:
-        if not ligne:
-            continue
-        blocs.append(
-            f'<text x="{x:.2f}" y="{PAGE_H - y:.2f}" font-size="2.5" '
-            f'font-family="sans-serif" text-anchor="middle">{_xml(ligne)}</text>'
-        )
+    blocs.append(_svg_habillage(piece, cotes_texte))
     indice = svg.rfind("</svg>")
     chemin.write_text(svg[:indice] + "\n".join(blocs) + "\n" + svg[indice:], encoding="utf-8")
 
@@ -529,9 +761,11 @@ def preuve_vues():
 
 
 def essai():
+    preuve_habillage()
     coin = preuve_vues()
     rapport = produire(ESSAI, racine_essai())
-    ecarts = controles.juger(rapport)
+    ecarts = list(controles.juger(rapport))
+    ecarts.extend(juger_habillage(Path(rapport["svg"]).read_text(encoding="utf-8")))
     rapport["coin"] = coin
     lignes = [
         f"fichier {rapport['fichier']}",
