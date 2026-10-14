@@ -145,12 +145,24 @@ function renderProjets() {
 }
 
 // ---------- rail : projets + étape ----------
+// Un bouton projet (point + nom + étape). `ind` = retrait (sous-projet).
+function _btnProjet(id, ind) {
+  const p = state.projets[id];
+  return `<button class="proj${ind ? " enfant" : ""}" data-proj="${esc(id)}" aria-current="${id === state.sel}"><span class="dot ${p.statut === "actif" ? "actif" : p.statut}"></span><span class="pn" title="${esc(p.nom || id)}">${esc(p.nom || id)}</span><span class="st">${p.etape ? esc(p.etape.split(":").pop().trim()) : ""}</span></button>`;
+}
+// Rail en arbre : les projets sans parent en haut, leurs sous-projets (parent_id) en retrait dessous.
 function renderRail() {
   const ids = Object.keys(state.projets);
-  $("#rail-proj").innerHTML = ids.map(id => {
-    const p = state.projets[id];
-    return `<button class="proj" data-proj="${esc(id)}" aria-current="${id === state.sel}"><span class="dot ${p.statut === "actif" ? "actif" : p.statut}"></span><span class="pn" title="${esc(p.nom || id)}">${esc(p.nom || id)}</span><span class="st">${p.etape ? esc(p.etape.split(":").pop().trim()) : ""}</span></button>`;
-  }).join("") || `<div class="sub" style="padding:2px 8px;font-size:12px;color:var(--ink3)">aucun projet</div>`;
+  const parents = ids.filter(id => !state.projets[id].parent_id);
+  const enfants = id => ids.filter(x => state.projets[x].parent_id === id);
+  const html = parents.map(id =>
+    _btnProjet(id, false) +
+    enfants(id).map(e => _btnProjet(e, true)).join("")
+  ).join("");
+  // tout projet orphelin (parent_id qui ne correspond à aucun projet connu) reste visible en bas
+  const orphelins = ids.filter(id => state.projets[id].parent_id && !state.projets[state.projets[id].parent_id]);
+  $("#rail-proj").innerHTML = (html + (orphelins.length ? "<div class='rail-sep'></div>" : "") + orphelins.map(o => _btnProjet(o, false)).join(""))
+    || `<div class="sub" style="padding:2px 8px;font-size:12px;color:var(--ink3)">aucun projet</div>`;
 }
 
 // ---------- étape du projet (calc local si le serveur ne la donne pas) ----------
@@ -366,17 +378,22 @@ async function ouvrirPiece(id) {
   const offresHtml = offres.length
     ? `<div class="fc"><div class="lbl">Offres (${offres.length})</div><ul class="fhist">${offres.map(o => `<li><time>${esc(o.devise || "CAD")}</time><span><b>${esc(o.reference || "")}</b>${o.fournisseur ? ` <span class="cap">(${esc(o.fournisseur.nom || o.fournisseur)})</span>` : ""} · ${fmtCAD(o.prix)}${o.livraison != null ? " + liv. " + fmtCAD(o.livraison) : ""}${o.source ? ` <a href="${esc(o.source)}" target="_blank" rel="noopener">source</a>` : `<span class="cap" style="color:var(--bad)">sans source</span>`}${o.date ? ` <span class="cap">${esc(heure(o.date))}</span>` : ""}</span></li>`).join("")}</ul></div>`
     : (p.origine === "acheter" ? `<div class="fc"><div class="lbl">Offres</div><p class="cap" style="color:var(--warn)">Aucune offre sourcée. grok magasine au moins 3 offres pour cette pièce.</p></div>` : "");
-  // nomenclature (où elle est utilisée) : l'arbre complet sous la pièce
-  const nomHtml = `<div class="fc"><div class="lbl">Nomenclature (où elle est utilisée / dont elle est faite)</div><div id="pc-arbre"><span class="cap">Chargement…</span></div></div>`;
-  // historique
+  // Où elle est utilisée : les assemblages parents (champ serveur utilisee_dans), à part des enfants.
+  const ud = p.utilisee_dans || [];
+  const utiliseeHtml = ud.length
+    ? `<div class="fc"><div class="lbl">Où elle est utilisée</div><ul class="flist">${ud.map(u => `<li><span><code>${esc(u.numero || "")}</code> <b>${esc(u.nom || "")}</b></span><span class="cap">×${esc(u.quantite != null ? u.quantite : "")}${u.unite ? " " + esc(u.unite) : ""}</span></li>`).join("")}</ul></div>`
+    : `<div class="fc"><div class="lbl">Où elle est utilisée</div><p class="cap">Pas rattachée à un assemblage pour l'instant (pièce racine ou orpheline).</p></div>`;
+  // dont elle est faite : l'arbre des enfants (nomenclature sous la pièce)
+  const nomHtml = `<div class="fc"><div class="lbl">Dont elle est faite</div><div id="pc-arbre"><span class="cap">Chargement…</span></div></div>`;
+  // historique : {champ, avant, apres, qui, date}
   const hist = (p.historical || p.historique || []);
   const histHtml = hist.length
-    ? `<div class="fc"><div class="lbl">Historique</div><ul class="fhist">${hist.slice().reverse().map(h => `<li><time>${esc(heure(h.date))}</time><span>${esc(h.avant || "")} → <b>${esc(h.apres || "")}</b>${h.qui ? ` <span class="cap">(${esc(h.qui)})</span>` : ""}</span></li>`).join("")}</ul></div>`
+    ? `<div class="fc"><div class="lbl">Historique</div><ul class="fhist">${hist.slice().reverse().map(h => `<li><time>${esc(heure(h.date))}</time><span>${esc(h.champ || "")} : ${esc(h.avant || "—")} → <b>${esc(h.apres || "—")}</b>${h.qui ? ` <span class="cap">(${esc(h.qui)})</span>` : ""}</span></li>`).join("")}</ul></div>`
     : "";
   const fichier = p.fichier ? `<div class="fc"><div class="lbl">Fichier</div><p><code>${esc(p.fichier)}</code>${p.empreinte ? ` · <span class="cap">sha256 ${esc(String(p.empreinte).slice(0, 12))}</span>` : ""}</p></div>` : "";
   $("#fiche-c").innerHTML = tete + meta +
     (p.objectif || p.description ? `<div class="fc"><div class="lbl">Description</div><p>${esc(p.objectif || p.description)}</p></div>` : "") +
-    offresHtml + nomHtml + fichier + histHtml;
+    offresHtml + utiliseeHtml + nomHtml + fichier + histHtml;
   // charge l'arbre (nomenclature) dans la fiche
   const ar = await getJSON(`/api/v2/pieces/${encodeURIComponent(id)}/nomenclature`);
   const el = $("#pc-arbre"); if (!el) return;
@@ -408,13 +425,20 @@ function renderAchats() {
   const lignes = state.achats.lignes || [];
   const sans = state.achats.sans_offre || [];
   const tot = state.achats.totaux || {};
-  const row = l => `<tr>
+  const row = l => {
+    const o = l.offre; // objet : {fournisseur, reference, prix, devise, livraison, source, date, …}
+    const offreCell = o
+      ? `<div><b>${esc(o.reference || "")}</b>${o.fournisseur ? `<div class="sub">${esc(o.fournisseur)}</div>` : ""}</div>` +
+        `<span class="cap">${fmtCAD(o.prix)} ${esc(o.devise || "")}${o.source ? ` · <a href="${esc(o.source)}" target="_blank" rel="noopener">source</a>` : `<span style="color:var(--bad)">sans source</span>`}</span>`
+      : `<span class="cap" style="color:var(--warn)">sans offre</span>`;
+    return `<tr>
     <td><code>${esc(l.numero || "")}</code><div class="sub">${esc(l.nom || "")}</div></td>
     <td class="n">${esc(l.quantite != null ? l.quantite : "")}</td>
-    <td class="n">${l.offre ? esc(l.offre.reference || l.offre) : `<span class="cap" style="color:var(--warn)">sans offre</span>`}</td>
-    <td class="n">${fmtCAD(l.total)}</td>
-    <td>${l.a_convertir ? `<span class="pill s-attente" title="devise autre que CAD">à convertir</span>` : ""}${l.age_jours > 30 ? `<span class="pill s-silence" title="prix de plus de 30 jours">prix à revérifier</span>` : ""}</td>
+    <td>${offreCell}</td>
+    <td class="n">${fmtCAD(l.total)} <span class="cap">${esc(o ? (o.devise || "CAD") : "")}</span></td>
+    <td>${l.a_convertir ? `<span class="pill s-attente" title="devise autre que CAD ou mixte — claude source le taux">à convertir</span>` : ""}${l.age_jours > 30 ? `<span class="pill s-silence" title="prix de plus de 30 jours — grok relève de nouveau">prix à revérifier</span>` : ""}</td>
   </tr>`;
+  };
   el.innerHTML =
     (lignes.length ? `<div class="tblw"><table><tr><th>Pièce</th><th class="n">Qté</th><th>Meilleure offre</th><th class="n">Total</th><th>Alertes</th></tr>${lignes.map(row).join("")}</table></div>` : `<div class="empty">Aucune pièce « acheter » pour l'instant.</div>`) +
     (sans.length ? `<div class="cap" style="color:var(--warn);margin-top:8px">Sans offre : ${sans.map(s => esc(s.numero || s.nom || "")).join(", ")}.</div>` : "") +
