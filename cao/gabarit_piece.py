@@ -1,7 +1,7 @@
-"""Gabarit N2b v1.1 (13 oct. 2026). Feuille ANSI A, 3e angle, STEP AP214.
+"""Gabarit N2b v1.2 (13 oct. 2026). Sortie hors du dépôt.
 
-v1.0 : plaque, cotes, DXF, PDF filaire sans cartouche.
 v1.1 : gabarit ASME, vues alignées, dossier de révision, empreinte SHA-256.
+v1.2 : les fichiers générés vont dans ~/atelier/cao-pieces, pas dans le dépôt.
 Remplacer solide() pour la vraie géométrie. Lancer depuis ce dépôt :
     freecad.cmd -c "import runpy; runpy.run_path('cao/gabarit_piece.py', run_name='__main__')"
 Le snap ne voit pas rsvg-convert. Le PDF se finit sur l'hôte :
@@ -9,6 +9,7 @@ Le snap ne voit pas rsvg-convert. Le PDF se finit sur l'hôte :
 """
 
 import hashlib
+import os
 import sys
 from pathlib import Path
 
@@ -150,6 +151,27 @@ def _volumes_communs(shape):
 
 def _xy(vue):
     return {"x": float(vue.X.Value), "y": float(vue.Y.Value)}
+
+
+def _maison():
+    """Le snap FreeCAD remplace $HOME. cao/ est dans ~/atelier/wt-… ."""
+    return ICI.parent.parent.parent
+
+
+def racine_sortie():
+    """Hors du dépôt. VAULTIA_CAO_SORTIE remplace ~/atelier/cao-pieces."""
+    brut = os.environ.get("VAULTIA_CAO_SORTIE", "").strip()
+    if not brut:
+        racine = _maison() / "atelier" / "cao-pieces"
+    elif brut.startswith("~/"):
+        racine = _maison() / brut[2:]
+    else:
+        racine = Path(brut)
+    racine = racine.resolve()
+    depot = ICI.parent.resolve()
+    if racine == depot or depot in racine.parents:
+        raise RuntimeError(f"sortie dans le dépôt refusée : {racine}")
+    return racine
 
 
 def produire(piece, dossier):
@@ -336,7 +358,7 @@ def _exporter_pdf(svg, chemin):
 
 
 def essai():
-    rapport = produire(ESSAI, ICI / "sortie")
+    rapport = produire(ESSAI, racine_sortie())
     ecarts = controles.juger(rapport)
     lignes = [
         f"fichier {rapport['fichier']}",
@@ -361,7 +383,7 @@ def essai():
     else:
         lignes.append("gabarit: ok")
         code = 0
-    sortie = ICI / "sortie" / "resultat.txt"
+    sortie = Path(rapport["fichier"]).parent / "resultat.txt"
     sortie.write_text("\n".join(lignes) + "\n", encoding="utf-8")
     print("\n".join(lignes), flush=True)
     return code
