@@ -213,6 +213,12 @@ button.step:hover,.steph:hover{background:var(--slate-soft)}
 /* ---- P5 : liste d'hypothèses de la fiche projet ---- */
 .flist.hypo li{display:flex;flex-direction:column;gap:3px}
 /* ---- N3 : vue Pièces (tableau filtrable, fiche, nomenclature en arbre, achats) ---- */
+/* U6 : vue éclatée schématique — blocs par sous-ensemble */
+.eclatee{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:10px}
+.eclatee-bloc{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;gap:2px;border:1px solid var(--line2);border-radius:8px;padding:8px 10px;background:var(--slate-soft);transition:opacity .2s,background .15s}
+.eclatee-bloc:hover{background:var(--slate-line)}
+.eclatee-bloc b{font-size:13px;color:var(--ink)}
+.eclatee-bloc .cap{font-size:11.5px}
 .pc-filtres{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
 .pc-filtres input{flex:1 1 220px;font:13.5px var(--ui);background:var(--paper);color:var(--ink);border:1px solid var(--line2);border-radius:8px;padding:7px 9px}
 .pc-filtres select{font:13.5px var(--ui);background:var(--paper);color:var(--ink);border:1px solid var(--line2);border-radius:8px;padding:7px 9px;max-width:200px}

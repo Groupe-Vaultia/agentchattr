@@ -358,6 +358,43 @@ function renderPieces() {
       </tr>`).join("")
     : `<tr><td colspan="6" class="sub">aucune pièce</td></tr>`;
   renderAchats();
+  renderEclatee();
+}
+
+// U6 : vue éclatée schématique — blocs par sous-ensemble qui s'assombrissent
+// selon la part des pièces au statut validee/fabriquee/recue.
+async function renderEclatee() {
+  const el = $("#pc-eclatee"); if (!el) return;
+  if (!state.sel) { el.innerHTML = ""; return; }
+  // Trouver la pièce racine (assemblage de tête) du projet
+  const pieces = state.pieces && state.pieces.pieces || [];
+  const racine = pieces.find(p => p.type === "assemblage" && !p.sous_systeme);
+  if (!racine) { el.innerHTML = `<span class="cap">Aucun assemblage de tête trouvé pour ce projet.</span>`; return; }
+  // Charger la nomenclature de la racine
+  const r = await getJSON(`/api/v2/pieces/${encodeURIComponent(racine.id)}/nomenclature`);
+  if (!el) return;
+  if (!r.ok || !r.data) {
+    el.innerHTML = r.err === 404 ? `<span class="cap">Aucune nomenclature pour l'instant.</span>`
+      : `<span class="cap" style="color:var(--bad)">${r.err ? "Erreur " + r.err : "Erreur réseau"} — impossible de charger la nomenclature.</span>`;
+    return;
+  }
+  // Statuts qui comptent comme "fait"
+  const fait = new Set(["validee", "fabriquee", "recue"]);
+  // Construire les blocs par sous-ensemble (enfants de la racine)
+  const se = r.data.enfants || [];
+  if (!se.length) { el.innerHTML = `<span class="cap">Aucun sous-ensemble dans la nomenclature.</span>`; return; }
+  el.innerHTML = se.map(s => {
+    const enfants = s.enfants || [];
+    const total = enfants.length;
+    const faits = enfants.filter(e => fait.has(e.statut)).length;
+    const part = total ? faits / total : 0;
+    // Opacité : 0.25 (pâle) à 1 (foncé) selon la part de pièces faites
+    const opac = 0.25 + 0.75 * part;
+    return `<button type="button" class="eclatee-bloc" data-piece="${esc(s.id)}" style="opacity:${opac}" title="${esc(s.nom)} : ${faits}/${total} pièces faites">
+      <b>${esc(s.nom)}</b>
+      <span class="cap">${faits}/${total}</span>
+    </button>`;
+  }).join("");
 }
 
 // Fiche d'une pièce : offres sourcées, où elle est utilisée (nomenclature), historique, fichier.
