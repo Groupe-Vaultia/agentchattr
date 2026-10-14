@@ -1,4 +1,7 @@
-# Pièces et nomenclature — spécification v0.5
+# Pièces et nomenclature — spécification v0.6
+
+v0.6 (13 oct. 2026, claude) : magasinage des pièces achetées (Charles, msg 2339) : grok magasine, codex contre-vérifie,
+claude recommande, Charles décide. Aucun agent n'achète.
 
 v0.5 (13 oct. 2026, claude) : numéro de pièce décidé par Charles (msg 2333-2337) : `VLT-` + 5 chiffres, non signifiant,
 une seule séquence pour toute la Shop (meilleure pratique PLM : Arena, Beyond PLM). Projet, sous-système, catégorie
@@ -100,6 +103,20 @@ Les agents écrivent par ces routes ; un outil MCP `pieces` (lecture, création,
 Pourquoi les agents ne suffisent pas pour le dernier niveau : ils peuvent se tromper de la même façon, ils ne
 touchent ni ne mesurent la pièce réelle, et la responsabilité d'une pièce de sécurité exige un ingénieur.
 
+## Magasinage (pièces `origine: acheter`)
+
+| Rôle | Qui | Fait |
+|---|---|---|
+| Magasiner | grok (recherche web) | Au moins 3 offres par pièce, chacune sourcée (URL, date de relevé) : prix, devise, livraison au Québec, délai, quantité minimale, spécification exacte du fabricant |
+| Contre-vérifier | codex | Rouvre chaque source ; la spécification correspond au calcul de la pièce ; prix total livré recalculé |
+| Recommander | claude | Tableau comparatif et un choix motivé par pièce, puis la liste d'achats du projet |
+| Décider | Charles | Approuve ou non ; **aucun agent n'achète, ne crée de compte ni ne reçoit d'info de paiement** |
+
+Comparatif par pièce : conformité à la spécification (bloquante), prix total livré en CAD (prix + livraison + taxes
+et droits estimés, chacun sourcé ou « ? »), délai, fournisseur (canadien d'abord à prix égal, politique de retour).
+Un prix vieux de plus de 30 jours est relevé de nouveau avant la liste d'achats. Les offres vont dans la table
+`offres` ; `GET /api/v2/projects/{id}/achats` donne la liste, le total et les pièces sans offre.
+
 ## Tâches physiques de Charles
 
 Une tâche peut avoir `responsable: "Charles"` (fabriquer, mesurer, recevoir). Elle lui demande une photo et des
@@ -120,6 +137,7 @@ d'achats du projet. Le rail montre les sous-projets sous leur parent.
 | N2 Projet parent | claude | `parent_id`, effets d'un kill, avancement des enfants |
 | N2b CAO et plans | claude, gemini (CAD) | Gabarit de script pièce, mise en plan TechDraw, contrôles automatiques du niveau 1 |
 | N3 Interface | qwencode | Vue Pièces, nomenclature en arbre, achats, rail en arbre |
+| N3b Magasinage | grok, codex | Gabarit de comparatif, premières offres sur l'essai du quad |
 | N4 Tests | codex | Cycles refusés, prix sans source refusé, quantités cumulées, révisions jamais écrasées |
 | N5 Essai | tous | Le quad sur papier : étapes 1-3 et la nomenclature de premier niveau |
 
