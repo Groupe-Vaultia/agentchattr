@@ -12,6 +12,9 @@ attendre Charles, avec la methode de leur etape). Un projet dont un jalon est du
 
 v3 (14 oct. 2026, claude, msg 2475-2477) : `agents_inactifs` dit quels agents en ligne n'ont rien fait depuis
 SEUIL_INACTIF secondes, pour que claude leur donne un lot au lieu de les laisser attendre.
+
+v4 (14 oct. 2026, grok, msg 2647) : `taches_muettes` signale chaque tache en_cours dont le dernier
+message du canal tache-<id> a au moins une heure.
 """
 
 SEUIL_INACTIF = 20 * 60  # 20 min sans activite = l'agent attend un lot
@@ -98,6 +101,37 @@ def ronde(projets: dict, taches: list[dict], executions: list[dict], jalons: lis
                                  and t.get("responsable") not in occupes]
     sortie["rien_a_faire"] = not any(sortie[k] for k in sortie)
     return sortie
+
+
+def taches_muettes(taches: list[dict], derniers_messages: dict, maintenant: float,
+                   seuil: float = 3600) -> list[dict]:
+    """Taches `en_cours` dont le dernier message de `tache-<id>` date d'au moins `seuil` secondes.
+
+    `derniers_messages` associe le nom du canal a l'epoch du dernier message. Sans message, la tache
+    n'a pas de date : elle n'est pas signalee.
+    """
+    out = []
+    for tache in taches:
+        if tache.get("etat") != "en_cours":
+            continue
+        try:
+            tid = int(tache["id"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        ts = derniers_messages.get(f"tache-{tid}")
+        if isinstance(ts, bool) or not isinstance(ts, (int, float)):
+            continue
+        silence = float(maintenant) - float(ts)
+        if silence >= seuil:
+            out.append({
+                "tache_id": tid,
+                "projet_id": tache.get("projet_id", ""),
+                "titre": tache.get("titre", ""),
+                "responsable": tache.get("responsable", ""),
+                "silence_s": int(silence),
+            })
+    out.sort(key=lambda ligne: ligne["tache_id"])
+    return out
 
 
 def agents_inactifs(en_ligne: set[str], derniere_activite: dict[str, float], maintenant: float, demarrage: float,

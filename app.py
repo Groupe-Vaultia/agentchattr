@@ -26,7 +26,7 @@ from revisions import RevisionStore
 from jalons import JalonStore
 from pieces import PieceStore, Erreur as _ErreurPiece
 import jalons as _jalons_mod
-from ronde import ronde as _ronde
+from ronde import ronde as _ronde, taches_muettes
 from schedules import ScheduleStore, parse_schedule_spec
 from router import Router
 from agents import AgentTrigger
@@ -2549,8 +2549,31 @@ async def get_ronde():
     sortie = _ronde(v2, taches, executions.lister(), jalons.lister() if jalons else [], _methodes_etapes())
     sortie["alertes"] = _alertes_sauvegarde(bool(_copie_pieces[0])) if pieces is not None else []
     sortie["agents_inactifs"] = _agents_inactifs()
-    sortie["rien_a_faire"] = sortie["rien_a_faire"] and not sortie["alertes"] and not sortie["agents_inactifs"]
+    actifs = {pid for pid, p in v2.items() if p.get("statut", "actif") == "actif"}
+    sortie["taches_muettes"] = taches_muettes(
+        [t for t in taches if t.get("projet_id") in actifs],
+        _derniers_messages_canaux(),
+        time.time(),
+    )
+    sortie["rien_a_faire"] = (sortie["rien_a_faire"] and not sortie["alertes"]
+                              and not sortie["agents_inactifs"] and not sortie["taches_muettes"])
     return JSONResponse(sortie)
+
+
+def _derniers_messages_canaux() -> dict[str, float]:
+    """Epoch du dernier message de chaque canal. La ronde n'en retient que tache-<id>."""
+    if store is None:
+        return {}
+    derniers: dict[str, float] = {}
+    for msg in store.get_since(0):
+        canal = msg.get("channel") or ""
+        ts = msg.get("timestamp")
+        if isinstance(ts, bool) or not isinstance(ts, (int, float)):
+            continue
+        precedent = derniers.get(canal)
+        if precedent is None or ts >= precedent:
+            derniers[canal] = float(ts)
+    return derniers
 
 
 _DEMARRAGE = time.time()
