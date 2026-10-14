@@ -199,10 +199,12 @@ def _fiche_valide(champs: dict) -> tuple[dict | None, str]:
         "risques": ({"texte": (), "type": TYPES_RISQUE, "etape": ()}, "texte"),
         "questions": ({"texte": (), "reponse": ()}, "texte"),
     }
-    inconnus = set(champs) - set(texte) - set(listes) - {"niveau", "trl", "horizon"}
+    inconnus = set(champs) - set(texte) - set(listes) - {"niveau", "trl", "horizon", "parent_id"}
     if inconnus:
         return None, f"champs inconnus : {', '.join(sorted(inconnus))}"
     out = {}
+    if "parent_id" in champs:
+        out["parent_id"] = str(champs["parent_id"] or "").strip()  # existence et cycle : definir_fiche, sous _LOCK
     for c in texte:
         if c in champs:
             out[c] = str(champs[c]).strip()
@@ -236,11 +238,33 @@ def definir_fiche(pid: str, champs: dict) -> tuple[dict | None, str]:
     with _LOCK:
         if pid not in _state["projets"]:
             return None, "inconnu"
+        parent = fiche.get("parent_id")
+        if parent:
+            if parent not in _state["projets"]:
+                return None, "parent_id : projet inconnu"
+            ancetre = parent
+            while ancetre:  # PIECES.md v0.6 N2 : un sous-projet ne peut pas etre son propre ancetre
+                if ancetre == pid:
+                    return None, "parent_id : ce lien ferait un cycle"
+                ancetre = _state["projets"].get(ancetre, {}).get("parent_id", "")
         p = _state["projets"][pid]
         p.update(fiche)
         p["maj"] = time.time()
         _sauver()
         return json.loads(json.dumps(p)), ""
+
+
+def descendants(pid: str) -> list[str]:
+    """Sous-projets a tous les niveaux (PIECES.md N2 : un kill du parent arrete ses sous-projets)."""
+    with _LOCK:
+        out, pile = [], [pid]
+        while pile:
+            courant = pile.pop()
+            for cid, p in _state["projets"].items():
+                if p.get("parent_id") == courant and cid not in out:
+                    out.append(cid)
+                    pile.append(cid)
+        return out
 
 
 def niveau(pid: str) -> str:

@@ -1,4 +1,9 @@
-# Pièces et nomenclature — spécification v0.6
+# Pièces et nomenclature — spécification v0.7
+
+v0.7 (13 oct. 2026, claude) : N1 et N2 codés. Ajouts au contrat : `GET /api/v2/pieces/{id}` (fiche + offres + historique +
+stock), `DELETE /api/v2/nomenclature/{parent}/{enfant}`, mouvement `consommation`, champ `a_convertir` dans les achats
+(aucun taux de change inventé : on compare en CAD si une offre CAD existe), `parent_id` dans `PATCH …/fiche`.
+Copie hors tour réglée par `[socle] copie_pieces` (config locale).
 
 v0.6 (13 oct. 2026, claude) : magasinage des pièces achetées (Charles, msg 2339) : grok magasine, codex contre-vérifie,
 claude recommande, Charles décide. Aucun agent n'achète.

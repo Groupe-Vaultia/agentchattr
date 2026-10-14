@@ -24,6 +24,7 @@ from executions import ExecutionStore
 import historique as _historique
 from revisions import RevisionStore
 from jalons import JalonStore
+from pieces import PieceStore, Erreur as _ErreurPiece
 import jalons as _jalons_mod
 from ronde import ronde as _ronde
 from schedules import ScheduleStore, parse_schedule_spec
@@ -45,6 +46,7 @@ jobs: JobStore | None = None
 executions: ExecutionStore | None = None  # SOCLE-SHOP S3
 revisions: RevisionStore | None = None  # SOCLE-SHOP S5
 jalons: JalonStore | None = None  # SOCLE-SHOP v1.1 P1
+pieces: PieceStore | None = None  # PIECES.md N1
 schedules: ScheduleStore | None = None
 router: Router | None = None
 agents: AgentTrigger | None = None
@@ -276,7 +278,7 @@ def _install_security_middleware(token: str, cfg: dict):
 
 
 def configure(cfg: dict, session_token: str = ""):
-    global store, rules, summaries, jobs, executions, revisions, jalons, schedules, router, agents, registry, session_store, session_engine, config
+    global store, rules, summaries, jobs, executions, revisions, jalons, pieces, schedules, router, agents, registry, session_store, session_engine, config
     config = cfg
     # --- Security: store the session token and install middleware ---
     _install_security_middleware(session_token, cfg)
@@ -318,6 +320,9 @@ def configure(cfg: dict, session_token: str = ""):
     racine = cfg.get("socle", {}).get("racine_livrables", str(Path.home() / "atelier"))
     revisions = RevisionStore(str(Path(data_dir) / "revisions.json"), racine)
     jalons = JalonStore(str(Path(data_dir) / "jalons.json"))
+    # PIECES.md N1 : la base des pieces vit sur la tour, dans data/ (exclu du depot public).
+    pieces = PieceStore(str(Path(data_dir) / "pieces.db"))
+    _demarrer_sauvegardes(Path(data_dir), cfg.get("socle", {}).get("copie_pieces", ""))
 
     schedules = ScheduleStore(str(Path(data_dir) / "schedules.json"))
     schedules.on_change(_on_schedule_change)
@@ -2613,6 +2618,9 @@ async def decide_jalon(jalon_id: int, request: Request):
     statut = _EFFET_DECISION.get(jalon["decision"])
     if statut:
         _projets.definir_statut(jalon["projet_id"], statut, par_id=True)
+    if jalon["decision"] == "kill":  # PIECES.md N2 : un kill arrete aussi les sous-projets
+        for sous in _projets.descendants(jalon["projet_id"]):
+            _projets.definir_statut(sous, "arrete", par_id=True)
     # `par: "user"` n'est qu'une convention (revue codex, msg 2277) : la decision est donc toujours annoncee dans le
     # canal, ou Charles voit tout de suite une decision qu'il n'aurait pas prise.
     canal = _CANAL_PILOTE if _CANAL_PILOTE in room_settings["channels"] else "general"
@@ -3535,3 +3543,153 @@ async def serve_upload(filename: str):
             headers["Content-Security-Policy"] = UPLOAD_SVG_CSP
         return FileResponse(filepath, headers=headers)
     return JSONResponse({"error": "not found"}, status_code=404)
+
+
+# --- PIECES.md v0.6 (lot N1) : pieces, offres, nomenclature, mouvements, sauvegarde ---
+
+def _demarrer_sauvegardes(data_dir: Path, copie: str):
+    """Une sauvegarde par jour dans data/sauvegardes (30 jours), puis copie par scp vers `copie`
+    ([socle] copie_pieces = "x1:vaultia-sauvegardes/"). Un echec s'ecrit au journal, sans bloquer le serveur."""
+    import subprocess
+
+    def boucle():
+        import time as _t
+        dernier = ""
+        while True:
+            jour = _t.strftime("%Y-%m-%d")
+            if jour != dernier and pieces is not None:
+                try:
+                    f = pieces.sauvegarder(str(data_dir / "sauvegardes"))
+                    dernier = jour
+                    if copie:
+                        r = subprocess.run(["scp", "-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", str(f), copie],
+                                           capture_output=True, text=True, timeout=120)
+                        if r.returncode:
+                            log.warning("copie des pieces vers %s : echec (%s), reprise demain", copie, r.stderr.strip()[:200])
+                except Exception:
+                    log.exception("sauvegarde des pieces")
+            _t.sleep(3600)
+
+    threading.Thread(target=boucle, daemon=True).start()
+
+
+async def _corps(request: Request) -> dict | JSONResponse:
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    return body if isinstance(body, dict) else JSONResponse({"error": "objet attendu"}, status_code=400)
+
+
+def _piece_route(fn):
+    """Traduit une erreur de regle (pieces.Erreur) en reponse 400/404/409."""
+    import functools
+
+    @functools.wraps(fn)
+    async def enveloppe(*a, **k):
+        try:
+            return await fn(*a, **k)
+        except _ErreurPiece as e:
+            return JSONResponse({"error": str(e)}, status_code=e.code)
+    return enveloppe
+
+
+@app.get("/api/v2/pieces")
+@_piece_route
+async def list_pieces(projet_id: str = "", statut: str = "", q: str = ""):
+    return JSONResponse({"pieces": pieces.lister(projet_id, statut, q)})
+
+
+@app.post("/api/v2/pieces")
+@_piece_route
+async def create_piece(request: Request):
+    body = await _corps(request)
+    if isinstance(body, JSONResponse):
+        return body
+    qui = str(body.pop("par", "claude"))
+    if body.get("projet_id") and not _projets.existe(str(body["projet_id"])):
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    return JSONResponse(pieces.creer(body, qui))
+
+
+def _tache_faite(tache_id: int) -> bool:
+    t = jobs.get(tache_id) if jobs else None
+    return bool(t and t.get("etat") == "fait")
+
+
+@app.get("/api/v2/pieces/{piece_id}")
+@_piece_route
+async def get_piece(piece_id: int):
+    return JSONResponse({**pieces.get(piece_id), "offres": pieces.offres(piece_id),
+                         "historique": pieces.historique(piece_id), "stock": pieces.stock(piece_id)})
+
+
+@app.patch("/api/v2/pieces/{piece_id}")
+@_piece_route
+async def patch_piece(piece_id: int, request: Request):
+    body = await _corps(request)
+    if isinstance(body, JSONResponse):
+        return body
+    qui = str(body.pop("par", "claude"))
+    return JSONResponse(pieces.modifier(piece_id, body, qui, tache_faite=_tache_faite))
+
+
+@app.get("/api/v2/pieces/{piece_id}/nomenclature")
+@_piece_route
+async def get_nomenclature(piece_id: int):
+    return JSONResponse(pieces.arbre(piece_id))
+
+
+@app.post("/api/v2/nomenclature")
+@_piece_route
+async def post_nomenclature(request: Request):
+    body = await _corps(request)
+    if isinstance(body, JSONResponse):
+        return body
+    return JSONResponse(pieces.lier(int(body.get("parent_id", 0)), int(body.get("enfant_id", 0)), body.get("quantite"),
+                                    str(body.get("unite", "u")), str(body.get("note", ""))))
+
+
+@app.delete("/api/v2/nomenclature/{parent_id}/{enfant_id}")
+@_piece_route
+async def delete_nomenclature(parent_id: int, enfant_id: int):
+    if not pieces.delier(parent_id, enfant_id):
+        return JSONResponse({"error": "lien inconnu"}, status_code=404)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/v2/pieces/{piece_id}/offres")
+@_piece_route
+async def post_offre(piece_id: int, request: Request):
+    body = await _corps(request)
+    if isinstance(body, JSONResponse):
+        return body
+    return JSONResponse(pieces.ajouter_offre(piece_id, body, str(body.get("par", "grok"))))
+
+
+@app.post("/api/v2/pieces/{piece_id}/mouvements")
+@_piece_route
+async def post_mouvement(piece_id: int, request: Request):
+    body = await _corps(request)
+    if isinstance(body, JSONResponse):
+        return body
+    return JSONResponse(pieces.mouvement(piece_id, body.get("quantite"), str(body.get("quoi", "")),
+                                         str(body.get("par", "user")), str(body.get("preuve", ""))))
+
+
+@app.get("/api/v2/projects/{projet_id}/achats")
+@_piece_route
+async def get_achats(projet_id: str):
+    if not _projets.existe(projet_id):
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    return JSONResponse(pieces.achats(projet_id))
+
+
+@app.get("/api/v2/projects/{projet_id}/cout")
+@_piece_route
+async def get_cout(projet_id: str):
+    if not _projets.existe(projet_id):
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
+    a = pieces.achats(projet_id)
+    return JSONResponse({"totaux": a["totaux"], "sans_prix": len(a["sans_offre"]),
+                         "a_convertir": sum(1 for l in a["lignes"] if l["a_convertir"])})
