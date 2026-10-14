@@ -191,8 +191,12 @@ button.step:hover,.steph:hover{background:var(--slate-soft)}
 .jb select,.jb input{font:13px var(--ui);background:var(--paper);color:var(--ink);border:1px solid var(--line2);border-radius:7px;padding:5px 8px;width:100%}
 .jb .lbl{margin-top:2px}
 /* ---- P5 : « pourquoi » sur la carte (méthode de l'étape courante, au-dessus de la grille) ---- */
-.pourquoi{background:var(--slate-soft);border:1px solid var(--slate-line);border-radius:10px;padding:9px 12px;margin-bottom:12px;font-size:13px}
-.pourquoi p{margin:5px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink2)}
+#pourquoi{margin-bottom:12px}
+.pourquoi-d{background:var(--slate-soft);border:1px solid var(--slate-line);border-radius:10px;padding:8px 12px;font-size:13px}
+.pourquoi-d summary{cursor:pointer;font-weight:600;color:var(--ink);list-style-position:inside}
+.pourquoi-d summary:hover{color:var(--slate)}
+.pourquoi-c{margin-top:8px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink2);line-height:1.55}
+.pourquoi-c code{font:12px var(--mono);background:var(--surface);border:1px solid var(--line2);border-radius:4px;padding:0 4px}
 /* Le « pourquoi » d'une tâche : son raisonnement (conclusion), sous le titre du nœud. */
 .node .pourquoi-t{font-size:12px;color:var(--ink2);line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
 /* ---- P5 : liste d'hypothèses de la fiche projet ---- */

@@ -195,9 +195,12 @@ function renderCarte() {
   const idx = state.etape ?? etapeDuProjet(taches);
   const courante = ETAPES[idx];
   // « Pourquoi » visible sur la carte : la méthode de l'étape courante (P3), au-dessus de la grille (pas une colonne).
+  // <details> fermé par défaut (1 800 caractères ne doivent pas noyer la carte), markdown rendu sûrement.
   const mCourante = (state.methodes && state.methodes[courante]) || "";
   const pq = $("#pourquoi");
-  pq.innerHTML = mCourante ? `<div class="lbl">Pourquoi, cette étape</div><p>${esc(mCourante)}</p>` : "";
+  pq.innerHTML = mCourante
+    ? `<details class="pourquoi-d"><summary>Méthode de l'étape : ${NOM_ETAPES[courante]}</summary><div class="pourquoi-c">${mdCourt(mCourante)}</div></details>`
+    : "";
   pq.hidden = !mCourante;
 
   $("#map").innerHTML = ETAPES.map((e, i) => {
@@ -411,6 +414,10 @@ const CHAMPS_FICHE = [
 const avecLiens = txt => esc(txt).replace(/PR #(\d+)/g,
   (m, n) => `<a href="https://github.com/Groupe-Vaultia/agentchattr/pull/${n}" target="_blank" rel="noopener">PR #${n}</a>`);
 const court = (txt, n) => { const t = String(txt || ""); return t.length > n ? t.slice(0, n - 1) + "…" : t; };
+// Petit rendu sûr du markdown de PILOTE.md : d'abord esc(), puis **x** → <b>, `x` → <code>.
+const mdCourt = txt => esc(String(txt || ""))
+  .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+  .replace(/`([^`]+)`/g, "<code>$1</code>");
 
 function ouvrirFiche(html) {
   $("#fiche-c").innerHTML = html;
@@ -459,7 +466,7 @@ async function ouvrirTache(id) {
 
 // ---------- jalons (P1) : les décisions de Charles ----------
 const JALON_NOM = {J1: "Jalon J1", J2: "Jalon J2", revue: "Revue"};
-const JALON_DECISIONS = {go: ["go", "Continuer"], recycle: ["recycle", "Recycler"], hold: ["hold", "Mettre en veille"], kill: ["kill", "Arrêter"]};
+const JALON_DECISIONS = {go: "Continuer", recycle: "Recycler", hold: "Mettre en veille", kill: "Arrêter"};
 const JALON_CLS = {go: "s-fait", recycle: "s-cours", hold: "s-veille", kill: "s-bloque", "": "s-attente"};
 const ETAT_CRITERE = {atteint: "atteint", partiel: "partiel", rate: "manqué", a_mesurer: "à mesurer"};
 const CRIT_CLS = {atteint: "crit-ok", partiel: "crit-part", rate: "crit-rate", a_mesurer: "crit-mes"};
@@ -487,7 +494,7 @@ function blocJalons(etape) {
       (j.recommandation ? `<div class="cap">recommandation de claude : <b>${esc(j.recommandation)}</b>${j.raison ? " — " + esc(j.raison) : ""}</div>` : "") +
       `<div class="jb-btns">` +
       Object.entries(JALON_DECISIONS).map(([v, l]) =>
-        `<button class="btn dec${v === "go" ? " pri" : v === "kill" ? " stop" : ""}" type="button" data-dec="${esc(j.id)}" data-val="${v}">${l}</button>`).join("") +
+        `<button class="btn dec${v === "go" ? " pri" : v === "kill" ? " stop" : ""}" type="button" data-dec="${esc(j.id)}" data-val="${v}">${esc(l)}</button>`).join("") +
       `</div>` +
       `<label class="lbl" for="recy-${esc(j.id)}">ou recycler vers</label><select id="recy-${esc(j.id)}" data-recy="${esc(j.id)}"><option value="">—</option>${(JALON_RECYCLE[j.jalon] || []).map(e2 => `<option value="${e2}">${NOM_ETAPES[e2]}</option>`).join("")}</select>` +
       `<label class="lbl" for="not-${esc(j.id)}">note (facultatif)</label><input id="not-${esc(j.id)}" data-not="${esc(j.id)}" placeholder="ex. : on recycle sur la masse">` +
@@ -513,11 +520,13 @@ function ouvrirEtape(e) {
   const liste = de.length
     ? `<ul class="flist">${de.map(t => { const st = normEtat(t.etat); return `<li><button type="button" data-fiche="${esc(t.id)}"><span class="pill ${ETAT_CLS[st] || "s-afaire"}">${esc(ETAT_TACHE[st] || t.etat)}</span><span>${esc(t.titre)}</span>${t.resultat ? `<span class="cap">${esc(court(t.resultat, 160))}</span>` : ""}</button></li>`; }).join("")}</ul>`
     : `<p class="cap">Aucune tâche à cette étape pour l'instant.</p>`;
-  // La méthode de cette étape (P3) si la ronde l'a jointe ; sinon la définition générique.
-  const methode = (state.methode && state.methode.etape === e)
-    ? `<div class="fc"><div class="lbl">Méthode de l'étape</div><p>${esc(state.methode.texte)}</p></div>`
-    : `<div class="fc"><div class="lbl">Ce que couvre l'étape</div><p>${esc(DEF_ETAPES[e])}</p></div>`;
+  // Ce que couvre l'étape (une ligne) + la méthode détaillée (P3, docs/PILOTE.md) si la route la sert.
+  const mE = (state.methodes && state.methodes[e]) || "";
+  const methode = (mE
+    ? `<div class="fc"><div class="lbl">Méthode de l'étape</div><p>${mdCourt(mE)}</p></div>`
+    : `<div class="fc"><div class="lbl">Ce que couvre l'étape</div><p>${esc(DEF_ETAPES[e])}</p></div>`);
   ouvrirFiche(enteteFiche(`Étape ${i + 1} sur ${ETAPES.length}`, NOM_ETAPES[e]) +
+    `<div class="fc"><div class="lbl">Ce que couvre l'étape</div><p>${esc(DEF_ETAPES[e])}</p></div>` +
     methode +
     blocJalons(e) +
     `<div class="fc"><div class="lbl">Tâches (${fait}/${de.length} faites)</div>${liste}</div>`);
