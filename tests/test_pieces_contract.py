@@ -1,7 +1,7 @@
 """Contract tests for the Parts/BOM v0.6 spec.
 
-v0.1 (2026-10-14, codex): covers BOM cycles and rolled-up quantities, sourced offers,
-and retention of the previous revision. Routes remain red until N1 is implemented.
+v0.2 (2026-10-14, codex): ajoute `par` aux écritures et couvre source javascript:, réception
+négative et changement de type d'un assemblage non vide.
 """
 
 import copy
@@ -69,6 +69,7 @@ class PiecesContractTests(unittest.TestCase):
     def _create_piece(self, name, origine="concevoir", type_="piece"):
         response = self.client.post("/api/v2/pieces", json={
             "nom": name, "origine": origine, "type": type_, "projet_id": self.project_id,
+            "par": "claude",
         })
         self.assertIn(response.status_code, (200, 201), response.text)
         data = response.json()
@@ -138,7 +139,7 @@ class PiecesContractTests(unittest.TestCase):
 
         offer = {
             "fournisseur_id": supplier_id, "reference": "BRG-01", "prix": 12.5,
-            "devise": "CAD", "quantite_min": 1, "date": "2026-10-14",
+            "devise": "CAD", "quantite_min": 1, "date": "2026-10-14", "par": "claude",
         }
         response = self.client.post(f"/api/v2/pieces/{part['id']}/offres", json=offer)
         self.assertEqual(response.status_code, 400, response.text)
@@ -159,11 +160,13 @@ class PiecesContractTests(unittest.TestCase):
         first = self.client.patch(f"/api/v2/pieces/{part['id']}", json={
             "revision": "P01", "fichier": old_file.name,
             "empreinte": hashlib.sha256(old_bytes).hexdigest(),
+            "par": "claude",
         })
         self.assertEqual(first.status_code, 200, first.text)
         second = self.client.patch(f"/api/v2/pieces/{part['id']}", json={
             "revision": "P02", "fichier": new_file.name,
             "empreinte": hashlib.sha256(new_bytes).hexdigest(),
+            "par": "claude",
         })
         self.assertEqual(second.status_code, 200, second.text)
 
@@ -174,6 +177,34 @@ class PiecesContractTests(unittest.TestCase):
                 (part["id"],),
             ).fetchall()
         self.assertIn(("P01", "P02"), revisions)
+
+    def test_javascript_offer_source_is_rejected(self):
+        part = self._create_piece("Bought bushing", origine="acheter")
+        response = self.client.post(f"/api/v2/pieces/{part['id']}/offres", json={
+            "reference": "BUSH-01", "prix": 1.25, "devise": "CAD",
+            "source": "javascript:alert(1)", "par": "claude",
+        })
+        self.assertEqual(response.status_code, 400, response.text)
+
+    def test_negative_reception_is_rejected(self):
+        part = self._create_piece("Received bracket")
+        response = self.client.post(f"/api/v2/pieces/{part['id']}/mouvements", json={
+            "quoi": "reception", "quantite": -1, "par": "claude",
+        })
+        self.assertEqual(response.status_code, 400, response.text)
+
+    def test_assembly_with_children_cannot_change_to_piece(self):
+        assembly = self._create_piece("Frame", type_="assemblage")
+        child = self._create_piece("Rail")
+        linked = self.client.post("/api/v2/nomenclature", json={
+            "parent_id": assembly["id"], "enfant_id": child["id"], "quantite": 1,
+        })
+        self.assertIn(linked.status_code, (200, 201), linked.text)
+
+        changed = self.client.patch(f"/api/v2/pieces/{assembly['id']}", json={
+            "type": "piece", "par": "claude",
+        })
+        self.assertEqual(changed.status_code, 409, changed.text)
 
 
 if __name__ == "__main__":
