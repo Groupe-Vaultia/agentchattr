@@ -1,7 +1,7 @@
-"""Contrôles de niveau 1, v1.4 (14 oct. 2026).
+"""Contrôles de niveau 1, v1.5 (14 oct. 2026).
 
-v1.3 : tout nombre non fini (NaN, infini) dans le rapport est refusé.
 v1.4 : une cote absente ou nulle est refusée.
+v1.5 : sans cote de position, sans Ø ou sans bloc de tolérances, le rapport échoue.
 Aucune géométrie ici : le script FreeCAD mesure, ce module juge.
 """
 
@@ -213,9 +213,27 @@ def nombres_non_finis(valeur, chemin=""):
     return []
 
 
+def habillage(rapport):
+    """Position des trous, symbole Ø, bloc de tolérances."""
+    if not rapport.get("habillage_requis"):
+        return []
+    ecarts = []
+    texte = str((rapport.get("cotes_texte") or {}).get("D", ""))
+    if "Ø" not in texte or "THRU" not in texte:
+        ecarts.append("symbole diametre absent")
+    bloc = str(rapport.get("tolerances") or "")
+    if ".XX" not in bloc or ".XXX" not in bloc or "±1" not in bloc:
+        ecarts.append("bloc de tolerances absent")
+    for nom in ("X", "Y"):
+        if (rapport.get("cotes_mm") or {}).get(nom) in (None, 0, 0.0):
+            ecarts.append(f"cote de position absente : {nom}")
+    return ecarts
+
+
 def juger(rapport):
     ecarts = []
     ecarts += nombres_non_finis(rapport)
+    ecarts += habillage(rapport)
     ecarts += cartouche(rapport.get("cartouche", {}), rapport.get("cartouche_attendu"))
     ecarts += cotes(rapport.get("cotes", []))
     if "attendu_mm" in rapport:
@@ -332,6 +350,19 @@ if __name__ == "__main__":
     assert any("volume_mm3" in e for e in ecarts_finis)
     assert any("encombrement_mm.z" in e for e in ecarts_finis)
     assert any("epaisseur_min_mm" in e for e in ecarts_finis)
+    assert habillage({
+        "habillage_requis": True,
+        "cotes_texte": {"D": ".157 [4.00]"},
+        "cotes_mm": {},
+        "tolerances": "",
+    }) == ["symbole diametre absent", "bloc de tolerances absent",
+           "cote de position absente : X", "cote de position absente : Y"]
+    assert habillage({
+        "habillage_requis": True,
+        "cotes_texte": {"D": "2X Ø.157 [4.00] THRU"},
+        "cotes_mm": {"X": 12.0, "Y": 10.0},
+        "tolerances": ".XX ±.01 [±0.25]   .XXX ±.005 [±0.13]   ANGLES ±1°",
+    }) == []
     assert "cote nulle : D" in cotes_valeurs({"D": 0.0}, {"D": 4.0})
     assert "cote absente : E" in cotes_valeurs({}, {"E": 16.0})
     assert any(e.startswith("cartouche vide") for e in mauvais)

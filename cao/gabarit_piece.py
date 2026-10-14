@@ -1,7 +1,7 @@
-"""Gabarit CAO v2.0 (14 oct. 2026). Cotes TechDraw du trou et de l'entraxe.
+"""Gabarit CAO v2.1 (14 oct. 2026). Position des trous, Ø et tolérances.
 
-v1.4 : sans densité sourcée, masse_g reste vide et le cartouche écrit « ? ».
 v2.0 : hors-tout, diamètre et entraxe sont des cotes TechDraw ; 0 ou absente échoue.
+v2.1 : cotes X et Y depuis les arêtes, préfixe 2X Ø … THRU, bloc de tolérances.
 Remplacer solide() pour la vraie géométrie. Lancer depuis ce dépôt :
     freecad.cmd -c "import runpy; runpy.run_path('cao/gabarit_piece.py', run_name='__main__')"
 """
@@ -45,9 +45,13 @@ ESSAI = {
 }
 
 NOTE_UNITES = "COTES EN POUCES [MILLIMÈTRES]. LES POUCES GOUVERNENT."
+BLOC_TOLERANCES = ".XX ±.01 [±0.25]   .XXX ±.005 [±0.13]   ANGLES ±1°"
 
 # Centres des vues, mm, origine en bas à gauche. 3e angle : dessus au-dessus,
 # droite à droite. L'iso n'est pas cotée.
+# Droite, XDirection (0, -1, 0) : axe droitier si Direction vaut (-1, 0, 0) et +Z en haut.
+# Mesure SVG : cran +Y en x négatif (M 10 -1.5 L -6 -1.5). (0, 1, 0) le passe en x positif
+# et retourne aussi Z. On ne change pas.
 VUES = {
     "Face": ((0, -1, 0), (1, 0, 0), 80, 90),
     "Dessus": ((0, 0, -1), (1, 0, 0), 80, 130),
@@ -113,9 +117,26 @@ def _vue(doc, page, feature, nom):
     return obj
 
 
+def _axes(piece):
+    """Traits d'axe. Dessus regarde depuis -Z : un trait sur le dessus est caché
+    hors du trou. On les place sous la pièce. Le volume ne change pas.
+    Pas de type d'axe sans fenêtre : traits continus."""
+    traits = []
+    debord = piece["D"] / 2.0 + 2.0
+    z = -0.2
+    for x, y in piece["trous"]:
+        traits.append(Part.makeLine(
+            App.Vector(x - debord, y, z), App.Vector(x + debord, y, z)
+        ))
+        traits.append(Part.makeLine(
+            App.Vector(x, y - debord, z), App.Vector(x, y + debord, z)
+        ))
+    return Part.Compound(traits)
+
+
 def _cotes(doc, dessus, face, piece):
     """Cotes TechDraw. Pas de cote sur la vue de droite ni sur l'iso.
-    Le diamètre est une distance 3D : TechDraw n'a pas de cote de diamètre."""
+    Le diamètre est une distance 3D : cette version n'a pas de cote Ø native."""
     (x1, y1), (x2, y2) = piece["trous"]
     rayon = piece["D"] / 2.0
     haut = piece["T"]
@@ -123,6 +144,8 @@ def _cotes(doc, dessus, face, piece):
         (dessus, "L", "DistanceX", App.Vector(0, 0, 0), App.Vector(piece["L"], 0, 0)),
         (dessus, "W", "DistanceY", App.Vector(0, 0, 0), App.Vector(0, piece["W"], 0)),
         (face, "T", "DistanceY", App.Vector(0, 0, 0), App.Vector(0, 0, haut)),
+        (dessus, "X", "DistanceX", App.Vector(0, y1, haut), App.Vector(x1, y1, haut)),
+        (dessus, "Y", "DistanceY", App.Vector(x1, 0, haut), App.Vector(x1, y1, haut)),
         (dessus, "D", "Distance", App.Vector(x1 - rayon, y1, haut), App.Vector(x1 + rayon, y1, haut)),
         (dessus, "E", "Distance", App.Vector(x1, y1, haut), App.Vector(x2, y2, haut)),
     )
@@ -145,7 +168,10 @@ def _cotes(doc, dessus, face, piece):
         mesures[nom] = valeur
         if hasattr(cote, "Arbitrary"):
             cote.Arbitrary = True
-        cote.FormatSpec = _double_cote(valeur)
+        if nom == "D":
+            cote.FormatSpec = f"{len(piece['trous'])}X Ø{_double_cote(valeur)} THRU"
+        else:
+            cote.FormatSpec = _double_cote(valeur)
         doc.recompute()
         textes[nom] = str(cote.getText())
     return mesures, textes
@@ -202,6 +228,9 @@ def produire(piece, dossier):
     template.Template = str(GABARIT)
     page.Template = template
     vues = {nom: _vue(doc, page, feature, nom) for nom in VUES}
+    axes = doc.addObject("Part::Feature", "Axes")
+    axes.Shape = _axes(piece)
+    vues["Dessus"].Source = [feature, axes]
     _poser(vues)
     doc.recompute()
     mesures, cotes_texte = _cotes(doc, vues["Dessus"], vues["Face"], piece)
@@ -211,6 +240,12 @@ def produire(piece, dossier):
     page.addView(note)
     note.X = 55
     note.Y = 40
+    tolerances = doc.addObject("TechDraw::DrawViewAnnotation", "Tolerances")
+    tolerances.Text = [BLOC_TOLERANCES]
+    tolerances.TextSize = 2.2
+    page.addView(tolerances)
+    tolerances.X = 150
+    tolerances.Y = 28
     _poser(vues)
 
     volume = float(feature.Shape.Volume)
@@ -254,7 +289,11 @@ def produire(piece, dossier):
             "T": piece["T"],
             "D": piece["D"],
             "E": piece["E"],
+            "X": piece["trous"][0][0],
+            "Y": piece["trous"][0][1],
         },
+        "habillage_requis": True,
+        "tolerances": " ".join(str(ligne) for ligne in tolerances.Text),
         "brep_valide": bool(feature.Shape.isValid()),
         "solides": len(feature.Shape.Solids),
         "volume_mm3": volume,
@@ -353,7 +392,10 @@ def _composer_svg(textes, vues, cotes_texte, chemin):
         (48, 90, cotes_texte.get("T", "")),
         (112, 136, cotes_texte.get("D", "")),
         (112, 128, cotes_texte.get("E", "")),
+        (96, 116, cotes_texte.get("X", "")),
+        (62, 116, cotes_texte.get("Y", "")),
         (55, 40, NOTE_UNITES),
+        (150, 28, BLOC_TOLERANCES),
     )
     for x, y, ligne in etiquettes:
         if not ligne:
@@ -425,6 +467,7 @@ def essai():
         f"empreinte {rapport['empreinte']}",
         f"cotes {rapport['cotes_mm']}",
         f"cotes_texte {rapport['cotes_texte']}",
+        f"tolerances {rapport['tolerances']}",
         f"brep {rapport['brep_valide']} solides {rapport['solides']} volume {rapport['volume_mm3']}",
         f"encombrement {rapport['encombrement_mm']}",
         f"interferences {rapport['interferences_mm3']}",
