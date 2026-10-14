@@ -442,7 +442,8 @@ function renderAchats() {
   el.innerHTML =
     (lignes.length ? `<div class="tblw"><table><tr><th>Pièce</th><th class="n">Qté</th><th>Meilleure offre</th><th class="n">Total</th><th>Alertes</th></tr>${lignes.map(row).join("")}</table></div>` : `<div class="empty">Aucune pièce « acheter » pour l'instant.</div>`) +
     (sans.length ? `<div class="cap" style="color:var(--warn);margin-top:8px">Sans offre : ${sans.map(s => esc(s.numero || s.nom || "")).join(", ")}.</div>` : "") +
-    (tot.CAD != null ? `<div class="cap" style="margin-top:8px">Total achats (CAD) : <b>${fmtCAD(tot.CAD)}</b>${tot.sans_prix ? ` · ${esc(tot.sans_prix)} sans prix` : ""}</div>` : "");
+    // Un total par devise : on n'additionne jamais CAD et USD sans taux source (claude, revue N3).
+    (Object.keys(tot).length ? `<div class="cap" style="margin-top:8px">Total achats : <b>${Object.entries(tot).map(([d, v]) => fmtCAD(v, d)).join(" + ")}</b>${tot.sans_prix ? ` · ${esc(tot.sans_prix)} sans prix` : ""}</div>` : "");
 }
 
 // ---------- chargement de tout ce qui dépend du projet sélectionné ----------
