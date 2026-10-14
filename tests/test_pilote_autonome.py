@@ -1,5 +1,6 @@
 """Tests ciblés du pilote autonome, contrat SOCLE-SHOP.md v1.1.
 
+v0.3 (2026-10-14, codex) : couvre les reprises après recycle et l’acceptation des formats CAO à l’upload.
 v0.2 (2026-10-13, codex) : ajoute les routes P1, la fiche projet P2 et le moteur de ronde P4.
 v0.1 (2026-10-13, codex) : règles de stockage, validation et décision des jalons P1.
 """
@@ -198,6 +199,43 @@ class RondeMoteurTests(unittest.TestCase):
         self.assertEqual(pending["jalons_dus"], [])
         self.assertEqual(pending["prochaines"], [])
 
+    def test_recycle_requests_rework_then_reopens_jalon_after_all_rework_is_done(self):
+        projects_by_id = {"alpha": {"nom": "Alpha", "statut": "actif", "niveau": "moyen"}}
+        tasks = [
+            {"id": 1, "projet_id": "alpha", "etape": "probleme", "etat": "fait", "created_at": 10},
+            {"id": 2, "projet_id": "alpha", "etape": "etat_art", "etat": "fait", "created_at": 20},
+            {"id": 3, "projet_id": "alpha", "etape": "concepts", "etat": "fait", "created_at": 30},
+            {"id": 4, "projet_id": "alpha", "etape": "conception", "etat": "a_faire", "responsable": "gemini",
+             "created_at": 40},
+        ]
+        recycle = [{"id": 1, "projet_id": "alpha", "jalon": "J1", "decision": "recycle",
+                    "decision_date": 100, "recycle_etape": "concepts"}]
+
+        without_rework = ronde.ronde(projects_by_id, tasks, [], recycle)
+        self.assertEqual(without_rework["jalons_dus"], [])
+        self.assertEqual(without_rework["recyclages"], [{"projet_id": "alpha", "jalon": "J1",
+                                                          "etape": "concepts", "jalon_id": 1}])
+        self.assertEqual(without_rework["prochaines"], [])
+
+        rework = {"id": 5, "projet_id": "alpha", "etape": "concepts", "etat": "a_faire",
+                  "responsable": "gemini", "titre": "Reprendre les concepts", "created_at": 101}
+        with_rework = ronde.ronde(projects_by_id, tasks + [rework], [], recycle)
+        self.assertEqual(with_rework["recyclages"], [])
+        self.assertEqual(with_rework["jalons_dus"], [])
+        self.assertEqual([t["tache_id"] for t in with_rework["prochaines"]], [5])
+
+        rework["etat"] = "fait"
+        after_rework = ronde.ronde(projects_by_id, tasks + [rework], [], recycle)
+        self.assertEqual(after_rework["recyclages"], [])
+        self.assertEqual(after_rework["jalons_dus"], [{"projet_id": "alpha", "jalon": "J1"}])
+        self.assertEqual(after_rework["prochaines"], [])
+
+        after_go = ronde.ronde(projects_by_id, tasks + [rework], [], recycle + [
+            {"id": 2, "projet_id": "alpha", "jalon": "J1", "decision": "go", "decision_date": 200},
+        ])
+        self.assertEqual(after_go["jalons_dus"], [])
+        self.assertEqual([t["tache_id"] for t in after_go["prochaines"]], [4])
+
     def test_go_opens_next_stage_and_assigns_method_only_to_eligible_responsible(self):
         projects_by_id = {"alpha": {"nom": "Alpha", "statut": "actif", "niveau": "moyen"}}
         tasks = [
@@ -300,6 +338,17 @@ class PiloteRoutesTests(unittest.TestCase):
         self.assertEqual(self.client.post("/api/v2/projects", json={
             "nom": "Prototype Alpha", "objectif": "Autre objectif",
         }).status_code, 409)
+
+    def test_upload_accepts_cad_exchange_and_native_formats_advertised_by_launch_form(self):
+        with mock.patch.object(app, "config", {"images": {"upload_dir": str(self.root / "uploads")}}):
+            for extension in (".dxf", ".step", ".stp", ".stl", ".3mf", ".fcstd"):
+                with self.subTest(extension=extension):
+                    response = self.client.post(
+                        "/api/upload", files={"file": (f"part{extension}", b"synthetic CAD data")},
+                    )
+                    self.assertEqual(response.status_code, 200, response.text)
+                    self.assertEqual(response.json()["name"], f"part{extension}")
+                    self.assertTrue(response.json()["url"].startswith("/uploads/"))
 
     def test_round_route_returns_next_task_with_method_for_current_stage(self):
         task, error = app.jobs.create_tache(
