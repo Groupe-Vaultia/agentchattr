@@ -105,8 +105,8 @@ def load_config(root: Path | None = None) -> dict:
 
     config.local.toml is gitignored and intended for user-specific agents
     (e.g. local LLM endpoints) that shouldn't be committed.
-    Only the [agents] section is merged — local entries are added alongside
-    (not replacing) the agents defined in config.toml.
+    Merged: [agents] (local entries are added alongside, not replacing, the agents
+    defined in config.toml), [server] allowed_origins and [socle] copie_pieces.
 
     AGENTCHATTR_* environment variables override values from config.toml
     (see module docstring for the list).
@@ -138,6 +138,12 @@ def load_config(root: Path | None = None) -> dict:
         if isinstance(local_origins, list) and local_origins:
             server = config.setdefault("server", {})
             server["allowed_origins"] = list(server.get("allowed_origins") or []) + [o for o in local_origins if isinstance(o, str)]
+
+        # [socle] copie_pieces — destination de la copie des sauvegardes de pieces (un hote de CETTE machine,
+        # ex. "x1:vaultia-sauvegardes/"). Hors de git pour la meme raison.
+        copie = (local.get("socle") or {}).get("copie_pieces")
+        if isinstance(copie, str) and copie.strip():
+            config.setdefault("socle", {})["copie_pieces"] = copie.strip()
 
     _apply_env_overrides(config)
 

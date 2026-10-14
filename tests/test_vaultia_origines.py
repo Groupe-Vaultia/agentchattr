@@ -34,6 +34,15 @@ class OriginesLocalesTests(unittest.TestCase):
         cfg = load_config(self.racine)
         self.assertNotIn("allowed_origins", cfg["server"])
 
+    def test_la_copie_des_pieces_vient_de_la_config_locale(self):
+        (self.racine / "config.local.toml").write_text(
+            '[socle]\ncopie_pieces = " x1:vaultia-sauvegardes/ "\n', encoding="utf-8")
+        self.assertEqual(load_config(self.racine)["socle"]["copie_pieces"], "x1:vaultia-sauvegardes/")
+
+    def test_sans_copie_locale_aucune_section_socle(self):
+        (self.racine / "config.local.toml").write_text('[socle]\ncopie_pieces = 3\n', encoding="utf-8")
+        self.assertNotIn("socle", load_config(self.racine))
+
     def test_le_depot_ne_porte_plus_d_adresse_de_tunnel(self):
         source = (Path(__file__).resolve().parents[1] / "app.py").read_text(encoding="utf-8")
         self.assertNotIn(".ts.net", source)
