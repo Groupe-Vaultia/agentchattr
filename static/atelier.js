@@ -392,13 +392,29 @@ async function ouvrirPiece(id) {
     ? `<div class="fc"><div class="lbl">Historique</div><ul class="fhist">${hist.slice().reverse().map(h => `<li><time>${esc(heure(h.date))}</time><span>${esc(h.champ || "")} : ${esc(h.avant || "—")} → <b>${esc(h.apres || "—")}</b>${h.qui ? ` <span class="cap">(${esc(h.qui)})</span>` : ""}</span></li>`).join("")}</ul></div>`
     : "";
   const fichier = p.fichier ? `<div class="fc"><div class="lbl">Fichier</div><p><code>${esc(p.fichier)}</code>${p.empreinte ? ` · <span class="cap">sha256 ${esc(String(p.empreinte).slice(0, 12))}</span>` : ""}</p></div>` : "";
+  const fichiersDiv = `<div class="fc"><div class="lbl">Plans</div><div id="pc-fichiers"><span class="cap">Chargement…</span></div></div>`;
   $("#fiche-c").innerHTML = tete + meta +
     (p.objectif || p.description ? `<div class="fc"><div class="lbl">Description</div><p>${esc(p.objectif || p.description)}</p></div>` : "") +
-    offresHtml + utiliseeHtml + nomHtml + fichier + histHtml;
+    offresHtml + utiliseeHtml + nomHtml + fichiersDiv + fichier + histHtml;
   // charge l'arbre (nomenclature) dans la fiche
   const ar = await getJSON(`/api/v2/pieces/${encodeURIComponent(id)}/nomenclature`);
   const el = $("#pc-arbre"); if (!el) return;
   el.innerHTML = (ar.ok && ar.data) ? arbreNomenclature(ar.data, id) : `<span class="cap">Aucun lien de nomenclature (route non branchée ou pièce orpheline).</span>`;
+  // U6 : charge les fichiers (plans SVG, PDF, STEP) via la route A1
+  const fr = await getJSON(`/api/v2/pieces/${encodeURIComponent(id)}/fichiers`);
+  const fel = $("#pc-fichiers"); if (!fel) return;
+  if (fr.err === 404) {
+    fel.innerHTML = `<span class="cap">Aucun plan pour l'instant (les vrais plans arrivent avec G3c).</span>`;
+  } else if (!fr.ok && fr.err) {
+    fel.innerHTML = `<span class="cap" style="color:var(--bad)">Erreur ${fr.err} — impossible de charger les plans.</span>`;
+  } else if (fr.ok && fr.data && fr.data.fichiers && fr.data.fichiers.length) {
+    const svg = fr.data.fichiers.find(f => f.nom.endsWith(".svg"));
+    fel.innerHTML = svg
+      ? `<img src="/api/v2/pieces/${encodeURIComponent(id)}/fichiers/${encodeURIComponent(svg.revision || "P01")}/${encodeURIComponent(svg.nom)}" alt="Plan ${esc(svg.nom)}" style="max-width:100%;border:1px solid var(--line);border-radius:8px;margin-top:6px">`
+      : `<span class="cap">Aucun plan SVG disponible. Fichiers : ${fr.data.fichiers.map(f => esc(f.nom)).join(", ")}</span>`;
+  } else {
+    fel.innerHTML = `<span class="cap">Aucun plan pour l'instant (les vrais plans arrivent avec G3c).</span>`;
+  }
 }
 
 // Rend l'arbre de nomenclature : nœud = pièce + quantite_cumulee + enfants[].
