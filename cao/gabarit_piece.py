@@ -1,12 +1,14 @@
-"""Gabarit N2b v1.0 (13 oct. 2026). Une pièce, un processus freecad.cmd.
+"""Gabarit N2b v1.1 (13 oct. 2026). Feuille ANSI A, 3e angle, STEP AP214.
 
-Remplacer solide() pour la vraie géométrie. Le fichier, le plan et les
-contrôles restent. Lancer depuis ce dépôt :
+v1.0 : plaque, cotes, DXF, PDF filaire sans cartouche.
+v1.1 : gabarit ASME, vues alignées, dossier de révision, empreinte SHA-256.
+Remplacer solide() pour la vraie géométrie. Lancer depuis ce dépôt :
     freecad.cmd -c "import runpy; runpy.run_path('cao/gabarit_piece.py', run_name='__main__')"
 Le snap ne voit pas rsvg-convert. Le PDF se finit sur l'hôte :
-    /usr/bin/rsvg-convert -f pdf -o cao/sortie/VLT-10001_plaque-gabarit_P01.pdf cao/sortie/VLT-10001_plaque-gabarit_P01.svg
+    /usr/bin/rsvg-convert -f pdf -o <dossier>/VLT-10001_plaque-gabarit_P01.pdf <dossier>/VLT-10001_plaque-gabarit_P01.svg
 """
 
+import hashlib
 import sys
 from pathlib import Path
 
@@ -23,9 +25,10 @@ except ImportError:
     App = Part = TechDraw = None
 
 GABARIT = Path(
-    "/snap/freecad/current/usr/share/Mod/TechDraw/Templates/ISO/"
-    "A4_Landscape_ISO5457_advanced.svg"
+    "/snap/freecad/current/usr/share/Mod/TechDraw/Templates/ASME/"
+    "ANSIA_Landscape.svg"
 )
+PAGE_H = 215.9
 
 # Valeur d'essai seulement. Une vraie pièce cite la fiche matière.
 ESSAI = {
@@ -40,30 +43,78 @@ ESSAI = {
     "T": 3.0,
 }
 
+NOTE_UNITES = "COTES EN POUCES [MILLIMÈTRES]. LES POUCES GOUVERNENT."
+
+# Centres des vues, mm, origine en bas à gauche. 3e angle : dessus au-dessus,
+# droite à droite. L'iso n'est pas cotée.
+VUES = {
+    "Face": ((0, -1, 0), (1, 0, 0), 80, 90),
+    "Dessus": ((0, 0, -1), (1, 0, 0), 80, 130),
+    "Droite": ((-1, 0, 0), (0, -1, 0), 150, 90),
+    "Iso": ((1, -1, 1), (1, 1, 0), 210, 145),
+}
+
 
 def solide(part, piece):
     """Plaque L x W x T. A remplacer par la pièce."""
     return part.makeBox(piece["L"], piece["W"], piece["T"])
 
 
-def _cartouche(template, piece):
-    template.EditableTexts = {
+def _double_cote(mm):
+    """Pouce affiché, mm entre crochets. Le modèle reste en mm."""
+    pouces = float(mm) / 25.4
+    texte = f"{pouces:.3f}"
+    if texte.startswith("0"):
+        texte = texte[1:]
+    return f"{texte} [{float(mm):.2f}]"
+
+
+def _textes(piece, masse_g):
+    return {
+        "CompanyName": "Vaultia",
+        "CompanyAddress": "Atelier",
+        "DrawingTitle1": piece["nom"],
+        "DrawingTitle2": piece["matiere"],
+        "DrawingTitle3": piece["procede"],
         "drawing_number": piece["numero"],
         "revision_index": piece["revision"],
-        "title": piece["nom"],
-        "part_material": piece["matiere"],
-        "supplementary_title_1": piece["procede"],
+        "DrawnBy": "grok",
+        "CheckedBy": "-",
+        "Approved1": "-",
+        "Approved2": "-",
+        "scale": "1:1",
+        "Code": "-",
+        "Weight": f"{masse_g:.2f} g",
+        "Sheet": "1 DE 1",
     }
 
 
+def _poser(vues):
+    for nom, (_direction, _xdir, x, y) in VUES.items():
+        vues[nom].X = x
+        vues[nom].Y = y
+
+
+def _vue(doc, page, feature, nom):
+    direction, xdir, _x, _y = VUES[nom]
+    obj = doc.addObject("TechDraw::DrawViewPart", nom)
+    obj.Source = [feature]
+    obj.Direction = App.Vector(*direction)
+    obj.XDirection = App.Vector(*xdir)
+    obj.Scale = 1
+    page.addView(obj)
+    return obj
+
+
 def _cotes(doc, dessus, face, piece):
-    """Trois cotes 3D. DistanceZ n'existe pas : T est lu sur la vue de face."""
+    """Trois cotes 3D. Pas de cote sur la vue de droite ni sur l'iso."""
     specs = (
         (dessus, "L", "DistanceX", App.Vector(0, 0, 0), App.Vector(piece["L"], 0, 0)),
         (dessus, "W", "DistanceY", App.Vector(0, 0, 0), App.Vector(0, piece["W"], 0)),
         (face, "T", "DistanceY", App.Vector(0, 0, 0), App.Vector(0, 0, piece["T"])),
     )
     mesures = {}
+    textes = {}
     for vue, nom, genre, debut, fin in specs:
         avant = {o.Name for o in doc.Objects}
         cote = TechDraw.makeDistanceDim3d(vue, genre, debut, fin)
@@ -77,13 +128,34 @@ def _cotes(doc, dessus, face, piece):
             continue
         cote.Label = nom
         doc.recompute()
-        mesures[nom] = float(cote.getRawValue())
-    return mesures
+        valeur = float(cote.getRawValue())
+        mesures[nom] = valeur
+        if hasattr(cote, "Arbitrary"):
+            cote.Arbitrary = True
+        cote.FormatSpec = _double_cote(valeur)
+        doc.recompute()
+        textes[nom] = str(cote.getText())
+    return mesures, textes
+
+
+def _volumes_communs(shape):
+    """Volume commun des solides de cette pièce. Une pièce seule : aucune paire."""
+    solides = list(shape.Solids)
+    volumes = []
+    for i, gauche in enumerate(solides):
+        for droite in solides[i + 1:]:
+            volumes.append(gauche.common(droite).Volume)
+    return volumes
+
+
+def _xy(vue):
+    return {"x": float(vue.X.Value), "y": float(vue.Y.Value)}
 
 
 def produire(piece, dossier):
     if App is None:
         raise RuntimeError("lancer avec freecad.cmd, pas python3")
+    dossier = dossier / piece["numero"] / piece["revision"]
     dossier.mkdir(parents=True, exist_ok=True)
     nom_fichier = f"{piece['numero']}_{piece['nom']}_{piece['revision']}"
     doc = App.newDocument(nom_fichier)
@@ -95,81 +167,159 @@ def produire(piece, dossier):
     template = doc.addObject("TechDraw::DrawSVGTemplate", "Template")
     template.Template = str(GABARIT)
     page.Template = template
-    _cartouche(template, piece)
+    vues = {nom: _vue(doc, page, feature, nom) for nom in VUES}
+    _poser(vues)
+    doc.recompute()
+    mesures, cotes_texte = _cotes(doc, vues["Dessus"], vues["Face"], piece)
+    note = doc.addObject("TechDraw::DrawViewAnnotation", "NoteUnites")
+    note.Text = [NOTE_UNITES]
+    note.TextSize = 2.5
+    page.addView(note)
+    note.X = 55
+    note.Y = 40
+    _poser(vues)
 
-    dessus = doc.addObject("TechDraw::DrawViewPart", "Dessus")
-    dessus.Source = [feature]
-    dessus.Direction = App.Vector(0, 0, 1)
-    page.addView(dessus)
-    face = doc.addObject("TechDraw::DrawViewPart", "Face")
-    face.Source = [feature]
-    face.Direction = App.Vector(0, -1, 0)
-    face.X = 180
-    page.addView(face)
+    volume = float(feature.Shape.Volume)
+    masse_g = volume * float(piece["masse_volumique_g_mm3"])
+    textes = _textes(piece, masse_g)
+    template.EditableTexts = textes
     doc.recompute()
-    mesures = _cotes(doc, dessus, face, piece)
-    doc.recompute()
+    _poser(vues)
 
     chemin = dossier / f"{nom_fichier}.FCStd"
     doc.saveAs(str(chemin))
-    pdf = _exporter_pdf(feature, piece, dossier / f"{nom_fichier}.pdf")
+    step = _exporter_step(feature, dossier / f"{nom_fichier}.step")
     dxf = _exporter_dxf(page, dossier / f"{nom_fichier}.dxf")
+    svg = dossier / f"{nom_fichier}.svg"
+    _composer_svg(textes, vues, cotes_texte, svg)
+    pdf = _exporter_pdf(svg, svg.with_suffix(".pdf"))
 
-    volume = feature.Shape.Volume
+    boite = feature.Shape.BoundBox
     rapport = {
+        "numero": piece["numero"],
+        "revision": piece["revision"],
         "fichier": str(chemin),
+        "step": step,
+        "step_schema": _schema(dossier / f"{nom_fichier}.step"),
         "pdf": pdf,
+        "svg": str(svg),
         "dxf": dxf,
-        "cartouche": dict(template.EditableTexts),
-        "cartouche_attendu": {
-            "drawing_number": piece["numero"],
-            "revision_index": piece["revision"],
-            "title": piece["nom"],
-            "part_material": piece["matiere"],
-            "supplementary_title_1": piece["procede"],
-        },
+        "gabarit_svg": str(GABARIT),
+        "cartouche": {cle: str(valeur) for cle, valeur in template.EditableTexts.items()},
+        "cartouche_attendu": textes,
         "cotes": list(mesures),
         "cotes_mm": mesures,
+        "cotes_texte": cotes_texte,
         "attendu_mm": {"L": piece["L"], "W": piece["W"], "T": piece["T"]},
-        "masse_g": volume * float(piece["masse_volumique_g_mm3"]),
-        "interferences_mm3": _paires(piece),
+        "brep_valide": bool(feature.Shape.isValid()),
+        "solides": len(feature.Shape.Solids),
+        "volume_mm3": volume,
+        "encombrement_mm": {
+            "x": float(boite.XLength),
+            "y": float(boite.YLength),
+            "z": float(boite.ZLength),
+        },
+        "masse_g": masse_g,
+        "interferences_mm3": _volumes_communs(feature.Shape),
         "procede": piece["procede"],
         "mesures": {"epaisseur_min_mm": piece["T"]},
+        "vues": {
+            "face": _xy(vues["Face"]),
+            "dessus": _xy(vues["Dessus"]),
+            "droite": _xy(vues["Droite"]),
+            "iso": _xy(vues["Iso"]),
+        },
     }
     App.closeDocument(doc.Name)
+    rapport["empreinte"] = hashlib.sha256(chemin.read_bytes()).hexdigest()
+    rapport["payload"] = {
+        "masse_g": rapport["masse_g"],
+        "fichier": rapport["fichier"],
+        "empreinte": rapport["empreinte"],
+    }
     return rapport
 
 
-def _paires(piece):
-    """Deux boîtes écartées : volume commun nul. Le contrôle sait échouer."""
-    import Part
+def _exporter_step(feature, chemin):
+    import Import
 
-    import FreeCAD as App
+    reglage = App.ParamGet("User parameter:BaseApp/Preferences/Mod/Import")
+    reglage.SetInt("WriteSchema", 3)
+    try:
+        Import.export([feature], str(chemin))
+    except Exception as exc:
+        return f"echec: {exc}"
+    return str(chemin) if chemin.is_file() else "echec: fichier absent"
 
-    a = Part.makeBox(10, 10, 10)
-    b = Part.makeBox(10, 10, 10)
-    b.translate(App.Vector(30, 0, 0))
-    return [a.common(b).Volume]
+
+def _schema(chemin):
+    if not chemin.is_file():
+        return ""
+    for ligne in chemin.read_text(encoding="utf-8", errors="replace").splitlines():
+        if "FILE_SCHEMA" in ligne:
+            return ligne.strip()
+    return ""
 
 
-def _exporter_pdf(feature, piece, chemin):
-    """TechDrawGui ne charge pas sans fenêtre. Le PDF vient du SVG projeté."""
+def _exporter_dxf(page, chemin):
+    try:
+        TechDraw.writeDXFPage(page, str(chemin))
+    except Exception as exc:
+        return f"echec: {exc}"
+    return str(chemin) if chemin.is_file() else "echec: fichier absent"
+
+
+def _xml(texte):
+    return (str(texte).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+
+def _remplir(svg, textes):
+    for cle, valeur in textes.items():
+        marque = f'freecad:editable="{cle}"'
+        debut = svg.find(marque)
+        if debut < 0:
+            continue
+        ouvre = svg.find("<tspan", debut)
+        if ouvre < 0:
+            continue
+        contenu = svg.find(">", ouvre)
+        ferme = svg.find("</tspan>", contenu)
+        if contenu < 0 or ferme < 0:
+            continue
+        svg = svg[:contenu + 1] + _xml(valeur) + svg[ferme:]
+    return svg
+
+
+def _composer_svg(textes, vues, cotes_texte, chemin):
+    """La page TechDraw ne s'exporte pas en PDF sans fenêtre. On pose les vues
+    sur le gabarit ASME, puis l'hôte le convertit."""
+    svg = _remplir(GABARIT.read_text(encoding="utf-8"), textes)
+    blocs = []
+    for nom, (_direction, _xdir, x, y) in VUES.items():
+        fragment = TechDraw.viewPartAsSvg(vues[nom])
+        blocs.append(
+            f'<g transform="translate({x:.2f},{PAGE_H - y:.2f}) scale(1,-1)">{fragment}</g>'
+        )
+    etiquettes = (
+        (80, 148, cotes_texte.get("L", "")),
+        (48, 130, cotes_texte.get("W", "")),
+        (48, 90, cotes_texte.get("T", "")),
+        (55, 40, NOTE_UNITES),
+    )
+    for x, y, ligne in etiquettes:
+        if not ligne:
+            continue
+        blocs.append(
+            f'<text x="{x:.2f}" y="{PAGE_H - y:.2f}" font-size="2.5" '
+            f'font-family="sans-serif" text-anchor="middle">{_xml(ligne)}</text>'
+        )
+    indice = svg.rfind("</svg>")
+    chemin.write_text(svg[:indice] + "\n".join(blocs) + "\n" + svg[indice:], encoding="utf-8")
+
+
+def _exporter_pdf(svg, chemin):
     import subprocess
 
-    projection = TechDraw.projectToSVG(feature.Shape)
-    svg = chemin.with_suffix(".svg")
-    svg.write_text(
-        "\n".join([
-            '<?xml version="1.0" encoding="UTF-8"?>',
-            '<svg xmlns="http://www.w3.org/2000/svg" width="297mm" height="210mm" viewBox="0 0 297 210">',
-            f'<text x="12" y="16" font-size="4">{piece["numero"]} {piece["revision"]}</text>',
-            f'<text x="12" y="22" font-size="3">{piece["nom"]} — {piece["matiere"]} — {piece["procede"]}</text>',
-            '<g transform="translate(40,120) scale(1,-1)">',
-            projection,
-            "</g></svg>",
-        ]),
-        encoding="utf-8",
-    )
     try:
         subprocess.run(
             ["/usr/bin/rsvg-convert", "-f", "pdf", "-o", str(chemin), str(svg)],
@@ -185,28 +335,24 @@ def _exporter_pdf(feature, piece, chemin):
     return str(chemin) if chemin.is_file() else "echec: fichier absent"
 
 
-def _exporter_dxf(page, chemin):
-    try:
-        import TechDraw
-        TechDraw.writeDXFPage(page, str(chemin))
-    except Exception as exc:
-        return f"echec: {exc}"
-    return str(chemin) if chemin.is_file() else "echec: fichier absent"
-
-
 def essai():
-    dossier = ICI / "sortie"
-    rapport = produire(ESSAI, dossier)
+    rapport = produire(ESSAI, ICI / "sortie")
     ecarts = controles.juger(rapport)
-    print("fichier", rapport["fichier"])
-    print("pdf", rapport["pdf"])
-    print("dxf", rapport["dxf"])
     lignes = [
         f"fichier {rapport['fichier']}",
+        f"step {rapport['step']}",
+        f"step_schema {rapport['step_schema']}",
         f"pdf {rapport['pdf']}",
         f"dxf {rapport['dxf']}",
         f"masse_g {rapport['masse_g']}",
+        f"empreinte {rapport['empreinte']}",
         f"cotes {rapport['cotes_mm']}",
+        f"cotes_texte {rapport['cotes_texte']}",
+        f"brep {rapport['brep_valide']} solides {rapport['solides']} volume {rapport['volume_mm3']}",
+        f"encombrement {rapport['encombrement_mm']}",
+        f"interferences {rapport['interferences_mm3']}",
+        f"vues {rapport['vues']}",
+        f"payload {rapport['payload']}",
     ]
     if ecarts:
         lignes.append("ecarts")
@@ -215,7 +361,8 @@ def essai():
     else:
         lignes.append("gabarit: ok")
         code = 0
-    (dossier / "resultat.txt").write_text("\n".join(lignes) + "\n", encoding="utf-8")
+    sortie = ICI / "sortie" / "resultat.txt"
+    sortie.write_text("\n".join(lignes) + "\n", encoding="utf-8")
     print("\n".join(lignes), flush=True)
     return code
 
