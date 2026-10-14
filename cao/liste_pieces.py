@@ -1,5 +1,6 @@
-"""Liste de pièces ASME v1.0 (14 oct. 2026).
+"""Liste de pièces ASME v1.1 (14 oct. 2026).
 
+v1.1 : le jeton ne part que vers VAULTIA_ORIGINE, et le fichier reste sous la sortie.
 v1.0 : enfants directs de GET /api/v2/pieces/{id}/nomenclature, au-dessus du cartouche.
 Pas de prix ni de fournisseur. Lancer :
     freecad.cmd -c "import runpy; runpy.run_path('cao/liste_pieces.py', run_name='__main__')"
@@ -8,8 +9,11 @@ Pas de prix ni de fournisseur. Lancer :
 import json
 import math
 import os
+import re
 import sys
+import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -30,6 +34,9 @@ HAUTEUR = 6.0
 BAS = 64.4  # juste au-dessus du cartouche (SVG y = 153,5)
 PLAFOND = 200.0
 MAX_LIGNES = int((PLAFOND - BAS) / HAUTEUR) - 1
+# Même motif que pieces.py (P01–P99, puis A… sans I O Q S X Z).
+_REVISION = re.compile(r"^(P(0[1-9]|[1-9][0-9])|[A-HJ-NPRTUVWY]{1,2})$")
+_NUMERO = re.compile(r"^VLT-[0-9]{5}$")
 
 ESSAI = {
     "id": 1,
@@ -128,6 +135,42 @@ def lignes(arbre):
     return resultat
 
 
+def _origine(url):
+    """Schéma, hôte et port. Un utilisateur ou un chemin dans la config est refusé plus haut."""
+    parties = urllib.parse.urlsplit(url)
+    if parties.username or parties.password or parties.scheme not in ("http", "https"):
+        raise ValueError("origine refusee")
+    if not parties.hostname:
+        raise ValueError("origine refusee")
+    port = parties.port
+    if port is None:
+        port = 443 if parties.scheme == "https" else 80
+    return f"{parties.scheme}://{parties.hostname.lower()}:{port}"
+
+
+def _origine_configuree():
+    """VAULTIA_ORIGINE = http://127.0.0.1:8300 , sans chemin."""
+    brut = os.environ.get("VAULTIA_ORIGINE", "").strip()
+    if not brut:
+        raise RuntimeError("origine absente")
+    parties = urllib.parse.urlsplit(brut)
+    if parties.path not in ("", "/") or parties.query or parties.fragment or parties.username:
+        raise RuntimeError("origine illisible")
+    try:
+        return _origine(brut)
+    except ValueError:
+        raise RuntimeError("origine illisible") from None
+
+
+class _RedirectionMemeOrigine(urllib.request.HTTPRedirectHandler):
+    """Une redirection vers une autre origine est refusée. Le jeton ne la suit pas."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if _origine(newurl) != _origine(req.full_url):
+            raise ValueError("redirection refusee")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def lire(url):
     """GET de la nomenclature. Le jeton reste dans VAULTIA_SESSION, jamais dans un fichier."""
     if not isinstance(url, str) or not url.startswith(("http://", "https://")):
@@ -135,12 +178,17 @@ def lire(url):
     jeton = os.environ.get("VAULTIA_SESSION", "").strip()
     if not jeton:
         raise RuntimeError("jeton absent")
+    if _origine(url) != _origine_configuree():
+        raise ValueError("origine refusee")
     req = urllib.request.Request(
         url,
         headers={"X-Session-Token": jeton, "Accept": "application/json"},
     )
+    opener = urllib.request.build_opener(_RedirectionMemeOrigine)
     try:
-        with urllib.request.urlopen(req, timeout=10) as rep:
+        with opener.open(req, timeout=10) as rep:
+            if _origine(rep.geturl()) != _origine(url):
+                raise ValueError("redirection refusee")
             corps = rep.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         raise RuntimeError(f"nomenclature http {exc.code}") from None
@@ -148,6 +196,42 @@ def lire(url):
     if not isinstance(arbre, dict):
         raise RuntimeError("nomenclature illisible")
     return arbre
+
+
+def _nom_fichier(valeur):
+    if not isinstance(valeur, str):
+        raise ValueError("nom illisible")
+    nom = valeur.strip()
+    if (
+        not nom
+        or len(nom) > 80
+        or nom in (".", "..")
+        or "/" in nom
+        or "\\" in nom
+        or "\x00" in nom
+        or ".." in nom
+    ):
+        raise ValueError("nom illisible")
+    return nom
+
+
+def _champs_chemin(arbre):
+    numero = arbre.get("numero")
+    revision = arbre.get("revision")
+    if not isinstance(numero, str) or not _NUMERO.match(numero):
+        raise ValueError("numero illisible")
+    if not isinstance(revision, str) or not _REVISION.match(revision):
+        raise ValueError("revision illisible")
+    return numero, revision, _nom_fichier(arbre.get("nom"))
+
+
+def _dans_sortie(racine, relatif):
+    """Le chemin résolu reste sous racine. Un ../ dans le JSON ne sort pas."""
+    racine = Path(racine).resolve()
+    cible = (racine / relatif).resolve()
+    if cible != racine and racine not in cible.parents:
+        raise ValueError("chemin hors sortie")
+    return cible
 
 
 def _texte(x, y, ligne, ancre="start"):
@@ -198,10 +282,10 @@ def produire(arbre, dossier):
     ecarts = juger(arbre)
     if ecarts:
         raise ValueError("; ".join(ecarts))
-    dossier = Path(dossier) / arbre["numero"] / arbre["revision"]
-    dossier.mkdir(parents=True, exist_ok=True)
-    nom = f"{arbre['numero']}_{arbre['nom']}_{arbre['revision']}_liste"
-    svg = dossier / f"{nom}.svg"
+    numero, revision, nom = _champs_chemin(arbre)
+    feuille = _dans_sortie(dossier, Path(numero) / revision)
+    feuille.mkdir(parents=True, exist_ok=True)
+    svg = _dans_sortie(dossier, Path(numero) / revision / f"{numero}_{nom}_{revision}_liste.svg")
     rangs = ecrire_svg(arbre, svg)
     pdf = gabarit._exporter_pdf(svg, svg.with_suffix(".pdf"))
     return {"lignes": rangs, "svg": str(svg), "pdf": pdf, "ecarts": []}
@@ -217,6 +301,7 @@ def essai():
     assert [r["numero"] for r in rangs] == ["VLT-10001", "VLT-10011"]
     assert rangs[0]["qte"] == "1" and rangs[1]["qte"] == "2"
     ancien = os.environ.pop("VAULTIA_SESSION", None)
+    ancienne_origine = os.environ.pop("VAULTIA_ORIGINE", None)
     try:
         try:
             lire("http://127.0.0.1/api/v2/pieces/1/nomenclature")
@@ -224,9 +309,73 @@ def essai():
             assert str(exc) == "jeton absent"
         else:
             raise AssertionError("lire sans jeton")
+        os.environ["VAULTIA_SESSION"] = "essai"
+        os.environ["VAULTIA_ORIGINE"] = "http://127.0.0.1:8300"
+        try:
+            lire("https://exemple.invalid/api/v2/pieces/1/nomenclature")
+        except ValueError as exc:
+            assert str(exc) == "origine refusee"
+        else:
+            raise AssertionError("origine etrangere")
+        appele = []
+
+        def _bloque(self, req, timeout=None):
+            appele.append(req.full_url)
+            raise urllib.error.URLError("arret")
+
+        vrai_open = urllib.request.OpenerDirector.open
+        urllib.request.OpenerDirector.open = _bloque
+        try:
+            try:
+                lire("http://127.0.0.1:8300/api/v2/pieces/1/nomenclature")
+            except urllib.error.URLError as exc:
+                assert "arret" in str(exc.reason)
+            else:
+                raise AssertionError("lire n'a pas appele le reseau")
+        finally:
+            urllib.request.OpenerDirector.open = vrai_open
+        assert appele == ["http://127.0.0.1:8300/api/v2/pieces/1/nomenclature"]
+        requete = urllib.request.Request(
+            "http://127.0.0.1:8300/api/v2/pieces/1/nomenclature",
+            headers={"X-Session-Token": "essai"},
+        )
+        try:
+            _RedirectionMemeOrigine().redirect_request(
+                requete, None, 302, "found", {}, "https://exemple.invalid/vole",
+            )
+        except ValueError as exc:
+            assert str(exc) == "redirection refusee"
+        else:
+            raise AssertionError("redirection")
+        reste = _RedirectionMemeOrigine().redirect_request(
+            requete, None, 302, "found", {}, "http://127.0.0.1:8300/autre",
+        )
+        assert reste.full_url == "http://127.0.0.1:8300/autre"
     finally:
         if ancien is not None:
             os.environ["VAULTIA_SESSION"] = ancien
+        else:
+            os.environ.pop("VAULTIA_SESSION", None)
+        if ancienne_origine is not None:
+            os.environ["VAULTIA_ORIGINE"] = ancienne_origine
+    fuite = dict(ESSAI)
+    fuite["nom"] = "../../hors"
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            produire(fuite, tmp)
+        except ValueError as exc:
+            assert str(exc) == "nom illisible"
+        else:
+            raise AssertionError("chemin")
+        assert list(Path(tmp).rglob("*")) == []
+        fuite["nom"] = "assemblage-essai"
+        fuite["numero"] = "VLT-10010/../../tmp"
+        try:
+            produire(fuite, tmp)
+        except ValueError as exc:
+            assert str(exc) == "numero illisible"
+        else:
+            raise AssertionError("numero")
     assert all("prix" not in r and "12.5" not in "".join(r.values()) for r in rangs)
     assert "VLT-10012" not in {r["numero"] for r in rangs}
     rapport = produire(ESSAI, gabarit.racine_sortie())
