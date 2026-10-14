@@ -1,13 +1,14 @@
-"""Gabarit CAO v2.1 (14 oct. 2026). Position des trous, Ø et tolérances.
+"""Gabarit CAO v2.2 (14 oct. 2026). Vues en 3e angle, prouvées par un coin.
 
-v2.0 : hors-tout, diamètre et entraxe sont des cotes TechDraw ; 0 ou absente échoue.
 v2.1 : cotes X et Y depuis les arêtes, préfixe 2X Ø … THRU, bloc de tolérances.
+v2.2 : Dessus depuis +Z, Droite depuis +X. Un coin mal placé fait échouer le rapport.
 Remplacer solide() pour la vraie géométrie. Lancer depuis ce dépôt :
     freecad.cmd -c "import runpy; runpy.run_path('cao/gabarit_piece.py', run_name='__main__')"
 """
 
 import hashlib
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -47,17 +48,16 @@ ESSAI = {
 NOTE_UNITES = "COTES EN POUCES [MILLIMÈTRES]. LES POUCES GOUVERNENT."
 BLOC_TOLERANCES = ".XX ±.01 [±0.25]   .XXX ±.005 [±0.13]   ANGLES ±1°"
 
-# Centres des vues, mm, origine en bas à gauche. 3e angle : dessus au-dessus,
-# droite à droite. L'iso n'est pas cotée.
-# Droite, XDirection (0, -1, 0) : axe droitier si Direction vaut (-1, 0, 0) et +Z en haut.
-# Mesure SVG : cran +Y en x négatif (M 10 -1.5 L -6 -1.5). (0, 1, 0) le passe en x positif
-# et retourne aussi Z. On ne change pas.
+# Centres des vues, mm, origine en bas à gauche. 3e angle.
+# Direction : de la pièce vers l'observateur. +X droite, −Y face, +Z dessus.
+# L'iso n'est pas cotée.
 VUES = {
     "Face": ((0, -1, 0), (1, 0, 0), 80, 90),
-    "Dessus": ((0, 0, -1), (1, 0, 0), 80, 130),
-    "Droite": ((-1, 0, 0), (0, -1, 0), 150, 90),
+    "Dessus": ((0, 0, 1), (1, 0, 0), 80, 130),
+    "Droite": ((1, 0, 0), (0, 1, 0), 150, 90),
     "Iso": ((1, -1, 1), (1, 1, 0), 210, 145),
 }
+COIN_ATTENDU = {"Face": "droite-haut", "Dessus": "droite-bas", "Droite": "gauche-haut"}
 
 
 def solide(part, piece):
@@ -118,12 +118,12 @@ def _vue(doc, page, feature, nom):
 
 
 def _axes(piece):
-    """Traits d'axe. Dessus regarde depuis -Z : un trait sur le dessus est caché
-    hors du trou. On les place sous la pièce. Le volume ne change pas.
+    """Traits d'axe. Dessus regarde depuis +Z : un trait sur la face est caché
+    hors du trou. On les lève de 0,2 mm. Le volume ne change pas.
     Pas de type d'axe sans fenêtre : traits continus."""
     traits = []
     debord = piece["D"] / 2.0 + 2.0
-    z = -0.2
+    z = piece["T"] + 0.2
     for x, y in piece["trous"]:
         traits.append(Part.makeLine(
             App.Vector(x - debord, y, z), App.Vector(x + debord, y, z)
@@ -454,9 +454,70 @@ def _exporter_pdf(svg, chemin):
     return str(chemin) if chemin.is_file() else "echec: fichier absent"
 
 
+def _points_svg(fragment):
+    return [
+        (float(x), float(y))
+        for x, y in re.findall(r"[ML]\s*([-+0-9.eE]+)\s+([-+0-9.eE]+)", fragment)
+    ]
+
+
+def _coin_coupe(points):
+    """Où est le cran. +x à droite de la feuille, +y en haut."""
+    minx = min(p[0] for p in points)
+    maxx = max(p[0] for p in points)
+    miny = min(p[1] for p in points)
+    maxy = max(p[1] for p in points)
+    cran = [p for p in points if minx + 0.5 < p[0] < maxx - 0.5]
+    if not cran:
+        return "indetermine"
+    mx = (minx + maxx) / 2.0
+    my = (miny + maxy) / 2.0
+    horizontal = "droite" if sum(p[0] for p in cran) / len(cran) > mx else "gauche"
+    vertical = "haut" if sum(p[1] for p in cran) / len(cran) > my else "bas"
+    return f"{horizontal}-{vertical}"
+
+
+def preuve_vues():
+    """Coin avant-droit-haut : +X, y=0, +Z. Le 3e angle le place ainsi :
+    face à droite et en haut, dessus à droite et en bas, droite à gauche et en haut."""
+    doc = App.newDocument("coin")
+    feature = doc.addObject("Part::Feature", "Solide")
+    feature.Shape = Part.makeBox(40, 20, 3).cut(Part.makeBox(4, 4, 1.5, App.Vector(36, 0, 1.5)))
+    doc.recompute()
+    page = doc.addObject("TechDraw::DrawPage", "Page")
+    template = doc.addObject("TechDraw::DrawSVGTemplate", "Gabarit")
+    template.Template = str(GABARIT)
+    page.Template = template
+    vues = {}
+    for nom in COIN_ATTENDU:
+        direction, xdir, x, y = VUES[nom]
+        obj = doc.addObject("TechDraw::DrawViewPart", "V" + nom)
+        obj.Source = [feature]
+        obj.Direction = App.Vector(*direction)
+        obj.XDirection = App.Vector(*xdir)
+        obj.Scale = 1
+        page.addView(obj)
+        obj.X = x
+        obj.Y = y
+        vues[nom] = obj
+    doc.recompute()
+    resultat = {}
+    for nom, obj in vues.items():
+        fragment = TechDraw.viewPartAsSvg(obj)
+        # viewPartAsSvg a +y vers le bas. scale(1,-1) de la feuille le remet vers le haut.
+        points = [(x, -y) for x, y in _points_svg(fragment)]
+        if not points:
+            raise RuntimeError(f"vue {nom} sans geometrie : {fragment!r}")
+        resultat[nom] = _coin_coupe(points)
+    App.closeDocument(doc.Name)
+    return resultat
+
+
 def essai():
+    coin = preuve_vues()
     rapport = produire(ESSAI, racine_sortie())
     ecarts = controles.juger(rapport)
+    rapport["coin"] = coin
     lignes = [
         f"fichier {rapport['fichier']}",
         f"step {rapport['step']}",
@@ -472,8 +533,11 @@ def essai():
         f"encombrement {rapport['encombrement_mm']}",
         f"interferences {rapport['interferences_mm3']}",
         f"vues {rapport['vues']}",
+        f"coin {coin}",
         f"payload {rapport['payload']}",
     ]
+    if coin != COIN_ATTENDU:
+        ecarts = list(ecarts) + [f"vues 3e angle : {coin}"]
     if ecarts:
         lignes.append("ecarts")
         lignes.extend(f"- {ecart}" for ecart in ecarts)
