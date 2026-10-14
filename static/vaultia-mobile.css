@@ -16,7 +16,7 @@
   .vt-titre-canal { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 15.5px/1.2 var(--v-ui); color: var(--v-ink); }
   .header-right { gap: 2px; min-width: 0; flex: 0 0 auto; justify-content: flex-end; }
   #agent-status { display: none !important; }
-  #rules-toggle, #pins-toggle, #help-btn { display: none !important; }
+  #rules-toggle, #pins-toggle, #help-btn, #vt-horaires-entete { display: none !important; }   /* envois programmés : dans « ⋯ » */
   #vt-plus-entete { display: inline-flex; }
   .settings-btn { width: 38px; height: 38px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 

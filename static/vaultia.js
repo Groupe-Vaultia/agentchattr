@@ -35,6 +35,7 @@
     crayon: ["M15.5 5.5l3 3L9 18H6v-3z", "M13.5 7.5l3 3"],
     plusieurs: ["circle:5.5,12,1.3", "circle:12,12,1.3", "circle:18.5,12,1.3"],
     bas: ["M12 5v13", "M6.5 12.5L12 18l5.5-5.5"],
+    horloge: ["circle:12,12,8.5", "M12 7.5v4.8l3.2 1.9"],
   };
   function ico(nom, taille) {
     const s = document.createElementNS(SVG_NS, "svg");
@@ -414,6 +415,134 @@
     row.insertBefore(b, doc ? doc.nextSibling : row.firstChild);
   }
 
+  // ---------- envois programmés : dans l'en-tête (horloge au bureau, « ⋯ » au téléphone), plus sur la saisie ----------
+  // La barre de chat.js (#schedules-bar) reste la source : elle est masquée (vaultia-theme.css)
+  // et on la surveille pour savoir quand la liste change. La liste elle-même est schedulesList (chat.js).
+  const horaires = () => (typeof schedulesList !== "undefined" && Array.isArray(schedulesList) ? schedulesList : []);
+  const deux = (n) => String(n).padStart(2, "0");
+  const heureFr = (d) => d.getHours() + " h " + deux(d.getMinutes());
+  const jourFr = (d) => d.toLocaleDateString("fr-CA", { weekday: "short", day: "numeric", month: "short" });
+  function rythme(s) {
+    if (s.one_shot) {
+      if (!s.next_run) return "une fois";
+      const d = new Date(s.next_run * 1000), demain = new Date();
+      demain.setDate(demain.getDate() + 1);
+      if (d.toDateString() === new Date().toDateString()) return "une fois, aujourd'hui à " + heureFr(d);
+      if (d.toDateString() === demain.toDateString()) return "une fois, demain à " + heureFr(d);
+      return "une fois, le " + jourFr(d) + " à " + heureFr(d);
+    }
+    if (s.daily_at) { const [h, m] = String(s.daily_at).split(":"); return "chaque jour à " + (parseInt(h, 10) || 0) + " h " + (m || "00"); }
+    const sec = s.interval_seconds || 0;
+    const n = (div) => Math.max(1, Math.round(sec / div));
+    if (sec < 3600) return n(60) === 1 ? "chaque minute" : "toutes les " + n(60) + " min";
+    if (sec < 86400) return n(3600) === 1 ? "chaque heure" : "toutes les " + n(3600) + " h";
+    return n(86400) === 1 ? "chaque jour" : "tous les " + n(86400) + " jours";
+  }
+  function prochain(s) {
+    if (s.active === false) return "en pause";
+    if (!s.next_run) return "";
+    const ms = s.next_run * 1000 - Date.now();
+    if (ms < 60000) return "part dans moins d'une minute";
+    const min = Math.ceil(ms / 60000);
+    if (min < 60) return "prochain dans " + min + " min";
+    if (min < 24 * 60) return "prochain dans " + Math.floor(min / 60) + " h" + (min % 60 ? " " + deux(min % 60) : "");
+    return "prochain le " + jourFr(new Date(s.next_run * 1000));
+  }
+  function surChangementHoraires(fn) {
+    const barre = document.getElementById("schedules-bar");
+    if (!barre) return null;
+    const obs = new MutationObserver(fn);
+    obs.observe(barre, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["class"] });
+    return obs;
+  }
+
+  function ouvrirHoraires() {
+    const liste = el("div", { class: "vt-horaires" });
+    let aConfirmer = null, delaiConfirmer = 0;
+    async function agir(b, url, methode, echec) {
+      occupe(b, true);
+      try {
+        const r = await appel(url, { method: methode });
+        if (!r.ok) throw new Error("HTTP " + r.status);
+      } catch (e) {
+        avertir(echec + " (" + e.message + ").");
+      } finally { occupe(b, false); }
+      // La liste se redessine quand le serveur diffuse le changement (la barre de chat.js bouge).
+    }
+    function dessiner() {
+      const tout = horaires();
+      liste.replaceChildren();
+      if (!tout.length) {
+        liste.append(el("p", { class: "vt-note" }, "Aucun envoi programmé. Le bouton horloge, à côté d'Envoyer, en programme un."));
+        return;
+      }
+      for (const s of tout) {
+        const enPause = s.active === false;
+        const cibles = (s.targets || []).map((t) => "@" + t).join(" ");
+        const canal = s.channel && s.channel !== (window.activeChannel || "general") ? "# " + s.channel : "";
+        const pause = el("button", { class: "vt-btn", type: "button", "aria-pressed": enPause ? "true" : "false" }, enPause ? "Reprendre" : "Pause");
+        pause.addEventListener("click", () => agir(pause, `/api/schedules/${encodeURIComponent(s.id)}/toggle`, "PATCH",
+          enPause ? "La reprise n'a pas pris" : "La pause n'a pas pris"));
+        // Supprimer en deux touches : au pouce, une seule touche effaçait l'envoi sans retour possible.
+        const confirme = aConfirmer === s.id;
+        const suppr = el("button", { class: "vt-btn vt-btn-danger" + (confirme ? " arme" : ""), type: "button" }, confirme ? "Confirmer" : "Supprimer");
+        suppr.addEventListener("click", () => {
+          clearTimeout(delaiConfirmer);
+          if (aConfirmer !== s.id) {
+            aConfirmer = s.id; dessiner();
+            delaiConfirmer = setTimeout(() => { aConfirmer = null; dessiner(); }, 4000);
+            return;
+          }
+          aConfirmer = null;
+          agir(suppr, `/api/schedules/${encodeURIComponent(s.id)}`, "DELETE", "La suppression n'a pas pris");
+        });
+        liste.append(el("div", { class: "vt-horaire" + (enPause ? " en-pause" : "") },
+          el("div", { class: "vt-horaire-tete" }, el("span", { class: "vt-horaire-cibles" }, cibles || "—"), canal ? el("span", { class: "vt-horaire-canal" }, canal) : null),
+          el("div", { class: "vt-horaire-message", title: s.prompt || "" }, s.prompt || ""),
+          el("div", { class: "vt-horaire-quand" }, [rythme(s), prochain(s)].filter(Boolean).join(" · ")),
+          el("div", { class: "vt-horaire-actions" }, pause, suppr)));
+      }
+    }
+    dessiner();
+    const obs = surChangementHoraires(dessiner);
+    const minuterie = setInterval(() => { if (!document.hidden) dessiner(); }, 30000);   // « prochain dans … » avance
+    overlay("Envois programmés", liste, true, () => { if (obs) obs.disconnect(); clearInterval(minuterie); clearTimeout(delaiConfirmer); });
+  }
+
+  // Bureau : une horloge dans l'en-tête (le compte en pastille discrète, le prochain envoi en infobulle).
+  // Au téléphone elle est masquée (vaultia-mobile.css) et la ligne « Envois programmés » de « ⋯ » la remplace.
+  function horairesEntete() {
+    const droite = document.querySelector("header .header-right");
+    if (!droite || document.getElementById("vt-horaires-entete")) return;
+    const pastille = el("span", { class: "vt-horaires-badge", "aria-hidden": "true", hidden: true });
+    const b = el("button", { id: "vt-horaires-entete", class: "settings-btn", type: "button", title: "Envois programmés",
+      "aria-label": "Envois programmés", onclick: ouvrirHoraires }, ico("horloge", 17), pastille);
+    droite.insertBefore(b, document.getElementById("rules-toggle"));
+    const maj = () => {
+      const tout = horaires(), actifs = tout.filter((s) => s.active !== false);
+      pastille.hidden = !tout.length; pastille.textContent = tout.length > 99 ? "99+" : String(tout.length);
+      const futurs = actifs.filter((s) => s.next_run && s.next_run * 1000 > Date.now());
+      const proche = futurs.length ? futurs.reduce((a, s) => (s.next_run < a.next_run ? s : a)) : null;
+      const resume = !tout.length ? "Envois programmés : aucun"
+        : `${tout.length} envoi${tout.length > 1 ? "s" : ""} programmé${tout.length > 1 ? "s" : ""}`
+          + (tout.length > actifs.length ? ` (${tout.length - actifs.length} en pause)` : "")
+          + (proche ? " · " + prochain(proche) : "");
+      b.title = resume; b.setAttribute("aria-label", resume);
+    };
+    maj();
+    surChangementHoraires(maj);
+    setInterval(() => { if (!document.hidden) maj(); }, 30000);
+    // La barre est masquée partout : son éclair de confirmation (chat.js) ne se voit plus. Un message le remplace.
+    const barre = document.getElementById("schedules-bar");
+    let eclair = false;   // un seul message par éclair, même si la barre change de classe pendant les 2 s
+    if (barre) new MutationObserver(() => {
+      const maintenant = barre.classList.contains("sched-flash");
+      if (maintenant && !eclair && typeof window.showToast === "function")
+        window.showToast(estMobile() ? "Envoi programmé. Il est dans ⋯ › Envois programmés." : "Envoi programmé. Il est sous l'horloge, en haut.", "success");
+      eclair = maintenant;
+    }).observe(barre, { attributes: true, attributeFilter: ["class"] });
+  }
+
   // ---------- en-tête du téléphone : titre de la conversation + menu « plus » ----------
   function enteteTelephone() {
     const gauche = document.querySelector("header .header-left");
@@ -428,6 +557,14 @@
     const menu = el("div", { id: "vt-menu-plus", class: "vt-menu", role: "menu", hidden: true });
     const fermerMenu = () => { menu.hidden = true; plus.setAttribute("aria-expanded", "false"); };
     const lignes = {};
+    // Envois programmés : le compte sur la ligne seulement. Ce n'est pas une attente à traiter,
+    // donc pas sur la pastille de « ⋯ » (elle resterait allumée en permanence).
+    const compteHoraires = el("span", { class: "vt-menu-compte" });
+    menu.append(el("button", { id: "vt-menu-horaires", class: "vt-menu-item", type: "button", role: "menuitem",
+      onclick: () => { fermerMenu(); ouvrirHoraires(); } }, el("span", {}, "Envois programmés"), compteHoraires));
+    const recompterHoraires = () => { const n = horaires().length; compteHoraires.textContent = n ? String(n) : ""; };
+    recompterHoraires();
+    surChangementHoraires(recompterHoraires);
     [["rules-toggle", "Règles de la salle", "rules-badge"], ["pins-toggle", "Épingles", null], ["help-btn", "Aide", null]].forEach(([id, texte, badge]) => {
       const compte = el("span", { class: "vt-menu-compte" });
       lignes[id] = { compte, badge };
@@ -585,6 +722,6 @@
     setTimeout(verifier, 4000);
   }
 
-  function init() { railMenu(); boutonPhoto(); bandeauReflexion(); enteteTelephone(); reglages(); badgesAvatars(); miseAJour(); }
+  function init() { railMenu(); boutonPhoto(); bandeauReflexion(); horairesEntete(); enteteTelephone(); reglages(); badgesAvatars(); miseAJour(); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
 })();
