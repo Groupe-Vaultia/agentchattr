@@ -1,6 +1,7 @@
 """Contrat du gabarit CAO N2b.
 
-v0.5 (2026-10-14, codex) : place les fichiers de sortie hors du dépôt.
+v0.6 (2026-10-14, codex) : valide le volume avec deux trous et les cotes D/E.
+v0.5 : place les fichiers de sortie hors du dépôt.
 v0.4 : compare le volume commun avec tolérance flottante.
 v0.3 : expose FreeCAD dans le runner pour TechDraw.
 v0.2 : place les fixtures temporaires sous le worktree pour FreeCAD Snap.
@@ -83,8 +84,11 @@ class CaoN2bContractTests(unittest.TestCase):
             self.assertEqual(controles.juger(report), [])
             self.assertTrue(report["brep_valide"])
             self.assertEqual(report["solides"], 1)
-            self.assertAlmostEqual(report["volume_mm3"], 2400.0)
-            self.assertEqual(report["cotes_mm"], {"L": 40.0, "W": 20.0, "T": 3.0})
+            self.assertAlmostEqual(report["volume_mm3"], 2324.6018, delta=0.01)
+            self.assertEqual(
+                report["cotes_mm"],
+                {"L": 40.0, "W": 20.0, "T": 3.0, "D": 4.0, "E": 16.0},
+            )
             self.assertEqual(len(data["overlap"]), 1)
             self.assertAlmostEqual(data["overlap"][0], 500.0)
 
