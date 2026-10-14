@@ -17,14 +17,28 @@ _AVANT = {"J1": ETAPES[:3], "J2": ("essais",), "revue": ("industrialisation",)}
 _JALONS_PAR_NIVEAU = {"leger": ("J2",), "moyen": ("J1", "J2"), "lourd": ("J1", "J2", "revue")}
 
 
-def _jalons_dus(pid: str, niveau: str, taches: list[dict], jalons: list[dict]) -> list[str]:
-    dus = []
+def _jalons_dus(pid: str, niveau: str, taches: list[dict], jalons: list[dict]) -> tuple[list[str], list[dict]]:
+    """Rend (jalons dus, recyclages a preparer). Apres un recycle (revue codex msg 2300), le jalon ne redevient du
+    qu'une fois des taches de reprise creees apres la decision, a l'etape visee ou apres, et toutes faites. Sans
+    tache de reprise, la ronde demande a claude de les creer (`recyclages`) au lieu de rebloquer le meme jalon."""
+    dus, recyclages = [], []
     for nom in _JALONS_PAR_NIVEAU.get(niveau, _JALONS_PAR_NIVEAU["moyen"]):
+        decides = sorted((j for j in jalons if j["jalon"] == nom and j.get("decision")),
+                         key=lambda j: j.get("decision_date") or 0)
+        if decides and decides[-1]["decision"] == "go":
+            continue
         avant = [t for t in taches if t.get("etape") in _AVANT[nom]]
-        passe = any(j["jalon"] == nom and j.get("decision") == "go" for j in jalons)
-        if avant and all(t.get("etat") == "fait" for t in avant) and not passe:
+        if decides and decides[-1]["decision"] == "recycle":
+            d = decides[-1]
+            reprise = [t for t in taches if (t.get("created_at") or 0) > (d.get("decision_date") or 0)
+                       and t.get("etape") in ETAPES[ETAPES.index(d["recycle_etape"]):]]
+            if not reprise:
+                recyclages.append({"projet_id": pid, "jalon": nom, "etape": d["recycle_etape"], "jalon_id": d["id"]})
+                continue
+            avant = reprise
+        if avant and all(t.get("etat") == "fait" for t in avant):
             dus.append(nom)
-    return dus
+    return dus, recyclages
 
 
 def _etape_courante(taches: list[dict]) -> str:
@@ -59,13 +73,16 @@ def ronde(projets: dict, taches: list[dict], executions: list[dict], jalons: lis
     sortie["jalons_en_attente"] = [{"jalon_id": j["id"], "projet_id": j["projet_id"], "jalon": j["jalon"],
                                     "recommandation": j["recommandation"]}
                                    for j in jalons if j["projet_id"] in actifs and not j.get("decision")]
-    sortie["jalons_dus"], sortie["prochaines"] = [], []
+    sortie["jalons_dus"], sortie["recyclages"], sortie["prochaines"] = [], [], []
     for pid in sorted(actifs):
         tp = [t for t in taches if t.get("projet_id") == pid]
         jp = [j for j in jalons if j["projet_id"] == pid]
         if any(not j.get("decision") for j in jp):
             continue  # en attente de Charles : ni jalon a preparer, ni tache a lancer
-        dus = _jalons_dus(pid, projets[pid].get("niveau") or "moyen", tp, jp)
+        dus, recy = _jalons_dus(pid, projets[pid].get("niveau") or "moyen", tp, jp)
+        if recy:
+            sortie["recyclages"] += recy
+            continue
         if dus:
             sortie["jalons_dus"].append({"projet_id": pid, "jalon": dus[0]})
             continue
