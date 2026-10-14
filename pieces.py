@@ -26,6 +26,7 @@ UNITES = ("u", "m", "kg")
 MOUVEMENTS = ("commande", "reception", "fabrication", "rebut", "consommation")
 _REVISION = re.compile(r"^(P(0[1-9]|[1-9][0-9])|[A-HJ-NPRTUVWY]{1,2})$")  # P01-P99, puis A… sans I O Q S X Z
 PREMIER_NUMERO = 10001
+VERSION_SCHEMA = 1  # PRAGMA user_version : toute evolution du schema passe par une migration numerotee (_MIGRATIONS)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS compteur (nom TEXT PRIMARY KEY, valeur INTEGER NOT NULL);
@@ -83,7 +84,31 @@ class PieceStore:
         self._db.row_factory = sqlite3.Row
         self._db.execute("PRAGMA foreign_keys = ON")
         self._db.executescript(_SCHEMA)
+        self._migrer()
         self._db.commit()
+
+    # Migrations : une fonction par version, appliquee une seule fois, dans l'ordre. Une base plus recente que ce
+    # code est refusee (on ne l'abime pas avec un ancien serveur).
+    _MIGRATIONS: dict = {}
+
+    def _migrer(self) -> None:
+        v = self._db.execute("PRAGMA user_version").fetchone()[0]
+        if v > VERSION_SCHEMA:
+            raise RuntimeError(f"pieces.db en version {v}, ce code connait {VERSION_SCHEMA} : mettre le serveur a jour")
+        for n in range(max(v, 0) + 1, VERSION_SCHEMA + 1):
+            if n in self._MIGRATIONS:
+                self._MIGRATIONS[n](self._db)
+            self._db.execute(f"PRAGMA user_version = {n}")
+
+    def integrite(self) -> list[str]:
+        """Rend [] si tout va bien : integrite sqlite, cles etrangeres, aucun cycle de nomenclature."""
+        with self._lock:
+            pb = [r[0] for r in self._db.execute("PRAGMA integrity_check") if r[0] != "ok"]
+            pb += [f"cle etrangere : {tuple(r)}" for r in self._db.execute("PRAGMA foreign_key_check")]
+            for r in self._db.execute("SELECT DISTINCT parent_id FROM nomenclature"):
+                if r[0] in self._descendants(r[0]):
+                    pb.append(f"cycle sous la piece {r[0]}")
+            return pb
 
     # ---------- pieces ----------
     def _ligne(self, piece_id: int) -> dict:
@@ -381,6 +406,9 @@ class PieceStore:
     def sauvegarder(self, dossier: str, garder_jours: int = 30) -> Path:
         d = Path(dossier)
         d.mkdir(parents=True, exist_ok=True)
+        pb = self.integrite()
+        if pb:  # on ne remplace pas une bonne sauvegarde par une base abimee
+            raise RuntimeError("sauvegarde annulee, base a verifier : " + "; ".join(pb[:5]))
         cible = d / f"pieces-{time.strftime('%Y-%m-%d')}.db"
         with self._lock:
             dest = sqlite3.connect(str(cible))

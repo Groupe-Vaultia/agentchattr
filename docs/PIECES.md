@@ -1,4 +1,7 @@
-# Pièces et nomenclature — spécification v0.7
+# Pièces et nomenclature — spécification v0.8
+
+v0.8 (13 oct. 2026, claude) : structure de la base garantie (Charles, msg 2394) : un seul écrivain (le serveur, par ses
+routes), contraintes SQLite, version de schéma et migrations numérotées, contrôle d'intégrité avant chaque sauvegarde.
 
 v0.7 (13 oct. 2026, claude) : N1 et N2 codés. Ajouts au contrat : `GET /api/v2/pieces/{id}` (fiche + offres + historique +
 stock), `DELETE /api/v2/nomenclature/{parent}/{enfant}`, mouvement `consommation`, champ `a_convertir` dans les achats
@@ -51,6 +54,17 @@ nomenclature, chacune rattachée à la tâche qui la conçoit ou l'achète.
   bloquer le serveur. Le laptop éteint = copie reprise au jour suivant.
 - Fichiers CAO et plans : dans les worktrees de l'atelier (racine des livrables S5) ; la pièce garde le chemin et
   l'empreinte sha256, comme les révisions figées.
+
+## Garder la base structurée
+
+| Garde-fou | Où |
+|---|---|
+| Un seul écrivain : le serveur. Agents et interface passent par les routes ; personne n'ouvre `pieces.db` à la main | règle d'équipe |
+| Contraintes dans la base : `NOT NULL`, numéro `UNIQUE`, clés étrangères actives, clé primaire de nomenclature | schéma |
+| Règles dans le code : listes fermées, format de révision, source obligatoire, cycle refusé, révision figée | `pieces.py` |
+| Version du schéma (`PRAGMA user_version`) ; toute évolution = migration numérotée ; une base plus récente que le code est refusée | `pieces.py` |
+| Contrôle d'intégrité (sqlite, clés étrangères, cycles) avant chaque sauvegarde ; une base abîmée n'écrase pas la dernière bonne copie | `pieces.py` |
+| Chaque changement tracé (qui, quand, avant, après) ; 30 jours de sauvegardes sur la tour + copie sur x1 | `historique_pieces`, sauvegardes |
 
 ## Projet parent
 
