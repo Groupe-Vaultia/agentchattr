@@ -815,10 +815,16 @@ window.addEventListener("resize", () => {});
 // U4 : les alertes (sauvegarde, copie hors tour) sont globales, pas propres à un projet.
 // Rechargées au démarrage, au retour sur l'onglet et toutes les 5 min : la boucle de
 // sauvegarde réessaie chaque heure, une page ouverte doit donc suivre (alerte levée ou nouvelle).
-// GET /api/v2/ronde absent (404) = bandeau vide, pas d'erreur.
+// Règle P2 : on ne vide jamais le bandeau sur une erreur transitoire (5xx, réseau).
+// Vider uniquement sur 404 (route absente) ou sur une réponse valide dont la liste est vide.
 async function loadAlertes() {
   const r = await getJSON("/api/v2/ronde");
-  state.alertes = (r.ok && r.data && Array.isArray(r.data.alertes)) ? r.data.alertes : [];
+  if (r.status === 404) {
+    state.alertes = [];
+  } else if (r.ok && r.data && Array.isArray(r.data.alertes)) {
+    state.alertes = r.data.alertes;
+  }
+  // sinon : garder le dernier état connu (erreur transitoire)
   renderAlertes();
 }
 
