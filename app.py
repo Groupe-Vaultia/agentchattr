@@ -47,6 +47,7 @@ executions: ExecutionStore | None = None  # SOCLE-SHOP S3
 revisions: RevisionStore | None = None  # SOCLE-SHOP S5
 jalons: JalonStore | None = None  # SOCLE-SHOP v1.1 P1
 pieces: PieceStore | None = None  # PIECES.md N1
+_copie_pieces = [""]
 schedules: ScheduleStore | None = None
 router: Router | None = None
 agents: AgentTrigger | None = None
@@ -322,7 +323,8 @@ def configure(cfg: dict, session_token: str = ""):
     jalons = JalonStore(str(Path(data_dir) / "jalons.json"))
     # PIECES.md N1 : la base des pieces vit sur la tour, dans data/ (exclu du depot public).
     pieces = PieceStore(str(Path(data_dir) / "pieces.db"))
-    _demarrer_sauvegardes(Path(data_dir), cfg.get("socle", {}).get("copie_pieces", ""))
+    _copie_pieces[0] = cfg.get("socle", {}).get("copie_pieces", "")
+    _demarrer_sauvegardes(Path(data_dir), _copie_pieces[0])
 
     schedules = ScheduleStore(str(Path(data_dir) / "schedules.json"))
     schedules.on_change(_on_schedule_change)
@@ -2544,7 +2546,10 @@ async def projet_verifier(projet_id: str, numero: str):
 async def get_ronde():
     v2 = _projets.lister()["v2"]["projets"]
     taches = [t for pid in v2 for t in jobs.taches(pid)]
-    return JSONResponse(_ronde(v2, taches, executions.lister(), jalons.lister() if jalons else [], _methodes_etapes()))
+    sortie = _ronde(v2, taches, executions.lister(), jalons.lister() if jalons else [], _methodes_etapes())
+    sortie["alertes"] = _alertes_sauvegarde(bool(_copie_pieces[0])) if pieces is not None else []
+    sortie["rien_a_faire"] = sortie["rien_a_faire"] and not sortie["alertes"]
+    return JSONResponse(sortie)
 
 
 # SOCLE-SHOP v1.1 P3 : la methode de chaque etape vient de docs/PILOTE.md (une section `## <etape>` par etape).
@@ -3547,26 +3552,46 @@ async def serve_upload(filename: str):
 
 # --- PIECES.md v0.6 (lot N1) : pieces, offres, nomenclature, mouvements, sauvegarde ---
 
+# Etat de la derniere sauvegarde, lu par la ronde (revue codex msg 2409 : un echec doit se voir, pas seulement au journal).
+_etat_sauvegarde: dict = {"local": "", "copie": "", "erreur": ""}
+
+
+def _alertes_sauvegarde(copie_configuree: bool) -> list[str]:
+    jour = time.strftime("%Y-%m-%d")
+    hier = time.strftime("%Y-%m-%d", time.localtime(time.time() - 86400))
+    a = []
+    if _etat_sauvegarde["local"] not in (jour, hier):
+        a.append(f"sauvegarde des pieces : derniere locale {_etat_sauvegarde['local'] or 'aucune'} ({_etat_sauvegarde['erreur'] or 'pas encore faite'})")
+    if copie_configuree and _etat_sauvegarde["copie"] not in (jour, hier):
+        a.append(f"copie des pieces hors tour : derniere {_etat_sauvegarde['copie'] or 'aucune'} ({_etat_sauvegarde['erreur'] or 'pas encore faite'})")
+    return a
+
+
 def _demarrer_sauvegardes(data_dir: Path, copie: str):
     """Une sauvegarde par jour dans data/sauvegardes (30 jours), puis copie par scp vers `copie`
-    ([socle] copie_pieces = "x1:vaultia-sauvegardes/"). Un echec s'ecrit au journal, sans bloquer le serveur."""
+    ([socle] copie_pieces = "x1:vaultia-sauvegardes/"). Chaque heure, on reessaie ce qui n'a pas reussi aujourd'hui
+    (laptop eteint = copie au prochain essai) ; l'etat va dans la ronde (`alertes`)."""
     import subprocess
 
     def boucle():
         import time as _t
-        dernier = ""
         while True:
             jour = _t.strftime("%Y-%m-%d")
-            if jour != dernier and pieces is not None:
+            if pieces is not None:
                 try:
-                    f = pieces.sauvegarder(str(data_dir / "sauvegardes"))
-                    dernier = jour
-                    if copie:
-                        r = subprocess.run(["scp", "-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", str(f), copie],
-                                           capture_output=True, text=True, timeout=120)
+                    if _etat_sauvegarde["local"] != jour:
+                        f = pieces.sauvegarder(str(data_dir / "sauvegardes"))
+                        _etat_sauvegarde.update(local=jour, fichier=str(f), erreur="")
+                    if copie and _etat_sauvegarde["copie"] != jour:
+                        r = subprocess.run(["scp", "-q", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+                                            _etat_sauvegarde["fichier"], copie], capture_output=True, text=True, timeout=120)
                         if r.returncode:
-                            log.warning("copie des pieces vers %s : echec (%s), reprise demain", copie, r.stderr.strip()[:200])
-                except Exception:
+                            _etat_sauvegarde["erreur"] = f"copie : {r.stderr.strip()[:160] or 'echec'}"
+                            log.warning("copie des pieces vers %s : echec, nouvel essai dans 1 h", copie)
+                        else:
+                            _etat_sauvegarde.update(copie=jour, erreur="")
+                except Exception as exc:
+                    _etat_sauvegarde["erreur"] = str(exc)[:160]
                     log.exception("sauvegarde des pieces")
             _t.sleep(3600)
 
@@ -3579,6 +3604,18 @@ async def _corps(request: Request) -> dict | JSONResponse:
     except Exception:
         return JSONResponse({"error": "invalid json"}, status_code=400)
     return body if isinstance(body, dict) else JSONResponse({"error": "objet attendu"}, status_code=400)
+
+
+_AUTEURS = ("user", "claude", "codex", "gemini", "grok", "qwencode")
+
+
+def _auteur(body: dict) -> str:
+    """`par` obligatoire, parmi les membres de l'equipe. C'est une declaration, pas une preuve d'identite (meme
+    convention que les jalons, revue codex msg 2409) : l'historique dit « declare par »."""
+    qui = str(body.pop("par", "")).strip()
+    if qui not in _AUTEURS:
+        raise _ErreurPiece(f"par obligatoire, parmi {', '.join(_AUTEURS)}")
+    return qui
 
 
 def _piece_route(fn):
@@ -3606,7 +3643,7 @@ async def create_piece(request: Request):
     body = await _corps(request)
     if isinstance(body, JSONResponse):
         return body
-    qui = str(body.pop("par", "claude"))
+    qui = _auteur(body)
     if body.get("projet_id") and not _projets.existe(str(body["projet_id"])):
         return JSONResponse({"error": "projet inconnu"}, status_code=404)
     return JSONResponse(pieces.creer(body, qui))
@@ -3632,7 +3669,9 @@ async def patch_piece(piece_id: int, request: Request):
     body = await _corps(request)
     if isinstance(body, JSONResponse):
         return body
-    qui = str(body.pop("par", "claude"))
+    qui = _auteur(body)
+    if body.get("projet_id") and not _projets.existe(str(body["projet_id"])):
+        return JSONResponse({"error": "projet inconnu"}, status_code=404)
     return JSONResponse(pieces.modifier(piece_id, body, qui, tache_faite=_tache_faite))
 
 
@@ -3666,7 +3705,7 @@ async def post_offre(piece_id: int, request: Request):
     body = await _corps(request)
     if isinstance(body, JSONResponse):
         return body
-    return JSONResponse(pieces.ajouter_offre(piece_id, body, str(body.get("par", "grok"))))
+    return JSONResponse(pieces.ajouter_offre(piece_id, body, _auteur(body)))
 
 
 @app.post("/api/v2/pieces/{piece_id}/mouvements")
@@ -3676,7 +3715,7 @@ async def post_mouvement(piece_id: int, request: Request):
     if isinstance(body, JSONResponse):
         return body
     return JSONResponse(pieces.mouvement(piece_id, body.get("quantite"), str(body.get("quoi", "")),
-                                         str(body.get("par", "user")), str(body.get("preuve", ""))))
+                                         _auteur(body), str(body.get("preuve", ""))))
 
 
 @app.get("/api/v2/projects/{projet_id}/achats")

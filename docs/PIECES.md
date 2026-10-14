@@ -1,4 +1,10 @@
-# Pièces et nomenclature — spécification v0.8
+# Pièces et nomenclature — spécification v0.9
+
+v0.9 (13 oct. 2026, claude) : revue codex (msg 2409). `source` = URL http(s) ou « devis: … » (aucun autre schéma, lien
+seulement pour http(s)) ; `par` obligatoire dans toute écriture (user, claude, codex, gemini, grok, qwencode), une
+déclaration et non une preuve ; quantités finies, signe imposé par le mouvement (réception +, rebut −) ; `projet_id`
+vérifié au PATCH ; un assemblage avec enfants ne change pas de type ; sauvegarde et copie réessayées chaque heure,
+état visible dans la ronde (`alertes`).
 
 v0.8 (13 oct. 2026, claude) : structure de la base garantie (Charles, msg 2394) : un seul écrivain (le serveur, par ses
 routes), contraintes SQLite, version de schéma et migrations numérotées, contrôle d'intégrité avant chaque sauvegarde.

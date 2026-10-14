@@ -376,7 +376,7 @@ async function ouvrirPiece(id) {
   // offres sourcées
   const offres = (p.offres || []);
   const offresHtml = offres.length
-    ? `<div class="fc"><div class="lbl">Offres (${offres.length})</div><ul class="fhist">${offres.map(o => `<li><time>${esc(o.devise || "CAD")}</time><span><b>${esc(o.reference || "")}</b>${o.fournisseur ? ` <span class="cap">(${esc(o.fournisseur.nom || o.fournisseur)})</span>` : ""} · ${fmtCAD(o.prix, o.devise)}${o.livraison != null ? " + liv. " + fmtCAD(o.livraison, o.devise) : ""}${o.source ? ` <a href="${esc(o.source)}" target="_blank" rel="noopener">source</a>` : `<span class="cap" style="color:var(--bad)">sans source</span>`}${o.date ? ` <span class="cap">${esc(heure(o.date))}</span>` : ""}</span></li>`).join("")}</ul></div>`
+    ? `<div class="fc"><div class="lbl">Offres (${offres.length})</div><ul class="fhist">${offres.map(o => `<li><time>${esc(o.devise || "CAD")}</time><span><b>${esc(o.reference || "")}</b>${o.fournisseur ? ` <span class="cap">(${esc(o.fournisseur.nom || o.fournisseur)})</span>` : ""} · ${fmtCAD(o.prix, o.devise)}${o.livraison != null ? " + liv. " + fmtCAD(o.livraison, o.devise) : ""}${lienSource(o.source)}${o.date ? ` <span class="cap">${esc(heure(o.date))}</span>` : ""}</span></li>`).join("")}</ul></div>`
     : (p.origine === "acheter" ? `<div class="fc"><div class="lbl">Offres</div><p class="cap" style="color:var(--warn)">Aucune offre sourcée. grok magasine au moins 3 offres pour cette pièce.</p></div>` : "");
   // Où elle est utilisée : les assemblages parents (champ serveur utilisee_dans), à part des enfants.
   const ud = p.utilisee_dans || [];
@@ -429,7 +429,7 @@ function renderAchats() {
     const o = l.offre; // objet : {fournisseur, reference, prix, devise, livraison, source, date, …}
     const offreCell = o
       ? `<div><b>${esc(o.reference || "")}</b>${o.fournisseur ? `<div class="sub">${esc(o.fournisseur)}</div>` : ""}</div>` +
-        `<span class="cap">${fmtCAD(o.prix, o.devise)}${o.source ? ` · <a href="${esc(o.source)}" target="_blank" rel="noopener">source</a>` : `<span style="color:var(--bad)">sans source</span>`}</span>`
+        `<span class="cap">${fmtCAD(o.prix, o.devise)} · ${lienSource(o.source)}</span>`
       : `<span class="cap" style="color:var(--warn)">sans offre</span>`;
     return `<tr>
     <td><code>${esc(l.numero || "")}</code><div class="sub">${esc(l.nom || "")}</div></td>
@@ -568,6 +568,16 @@ async function nouvelleTache(e) {
   toast(r.ok ? "Tâche ajoutée." : "Ajout refusé (route POST /api/v2/taches non branchée pour l'instant).");
   if (r.ok) { e.target.hidden = true; await loadProjet(); }
 }
+
+// Source d'une offre : lien seulement pour http(s) ; un devis (« devis: … ») reste du texte. Jamais javascript: ni
+// data: dans un href, même si une vieille donnée en contenait (revue codex msg 2409).
+const lienSource = src => {
+  const t = String(src || "").trim();
+  if (!t) return `<span class="cap" style="color:var(--bad)">sans source</span>`;
+  return /^https?:\/\/[^\s<>"]+$/i.test(t)
+    ? ` <a href="${esc(t)}" target="_blank" rel="noopener noreferrer">source</a>`
+    : ` <span class="cap">${esc(t)}</span>`;
+};
 
 // ---------- fiche d'une tâche / d'une étape (dialogue) ----------
 // Champs de la tâche (S2), dans l'ordre de lecture ; seuls les champs remplis s'affichent.

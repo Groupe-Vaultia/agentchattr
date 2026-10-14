@@ -12,6 +12,7 @@ v1 (13 oct. 2026, claude) : base SQLite sur la tour (`data/pieces.db`, hors du d
 """
 from __future__ import annotations
 
+import math
 import re
 import sqlite3
 import threading
@@ -73,6 +74,18 @@ def _choix(champ: str, valeur, permis) -> str:
     if v not in permis:
         raise Erreur(f"{champ} parmi {', '.join(p for p in permis if p) or '(vide)'}")
     return v
+
+
+def source_valide(source: str) -> bool:
+    """Une URL http ou https avec un hote, ou un devis ecrit « devis: … ». Aucun autre schema (javascript:, data:…)."""
+    from urllib.parse import urlparse
+    if source.lower().startswith("devis:") and source[6:].strip():
+        return True
+    u = urlparse(source)
+    return u.scheme in ("http", "https") and bool(u.netloc) and not any(c in source for c in " \n\r\t<>\"")
+
+
+_SIGNE = {"commande": 1, "reception": 1, "fabrication": 1, "rebut": -1, "consommation": -1}
 
 
 class PieceStore:
@@ -140,8 +153,8 @@ class PieceStore:
                     raise Erreur("revision : P01 a P99, puis A, B, C… (sans I, O, Q, S, X, Z)")
                 out[c] = str(v)
             elif c == "masse_g":
-                if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0):
-                    raise Erreur("masse_g : nombre positif")
+                if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0):
+                    raise Erreur("masse_g : nombre fini positif")
                 out[c] = v
             elif c == "tache_id":
                 if v is not None and (isinstance(v, bool) or not isinstance(v, int)):
@@ -180,6 +193,8 @@ class PieceStore:
         c = self._valider(champs, partiel=True)
         with self._lock:
             avant = self._ligne(piece_id)
+            if c.get("type", "assemblage") != "assemblage" and avant["type"] == "assemblage" and self._enfants(piece_id):
+                raise Erreur("cet assemblage a des enfants : retire-les avant de changer son type", 409)
             if c.get("statut") == "validee":
                 tid = c.get("tache_id", avant["tache_id"])
                 if tid is None or tache_faite is None or not tache_faite(tid):
@@ -262,17 +277,22 @@ class PieceStore:
 
     def ajouter_offre(self, piece_id: int, champs: dict, qui: str) -> dict:
         source = str(champs.get("source", "")).strip()
-        if not source:
-            raise Erreur("source obligatoire (URL ou devis) : pas de prix sans source")
+        if not source_valide(source):
+            raise Erreur("source obligatoire : une URL http(s)://… ou « devis: <reference> » (revue codex msg 2409)")
         prix = champs.get("prix")
-        if isinstance(prix, bool) or not isinstance(prix, (int, float)) or prix < 0:
+        if isinstance(prix, bool) or not isinstance(prix, (int, float)) or not math.isfinite(prix) or prix < 0:
             raise Erreur("prix : nombre positif")
         devise = str(champs.get("devise", "CAD")).upper()
         if not re.fullmatch(r"[A-Z]{3}", devise):
             raise Erreur("devise : code a 3 lettres (CAD, USD…)")
         livraison = champs.get("livraison")
-        if livraison is not None and (isinstance(livraison, bool) or not isinstance(livraison, (int, float)) or livraison < 0):
+        if livraison is not None and (isinstance(livraison, bool) or not isinstance(livraison, (int, float))
+                                      or not math.isfinite(livraison) or livraison < 0):
             raise Erreur("livraison : nombre positif")
+        qmin = champs.get("quantite_min", 1)
+        if isinstance(qmin, bool) or not isinstance(qmin, (int, float)) or not math.isfinite(qmin) or qmin <= 0:
+            raise Erreur("quantite_min : nombre fini > 0")
+        qmin = float(qmin)
         fid = None
         if champs.get("fournisseur"):
             fid = self.fournisseur(str(champs["fournisseur"]))["id"]
@@ -282,7 +302,7 @@ class PieceStore:
                 "INSERT INTO offres (piece_id, fournisseur_id, reference, prix, devise, quantite_min, livraison, source, date, par) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (piece_id, fid, str(champs.get("reference", "")), float(prix), devise,
-                 float(champs.get("quantite_min") or 1), livraison, source, time.time(), qui))
+                 qmin, livraison, source, time.time(), qui))
             self._db.commit()
             return dict(self._db.execute("SELECT * FROM offres WHERE id = ?", (cur.lastrowid,)).fetchone())
 
@@ -306,8 +326,8 @@ class PieceStore:
         return vus
 
     def lier(self, parent_id: int, enfant_id: int, quantite, unite: str = "u", note: str = "") -> dict:
-        if isinstance(quantite, bool) or not isinstance(quantite, (int, float)) or quantite <= 0:
-            raise Erreur("quantite : nombre > 0")
+        if isinstance(quantite, bool) or not isinstance(quantite, (int, float)) or not math.isfinite(quantite) or quantite <= 0:
+            raise Erreur("quantite : nombre fini > 0")
         unite = _choix("unite", unite, UNITES)
         with self._lock:
             parent, _ = self._ligne(parent_id), self._ligne(enfant_id)
@@ -386,8 +406,11 @@ class PieceStore:
     # ---------- mouvements ----------
     def mouvement(self, piece_id: int, quantite, quoi: str, qui: str, preuve: str = "") -> dict:
         quoi = _choix("quoi", quoi, MOUVEMENTS)
-        if isinstance(quantite, bool) or not isinstance(quantite, (int, float)) or quantite == 0:
-            raise Erreur("quantite : nombre non nul (+ recu, - consomme)")
+        if isinstance(quantite, bool) or not isinstance(quantite, (int, float)) or quantite == 0 \
+                or not math.isfinite(quantite):
+            raise Erreur("quantite : nombre fini non nul")
+        if (quantite > 0) != (_SIGNE[quoi] > 0):
+            raise Erreur(f"{quoi} : quantite {'positive' if _SIGNE[quoi] > 0 else 'negative'} (revue codex msg 2409)")
         with self._lock:
             self._ligne(piece_id)
             cur = self._db.execute("INSERT INTO mouvements (piece_id, quantite, quoi, qui, date, preuve) "
