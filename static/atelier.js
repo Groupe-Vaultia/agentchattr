@@ -404,10 +404,12 @@ async function ouvrirPiece(id) {
   const fr = await getJSON(`/api/v2/pieces/${encodeURIComponent(id)}/fichiers`);
   const fel = $("#pc-fichiers"); if (!fel) return;
   if (fr.err === 404) {
+    // Route absente → état vide propre
     fel.innerHTML = `<span class="cap">Aucun plan pour l'instant (les vrais plans arrivent avec G3c).</span>`;
-  } else if (!fr.ok && fr.err) {
-    fel.innerHTML = `<span class="cap" style="color:var(--bad)">Erreur ${fr.err} — impossible de charger les plans.</span>`;
-  } else if (fr.ok && fr.data && fr.data.fichiers && fr.data.fichiers.length) {
+  } else if (!fr.ok) {
+    // 403, 5xx ou erreur réseau (err=0 au catch) → message d'erreur visible
+    fel.innerHTML = `<span class="cap" style="color:var(--bad)">${fr.err ? "Erreur " + fr.err : "Erreur réseau"} — impossible de charger les plans.</span>`;
+  } else if (fr.data && fr.data.fichiers && fr.data.fichiers.length) {
     const svg = fr.data.fichiers.find(f => f.nom.endsWith(".svg"));
     fel.innerHTML = svg
       ? `<img src="/api/v2/pieces/${encodeURIComponent(id)}/fichiers/${encodeURIComponent(svg.revision || "P01")}/${encodeURIComponent(svg.nom)}" alt="Plan ${esc(svg.nom)}" style="max-width:100%;border:1px solid var(--line);border-radius:8px;margin-top:6px">`
