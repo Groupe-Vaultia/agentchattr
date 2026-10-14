@@ -380,13 +380,24 @@ async function renderEclatee() {
   }
   // Statuts qui comptent comme "fait"
   const fait = new Set(["validee", "fabriquee", "recue"]);
+  // Compter récursivement les descendants d'un nœud, en excluant `rejetee`.
+  const compter = (noeud) => {
+    let total = 0, faits = 0;
+    for (const e of (noeud.enfants || [])) {
+      if (e.statut === "rejetee") continue;
+      total++;
+      if (fait.has(e.statut)) faits++;
+      const sub = compter(e);
+      total += sub.total;
+      faits += sub.faits;
+    }
+    return { total, faits };
+  };
   // Construire les blocs par sous-ensemble (enfants de la racine)
   const se = r.data.enfants || [];
   if (!se.length) { el.innerHTML = `<span class="cap">Aucun sous-ensemble dans la nomenclature.</span>`; return; }
   el.innerHTML = se.map(s => {
-    const enfants = s.enfants || [];
-    const total = enfants.length;
-    const faits = enfants.filter(e => fait.has(e.statut)).length;
+    const { total, faits } = compter(s);
     const part = total ? faits / total : 0;
     // Opacité : 0.25 (pâle) à 1 (foncé) selon la part de pièces faites
     const opac = 0.25 + 0.75 * part;
@@ -395,6 +406,10 @@ async function renderEclatee() {
       <span class="cap">${faits}/${total}</span>
     </button>`;
   }).join("");
+  // Raccorder le clic des blocs à ouvrirPiece
+  el.querySelectorAll(".eclatee-bloc").forEach(b => {
+    b.addEventListener("click", () => ouvrirPiece(b.dataset.piece));
+  });
 }
 
 // Fiche d'une pièce : offres sourcées, où elle est utilisée (nomenclature), historique, fichier.
