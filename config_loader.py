@@ -105,8 +105,8 @@ def load_config(root: Path | None = None) -> dict:
 
     config.local.toml is gitignored and intended for user-specific agents
     (e.g. local LLM endpoints) that shouldn't be committed.
-    Only the [agents] section is merged — local entries are added alongside
-    (not replacing) the agents defined in config.toml.
+    Merged: [agents] (local entries are added alongside, not replacing, the agents
+    defined in config.toml), [server] allowed_origins and [socle] copie_pieces.
 
     AGENTCHATTR_* environment variables override values from config.toml
     (see module docstring for the list).
