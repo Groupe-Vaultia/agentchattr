@@ -7,6 +7,8 @@ v1 (13 oct. 2026, claude) : base SQLite sur la tour (`data/pieces.db`, hors du d
 - Une offre sans `source` est refusee (pas de chiffre externe sans source).
 - Nomenclature parent -> enfant x quantite ; un lien qui ferait un cycle est refuse.
 - Sauvegarde par l'API backup de sqlite (sure pendant l'ecriture).
+- Chaque revision a sa ligne figee dans `revisions_pieces` (revision, fichier, empreinte) : une revision deja
+  enregistree ne se reecrit pas et ne revient pas (revue codex, msg 2349).
 """
 from __future__ import annotations
 
@@ -45,6 +47,9 @@ CREATE TABLE IF NOT EXISTS nomenclature (
 CREATE TABLE IF NOT EXISTS mouvements (
   id INTEGER PRIMARY KEY, piece_id INTEGER NOT NULL REFERENCES pieces(id), quantite REAL NOT NULL, quoi TEXT NOT NULL,
   qui TEXT NOT NULL, date REAL NOT NULL, preuve TEXT DEFAULT '');
+CREATE TABLE IF NOT EXISTS revisions_pieces (
+  piece_id INTEGER NOT NULL REFERENCES pieces(id), revision TEXT NOT NULL, fichier TEXT DEFAULT '',
+  empreinte TEXT DEFAULT '', qui TEXT NOT NULL, date REAL NOT NULL, PRIMARY KEY (piece_id, revision));
 CREATE TABLE IF NOT EXISTS historique_pieces (
   id INTEGER PRIMARY KEY, piece_id INTEGER NOT NULL REFERENCES pieces(id), champ TEXT NOT NULL,
   avant TEXT, apres TEXT, qui TEXT NOT NULL, date REAL NOT NULL);
@@ -139,6 +144,9 @@ class PieceStore:
             cur = self._db.execute(f"INSERT INTO pieces ({cols}) VALUES ({', '.join('?' * len(c))})", list(c.values()))
             self._db.execute("INSERT INTO historique_pieces (piece_id, champ, avant, apres, qui, date) "
                              "VALUES (?, 'creation', NULL, ?, ?, ?)", (cur.lastrowid, c["numero"], qui, t))
+            self._db.execute("INSERT INTO revisions_pieces (piece_id, revision, fichier, empreinte, qui, date) "
+                             "VALUES (?, ?, ?, ?, ?, ?)", (cur.lastrowid, c["revision"], c.get("fichier", ""),
+                                                           c.get("empreinte", ""), qui, t))
             self._db.commit()
             return self._ligne(cur.lastrowid)
 
@@ -151,14 +159,30 @@ class PieceStore:
                 tid = c.get("tache_id", avant["tache_id"])
                 if tid is None or tache_faite is None or not tache_faite(tid):
                     raise Erreur("validee exige une tache faite (preuve d'essai) rattachee a la piece")
-            if "revision" in c and c["revision"] != avant["revision"] and "fichier" not in c and avant["fichier"]:
-                raise Erreur("nouvelle revision = nouveau fichier : donne aussi `fichier` (l'ancien reste)")
+            nouvelle_rev = "revision" in c and c["revision"] != avant["revision"]
+            if nouvelle_rev:
+                if self._db.execute("SELECT 1 FROM revisions_pieces WHERE piece_id = ? AND revision = ?",
+                                    (piece_id, c["revision"])).fetchone():
+                    raise Erreur(f"la revision {c['revision']} existe deja : une revision figee ne revient pas", 409)
+                if "fichier" not in c and avant["fichier"]:
+                    raise Erreur("nouvelle revision = nouveau fichier : donne aussi `fichier` (l'ancien reste)")
+            elif ("fichier" in c and c["fichier"] != avant["fichier"]) or ("empreinte" in c and c["empreinte"] != avant["empreinte"]):
+                if avant["fichier"]:
+                    raise Erreur("le fichier d'une revision est fige : change de revision pour changer de fichier", 409)
             t = time.time()
             for k, v in c.items():
                 if v != avant[k]:
                     self._db.execute("INSERT INTO historique_pieces (piece_id, champ, avant, apres, qui, date) "
                                      "VALUES (?, ?, ?, ?, ?, ?)", (piece_id, k, None if avant[k] is None else str(avant[k]),
                                                                    None if v is None else str(v), qui, t))
+            if nouvelle_rev:
+                self._db.execute("INSERT INTO revisions_pieces (piece_id, revision, fichier, empreinte, qui, date) "
+                                 "VALUES (?, ?, ?, ?, ?, ?)", (piece_id, c["revision"], c.get("fichier", avant["fichier"]),
+                                                               c.get("empreinte", ""), qui, t))
+            elif "fichier" in c or "empreinte" in c:  # premier fichier de la revision courante
+                self._db.execute("UPDATE revisions_pieces SET fichier = ?, empreinte = ? WHERE piece_id = ? AND revision = ?",
+                                 (c.get("fichier", avant["fichier"]), c.get("empreinte", avant["empreinte"]), piece_id,
+                                  avant["revision"]))
             if c:
                 c["maj"] = t
                 self._db.execute(f"UPDATE pieces SET {', '.join(f'{k} = ?' for k in c)} WHERE id = ?",
@@ -177,6 +201,13 @@ class PieceStore:
             args += [f"%{q}%"] * 4
         with self._lock:
             return [dict(r) for r in self._db.execute(sql + " ORDER BY numero", args)]
+
+    def revisions(self, piece_id: int) -> list[dict]:
+        with self._lock:
+            self._ligne(piece_id)
+            return [dict(r) for r in self._db.execute(
+                "SELECT revision, fichier, empreinte, qui, date FROM revisions_pieces WHERE piece_id = ? ORDER BY date",
+                (piece_id,))]
 
     def historique(self, piece_id: int) -> list[dict]:
         with self._lock:

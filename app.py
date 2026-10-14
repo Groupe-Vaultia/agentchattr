@@ -3621,7 +3621,8 @@ def _tache_faite(tache_id: int) -> bool:
 @_piece_route
 async def get_piece(piece_id: int):
     return JSONResponse({**pieces.get(piece_id), "offres": pieces.offres(piece_id),
-                         "historique": pieces.historique(piece_id), "stock": pieces.stock(piece_id)})
+                         "historique": pieces.historique(piece_id), "revisions": pieces.revisions(piece_id),
+                         "stock": pieces.stock(piece_id)})
 
 
 @app.patch("/api/v2/pieces/{piece_id}")
