@@ -38,6 +38,7 @@
       <button role="tab" aria-selected="true" data-v="projets">Projets</button>
       <button role="tab" aria-selected="false" data-v="equipe">Équipe</button>
       <button role="tab" aria-selected="false" data-v="carte">Carte</button>
+      <button role="tab" aria-selected="false" data-v="pieces">Pièces</button>
       <button role="tab" aria-selected="false" data-v="hist">Historique</button>
       <button role="tab" aria-selected="false" data-v="livrable">Livrable</button>
     </nav>
@@ -76,6 +77,25 @@
       <div class="pourquoi" id="pourquoi" hidden></div>
       <div class="mapbox" id="mapbox"><svg class="links" id="links"></svg><div class="map" id="map"></div></div>
       <p class="cap">Clique une tâche pour sa fiche (ce qui a été fait, pourquoi, preuve, historique), ou une étape pour ce qu'elle couvre.</p>
+    </section>
+
+    <section id="v-pieces" hidden>
+      <div class="panel">
+        <div class="chips" style="margin-bottom:8px;justify-content:space-between;width:100%">
+          <h3 style="margin:0">Pièces du projet</h3>
+          <span class="cap" id="pc-cap"></span>
+        </div>
+        <div class="pc-filtres">
+          <input id="pc-q" type="search" placeholder="Filtrer (numéro, nom, révision, origine, statut)">
+          <select id="pc-f" aria-label="Filtrer par statut"></select>
+        </div>
+        <div class="tblw"><table id="pc-tbl"></table></div>
+      </div>
+      <div class="panel">
+        <h3>Achats du projet</h3>
+        <div id="pc-achats"></div>
+        <p class="cap">Clique une pièce du tableau pour sa fiche : offres sourcées, nomenclature (où elle est utilisée), historique et fichier.</p>
+      </div>
     </section>
 
     <section id="v-hist" hidden>

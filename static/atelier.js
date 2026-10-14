@@ -42,7 +42,20 @@ const state = {
   jalons: [],       // jalons du projet (P1) : {id, jalon, criteres, risque, recommandation, decision, …}
   fiche: null,      // fiche projet (P2) : {objectif, niveau, trl, hypotheses, risques, questions, …}
   methodes: null,   // méthode de chaque étape (P3) : {etape: texte} via GET /api/v2/methodes — null si absent
+  pieces: null,     // N3 : pièces du projet {pieces:[…]} — null si pas encore chargé
+  achats: null,     // N3 : liste d'achats {lignes, sans_offre, totaux}
+  cout: null,       // N3 : coût cumulé {totaux, sans_prix, a_convertir}
 };
+// N3 : statuts de pièce (spec PIECES.md) — libellé + classe de pilule.
+const PIECE_STATUT = {
+  a_concevoir:["à concevoir","s-afaire"], concue:["conçue","s-cours"],
+  a_commander:["à commander","s-attente"], commandee:["commandée","s-cours"],
+  recue:["reçue","s-fait"], fabriquee:["fabriquée","s-fait"],
+  validee:["validée","s-fait"], rejetee:["rejetée","s-bloque"],
+};
+const ORIGINE = {acheter:"acheter", concevoir:"concevoir"};
+const TYPE_PIECE = {assemblage:"assemblage", piece:"pièce", visserie:"visserie", matiere:"matière"};
+const PROCEDS = {laser:"laser", soudure:"soudure", cnc:"cnc", impression_3d:"impression 3D", achat:"achat"};
 
 // ---------- accès réseau : état vide propre si la route n'est pas encore branchée ----------
 // Le serveur sert /atelier avec un jeton de session injecté (comme /). Sans lui, tout est 403.
@@ -287,6 +300,127 @@ function renderLivrable() {
   }
 }
 
+// ---------- vue Pièces (N3) : tableau filtrable, fiche pièce, nomenclature en arbre, achats ----------
+const fmtCAD = n => { if (n == null || isNaN(n)) return "—"; return "CAD " + Number(n).toLocaleString("fr-CA", {minimumFractionDigits: 2, maximumFractionDigits: 2}); };
+
+function pillStatutPiece(s) {
+  const [lib, cls] = PIECE_STATUT[s] || [s || "?", "s-attente"];
+  return `<span class="pill ${cls}">${esc(lib)}</span>`;
+}
+
+// Tableau des pièces du projet, filtrable (numéro, nom, révision, origine, statut).
+function renderPieces() {
+  const el = $("#pc-tbl"), f = $("#pc-q"), sel = $("#pc-f");
+  if (!el) return;
+  if (!state.sel) { el.innerHTML = ""; renderAchats(); return; }
+  if (!state.pieces) {
+    el.innerHTML = `<tr><td colspan="6"><div class="empty">Les pièces de ce projet apparaîtront ici (route /api/v2/pieces?projet_id=). Les agents y enregistrent chaque pièce conçue ou achetée, sa révision, son statut et ses offres.</div></td></tr>`;
+    renderAchats();
+    return;
+  }
+  // options du filtre statut
+  const statutsVus = [...new Set((state.pieces.pieces || []).map(p => p.statut).filter(Boolean))];
+  sel.innerHTML = `<option value="">tous les statuts</option>` + statutsVus.map(s => `<option value="${esc(s)}">${esc((PIECE_STATUT[s] || [s])[0])}</option>`).join("");
+  const q = (f.value || "").trim().toLowerCase();
+  const fs = sel.value;
+  const list = (state.pieces.pieces || []).filter(p => {
+    if (fs && p.statut !== fs) return false;
+    if (q) {
+      const hay = [p.numero, p.nom, p.revision, p.origine, p.statut, p.sous_systeme, p.categorie].join(" ").toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  const n = list.length;
+  $("#pc-cap").textContent = n ? `${n} pièce(s)` : (state.pieces.pieces && state.pieces.pieces.length ? "aucune ne correspond au filtre" : "aucune pièce");
+  el.innerHTML = n
+    ? `<tr><th>N°</th><th>Nom</th><th class="n">Rév.</th><th>Origine</th><th>Statut</th><th class="n">Masse</th></tr>` +
+      list.map(p => `<tr class="pc-row" data-piece="${esc(p.id)}">
+        <td><code>${esc(p.numero || "")}</code></td>
+        <td><b>${esc(p.nom || "")}</b>${p.sous_systeme ? `<div class="sub">${esc(p.sous_systeme)}</div>` : ""}</td>
+        <td class="n">${esc(p.revision || "")}</td>
+        <td>${esc(ORIGINE[p.origine] || p.origine || "")}</td>
+        <td>${pillStatutPiece(p.statut)}</td>
+        <td class="n">${p.masse_g != null ? esc(p.masse_g) + " g" : ""}</td>
+      </tr>`).join("")
+    : `<tr><td colspan="6" class="sub">aucune pièce</td></tr>`;
+  renderAchats();
+}
+
+// Fiche d'une pièce : offres sourcées, où elle est utilisée (nomenclature), historique, fichier.
+async function ouvrirPiece(id) {
+  const base = (state.pieces && state.pieces.pieces || []).find(p => String(p.id) === String(id));
+  const tete = enteteFiche(`Pièce ${base ? esc(base.numero || "") : ""}`, base ? (base.nom || "") : "");
+  const chargement = `<div class="fc"><div class="lbl">Chargement…</div></div>`;
+  ouvrirFiche(tete + chargement);
+  const r = await getJSON(`/api/v2/pieces/${encodeURIComponent(id)}`);
+  if (!$("#fiche-c")) return;
+  if (!r.ok || !r.data) {
+    $("#fiche-c").innerHTML = tete + `<div class="fc"><div class="cap" style="color:var(--bad)">Impossible de charger cette pièce (route non branchée ou pièce inconnue).</div></div>`;
+    return;
+  }
+  const p = r.data;
+  const meta = `<div class="fm">${pillStatutPiece(p.statut)}<span>Rév. <b>${esc(p.revision || "")}</b></span><span>Origine : <b>${esc(ORIGINE[p.origine] || p.origine || "—")}</b></span>${p.matiere ? `<span>Matière : ${esc(p.matiere)}</span>` : ""}${p.procede ? `<span>Procédé : ${esc(PROCEDS[p.procede] || p.procede)}</span>` : ""}${p.masse_g != null ? `<span>${esc(p.masse_g)} g</span>` : ""}</div>`;
+  // offres sourcées
+  const offres = (p.offres || []);
+  const offresHtml = offres.length
+    ? `<div class="fc"><div class="lbl">Offres (${offres.length})</div><ul class="fhist">${offres.map(o => `<li><time>${esc(o.devise || "CAD")}</time><span><b>${esc(o.reference || "")}</b>${o.fournisseur ? ` <span class="cap">(${esc(o.fournisseur.nom || o.fournisseur)})</span>` : ""} · ${fmtCAD(o.prix)}${o.livraison != null ? " + liv. " + fmtCAD(o.livraison) : ""}${o.source ? ` <a href="${esc(o.source)}" target="_blank" rel="noopener">source</a>` : `<span class="cap" style="color:var(--bad)">sans source</span>`}${o.date ? ` <span class="cap">${esc(heure(o.date))}</span>` : ""}</span></li>`).join("")}</ul></div>`
+    : (p.origine === "acheter" ? `<div class="fc"><div class="lbl">Offres</div><p class="cap" style="color:var(--warn)">Aucune offre sourcée. grok magasine au moins 3 offres pour cette pièce.</p></div>` : "");
+  // nomenclature (où elle est utilisée) : l'arbre complet sous la pièce
+  const nomHtml = `<div class="fc"><div class="lbl">Nomenclature (où elle est utilisée / dont elle est faite)</div><div id="pc-arbre"><span class="cap">Chargement…</span></div></div>`;
+  // historique
+  const hist = (p.historical || p.historique || []);
+  const histHtml = hist.length
+    ? `<div class="fc"><div class="lbl">Historique</div><ul class="fhist">${hist.slice().reverse().map(h => `<li><time>${esc(heure(h.date))}</time><span>${esc(h.avant || "")} → <b>${esc(h.apres || "")}</b>${h.qui ? ` <span class="cap">(${esc(h.qui)})</span>` : ""}</span></li>`).join("")}</ul></div>`
+    : "";
+  const fichier = p.fichier ? `<div class="fc"><div class="lbl">Fichier</div><p><code>${esc(p.fichier)}</code>${p.empreinte ? ` · <span class="cap">sha256 ${esc(String(p.empreinte).slice(0, 12))}</span>` : ""}</p></div>` : "";
+  $("#fiche-c").innerHTML = tete + meta +
+    (p.objectif || p.description ? `<div class="fc"><div class="lbl">Description</div><p>${esc(p.objectif || p.description)}</p></div>` : "") +
+    offresHtml + nomHtml + fichier + histHtml;
+  // charge l'arbre (nomenclature) dans la fiche
+  const ar = await getJSON(`/api/v2/pieces/${encodeURIComponent(id)}/nomenclature`);
+  const el = $("#pc-arbre"); if (!el) return;
+  el.innerHTML = (ar.ok && ar.data) ? arbreNomenclature(ar.data, id) : `<span class="cap">Aucun lien de nomenclature (route non branchée ou pièce orpheline).</span>`;
+}
+
+// Rend l'arbre de nomenclature : nœud = pièce + quantite_cumulee + enfants[].
+function arbreNomenclature(noeud, racineId) {
+  const estRacine = String(noeud.id) === String(racineId);
+  const self = `<div class="pc-node${estRacine ? " racine" : ""}">
+    <button type="button" class="pc-toggle" data-node="${esc(noeud.id)}" aria-expanded="true">
+      <span class="pc-ref"><code>${esc(noeud.numero || "")}</code> <b>${esc(noeud.nom || "")}</b></span>
+      ${noeud.quantite_cumulee != null ? `<span class="pc-qt">×${esc(noeud.quantite_cumulee)}${noeud.unite ? " " + esc(noeud.unite) : ""}</span>` : ""}
+      ${pillStatutPiece(noeud.statut)}
+    </button>
+    <div class="pc-kids">${(noeud.enfants || []).map(e => arbreNomenclature(e, racineId)).join("")}</div>
+  </div>`;
+  return self;
+}
+
+// Liste d'achats du projet : comparatif, total, alertes (devise à convertir, prix > 30 j).
+function renderAchats() {
+  const el = $("#pc-achats"); if (!el) return;
+  if (!state.sel) { el.innerHTML = ""; return; }
+  if (!state.achats) {
+    el.innerHTML = `<div class="empty">La liste d'achats du projet apparaîtra ici (route /api/v2/projects/{id}/achats). Elle consolide les pièces « acheter », la meilleure offre sourcée, le total, et ce qui n'a pas encore d'offre.</div>`;
+    return;
+  }
+  const lignes = state.achats.lignes || [];
+  const sans = state.achats.sans_offre || [];
+  const tot = state.achats.totaux || {};
+  const row = l => `<tr>
+    <td><code>${esc(l.numero || "")}</code><div class="sub">${esc(l.nom || "")}</div></td>
+    <td class="n">${esc(l.quantite != null ? l.quantite : "")}</td>
+    <td class="n">${l.offre ? esc(l.offre.reference || l.offre) : `<span class="cap" style="color:var(--warn)">sans offre</span>`}</td>
+    <td class="n">${fmtCAD(l.total)}</td>
+    <td>${l.a_convertir ? `<span class="pill s-attente" title="devise autre que CAD">à convertir</span>` : ""}${l.age_jours > 30 ? `<span class="pill s-silence" title="prix de plus de 30 jours">prix à revérifier</span>` : ""}</td>
+  </tr>`;
+  el.innerHTML =
+    (lignes.length ? `<div class="tblw"><table><tr><th>Pièce</th><th class="n">Qté</th><th>Meilleure offre</th><th class="n">Total</th><th>Alertes</th></tr>${lignes.map(row).join("")}</table></div>` : `<div class="empty">Aucune pièce « acheter » pour l'instant.</div>`) +
+    (sans.length ? `<div class="cap" style="color:var(--warn);margin-top:8px">Sans offre : ${sans.map(s => esc(s.numero || s.nom || "")).join(", ")}.</div>` : "") +
+    (tot.CAD != null ? `<div class="cap" style="margin-top:8px">Total achats (CAD) : <b>${fmtCAD(tot.CAD)}</b>${tot.sans_prix ? ` · ${esc(tot.sans_prix)} sans prix` : ""}</div>` : "");
+}
+
 // ---------- chargement de tout ce qui dépend du projet sélectionné ----------
 async function loadProjet() {
   const id = state.sel;
@@ -294,13 +428,16 @@ async function loadProjet() {
   state.jalons = []; state.fiche = null;
   if (!id) { renderTous(); return; }
 
-  const [t, e, h, l, j, m] = await Promise.all([
+  const [t, e, h, l, j, m, pc, ac, co] = await Promise.all([
     getJSON(`/api/v2/taches?projet_id=${encodeURIComponent(id)}`),
     getJSON(`/api/v2/executions?projet_id=${encodeURIComponent(id)}`),
     getJSON(`/api/v2/projects/${encodeURIComponent(id)}/historique`),
     getJSON(`/api/v2/projects/${encodeURIComponent(id)}/revisions`),
     getJSON(`/api/v2/projects/${encodeURIComponent(id)}/jalons`),          // P1
     getJSON(`/api/v2/methodes`),                                          // P3 : {etape: texte}, indépendant du projet
+    getJSON(`/api/v2/pieces?projet_id=${encodeURIComponent(id)}`),         // N3 : pièces du projet
+    getJSON(`/api/v2/projects/${encodeURIComponent(id)}/achats`),          // N3 : liste d'achats
+    getJSON(`/api/v2/projects/${encodeURIComponent(id)}/cout`),            // N3 : coût cumulé
   ]);
 
   if (t.ok && t.data) {
@@ -320,6 +457,10 @@ async function loadProjet() {
   state.fiche = state.projets[id] || null;
   // P3 : la méthode de chaque étape (docs/PILOTE.md), servie par /api/v2/methodes. Indépendant du projet.
   if (m.ok && m.data && typeof m.data === "object") state.methodes = m.data;
+  // N3 : pièces, achats, coût (404 = lot pas encore branché → état vide propre).
+  if (pc.ok && pc.data) state.pieces = pc.data;
+  if (ac.ok && ac.data) state.achats = ac.data;
+  if (co.ok && co.data) state.cout = co.data;
 
   // enrichit la fiche projet pour la vue Projets (étape, taches) sans re-fetch
   const p = state.projets[id];
@@ -335,7 +476,7 @@ function renderTous() {
   renderRail(); renderProjets();
   $("#projhead").hidden = true;
   renderProjHead();
-  renderEquipe(); renderCarte(); renderHist(); renderLivrable();
+  renderEquipe(); renderCarte(); renderPieces(); renderHist(); renderLivrable();
   syncNav();
 }
 
@@ -343,13 +484,13 @@ function renderTous() {
 function go(v) {
   state.view = v;
   document.querySelectorAll("#tabs [role=tab]").forEach(b => b.setAttribute("aria-selected", b.dataset.v === v));
-  ["projets", "equipe", "carte", "hist", "livrable"].forEach(x => { const s = $("#v-" + x); if (s) s.hidden = (x !== v); });
+  ["projets", "equipe", "carte", "pieces", "hist", "livrable"].forEach(x => { const s = $("#v-" + x); if (s) s.hidden = (x !== v); });
   window.scrollTo(0, 0);
   syncNav();
 }
 function syncNav() {
   const m = $("#msel");
-  if (m) m.innerHTML = [["projets","Projets"],["equipe","Équipe"],["carte","Carte"],["hist","Historique"],["livrable","Livrable"]].map(([v,l]) => `<option value="${v}"${v === state.view ? " selected" : ""}>${l}</option>`).join("");
+  if (m) m.innerHTML = [["projets","Projets"],["equipe","Équipe"],["carte","Carte"],["pieces","Pièces"],["hist","Historique"],["livrable","Livrable"]].map(([v,l]) => `<option value="${v}"${v === state.view ? " selected" : ""}>${l}</option>`).join("");
   // rail aria-current sur la vue
   document.querySelectorAll(".rail [data-go]").forEach(b => b.setAttribute("aria-current", b.dataset.go === state.view));
 }
@@ -605,6 +746,9 @@ document.addEventListener("click", e => {
   const fe = t.closest("[data-fiche]"); if (fe) return ouvrirTache(fe.dataset.fiche);
   const sp = t.closest("[data-step]"); if (sp) return ouvrirEtape(sp.dataset.step);
   const nd = t.closest("[data-node]"); if (nd) return ouvrirTache(nd.dataset.node);
+  // N3 : ligne de pièce du tableau → fiche pièce ; nœud d'arbre → replier/déplier (ou ouvrir si clic sur la réf).
+  const pr = t.closest(".pc-row[data-piece]"); if (pr && !t.closest("button")) return ouvrirPiece(pr.dataset.piece);
+  const pn = t.closest(".pc-toggle"); if (pn) { const kids = pn.parentNode.querySelector(":scope > .pc-kids"); if (kids) { kids.hidden = !kids.hidden; pn.setAttribute("aria-expanded", String(!kids.hidden)); } return; }
   if (t.id === "fiche") return fermerFiche();  // clic sur le fond du dialogue
   const act = t.closest("[data-act]"); if (!act) return;
   if (act.dataset.act === "fermer") return fermerFiche();
@@ -615,6 +759,9 @@ document.addEventListener("click", e => {
 $("#msel").addEventListener("change", e => go(e.target.value));
 $("#newproj").addEventListener("submit", nouveauProjet);
 $("#taskform").addEventListener("submit", nouvelleTache);
+// N3 : filtres du tableau des pièces (re-rendu à la volée, sans re-fetch).
+$("#pc-q").addEventListener("input", renderPieces);
+$("#pc-f").addEventListener("change", renderPieces);
 window.addEventListener("resize", () => {});
 
 // ---------- démarrage ----------
