@@ -813,10 +813,13 @@ $("#pc-f").addEventListener("change", renderPieces);
 window.addEventListener("resize", () => {});
 
 // U4 : les alertes (sauvegarde, copie hors tour) sont globales, pas propres à un projet.
-// Chargées une fois au démarrage ; GET /api/v2/ronde absent (404) = bandeau vide, pas d'erreur.
+// Rechargées au démarrage, au retour sur l'onglet et toutes les 5 min : la boucle de
+// sauvegarde réessaie chaque heure, une page ouverte doit donc suivre (alerte levée ou nouvelle).
+// GET /api/v2/ronde absent (404) = bandeau vide, pas d'erreur.
 async function loadAlertes() {
   const r = await getJSON("/api/v2/ronde");
   state.alertes = (r.ok && r.data && Array.isArray(r.data.alertes)) ? r.data.alertes : [];
+  renderAlertes();
 }
 
 // ---------- démarrage ----------
@@ -826,4 +829,7 @@ async function loadAlertes() {
   await loadProjets();
   await loadProjet();
   go(state.view || "projets");
+  // U4 : suivre les alertes tant que la page est ouverte (5 min, en phase avec la boucle de sauvegarde).
+  setInterval(loadAlertes, 5 * 60 * 1000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) loadAlertes(); });
 })();
