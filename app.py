@@ -3678,6 +3678,30 @@ async def get_piece(piece_id: int):
                          "stock": pieces.stock(piece_id)})
 
 
+# Lot A1 (Charles msg 2557) : plans et modeles d'une piece, lus sur la tour (fichiers_pieces.py).
+@app.get("/api/v2/pieces/{piece_id}/fichiers")
+@_piece_route
+async def piece_fichiers(piece_id: int):
+    import fichiers_pieces
+    p = pieces.get(piece_id)
+    return JSONResponse({"numero": p["numero"], "fichiers": fichiers_pieces.lister(p["numero"])})
+
+
+@app.get("/api/v2/pieces/{piece_id}/fichiers/{revision}/{nom}")
+@_piece_route
+async def piece_fichier(piece_id: int, revision: str, nom: str):
+    import fichiers_pieces
+    f = fichiers_pieces.chemin(pieces.get(piece_id)["numero"], revision, nom)
+    if f is None:
+        return JSONResponse({"error": "fichier inconnu"}, status_code=404)
+    # Un SVG peut porter du script : on le sert sans droit d'executer quoi que ce soit.
+    entetes = {"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:",
+               "X-Content-Type-Options": "nosniff"}
+    return FileResponse(f, media_type=fichiers_pieces.TYPES[f.suffix.lower()], headers=entetes,
+                        content_disposition_type="inline" if f.suffix.lower() in (".svg", ".pdf", ".png") else "attachment",
+                        filename=f.name)
+
+
 @app.patch("/api/v2/pieces/{piece_id}")
 @_piece_route
 async def patch_piece(piece_id: int, request: Request):
