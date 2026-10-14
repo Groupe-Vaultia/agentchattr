@@ -1,7 +1,7 @@
-"""Gabarit N2b v1.3 (13 oct. 2026). Le PDF est écrit dans le snap.
+"""Gabarit N2b v1.4 (13 oct. 2026). Masse vide sans fiche matière.
 
-v1.2 : les fichiers générés vont dans ~/atelier/cao-pieces, pas dans le dépôt.
 v1.3 : le PDF est produit par Qt dans freecad.cmd, sans rsvg sur l'hôte.
+v1.4 : sans densité sourcée, masse_g reste vide et le cartouche écrit « ? ».
 Remplacer solide() pour la vraie géométrie. Lancer depuis ce dépôt :
     freecad.cmd -c "import runpy; runpy.run_path('cao/gabarit_piece.py', run_name='__main__')"
 """
@@ -29,14 +29,13 @@ GABARIT = Path(
 )
 PAGE_H = 215.9
 
-# Valeur d'essai seulement. Une vraie pièce cite la fiche matière.
+# Pas de masse volumique ici. Elle vient de la fiche matière, avec sa source.
 ESSAI = {
     "numero": "VLT-10001",
     "nom": "plaque-gabarit",
     "revision": "P01",
     "matiere": "essai",
     "procede": "impression_3d",
-    "masse_volumique_g_mm3": 0.001,
     "L": 40.0,
     "W": 20.0,
     "T": 3.0,
@@ -83,7 +82,7 @@ def _textes(piece, masse_g):
         "Approved2": "-",
         "scale": "1:1",
         "Code": "-",
-        "Weight": f"{masse_g:.2f} g",
+        "Weight": "?" if masse_g is None else f"{masse_g:.2f} g",
         "Sheet": "1 DE 1",
     }
 
@@ -200,7 +199,11 @@ def produire(piece, dossier):
     _poser(vues)
 
     volume = float(feature.Shape.Volume)
-    masse_g = volume * float(piece["masse_volumique_g_mm3"])
+    masse_g, fiche = controles.masse_calculee(
+        volume,
+        piece.get("masse_volumique_g_mm3"),
+        piece.get("masse_volumique_source"),
+    )
     textes = _textes(piece, masse_g)
     template.EditableTexts = textes
     doc.recompute()
@@ -240,6 +243,9 @@ def produire(piece, dossier):
             "z": float(boite.ZLength),
         },
         "masse_g": masse_g,
+        "fiche_matiere": fiche,
+        "masse_volumique_g_mm3": piece.get("masse_volumique_g_mm3"),
+        "masse_volumique_source": piece.get("masse_volumique_source") or "",
         "interferences_mm3": _volumes_communs(feature.Shape),
         "procede": piece["procede"],
         "mesures": {"epaisseur_min_mm": piece["T"]},

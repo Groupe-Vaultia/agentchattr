@@ -1,7 +1,7 @@
-"""Contrôles de niveau 1, v1.1 (13 oct. 2026).
+"""Contrôles de niveau 1, v1.2 (13 oct. 2026).
 
-v1.0 : cotes, cartouche ISO, interférences, masse, DFM.
 v1.1 : cartouche ANSI A, B-Rep, encombrement, 3e angle, STEP AP214, empreinte.
+v1.2 : sans fiche matière, une masse vide est acceptée ; une masse chiffrée ne l'est pas.
 Aucune géométrie ici : le script FreeCAD mesure, ce module juge.
 """
 
@@ -48,6 +48,13 @@ def cotes(noms):
         if n > 1:
             ecarts.append(f"cote en double : {nom}")
     return ecarts
+
+
+def masse_calculee(volume_mm3, densite_g_mm3, source):
+    """La masse n'existe qu'avec une densité et la source de la fiche matière."""
+    if densite_g_mm3 is None or not str(source or "").strip():
+        return None, False
+    return float(volume_mm3) * float(densite_g_mm3), True
 
 
 def masse(grammes):
@@ -180,7 +187,11 @@ def juger(rapport):
     ecarts += cotes(rapport.get("cotes", []))
     if "attendu_mm" in rapport:
         ecarts += cotes_valeurs(rapport.get("cotes_mm", {}), rapport["attendu_mm"])
-    ecarts += masse(rapport.get("masse_g"))
+    if rapport.get("fiche_matiere") is False:
+        if rapport.get("masse_g") is not None:
+            ecarts.append("masse inventee")
+    else:
+        ecarts += masse(rapport.get("masse_g"))
     ecarts += interferences(rapport.get("interferences_mm3", []))
     ecarts += dfm(rapport.get("procede", ""), rapport.get("mesures", {}))
     ecarts += niveau1(rapport)
@@ -254,6 +265,22 @@ if __name__ == "__main__":
     }
     assert bon == [], bon
     assert juger(plein) == [], juger(plein)
+    vide = {
+        "cartouche": {cle: "x" for cle in REQUIS_CARTOUCHE},
+        "cotes": ["L"],
+        "masse_g": None,
+        "fiche_matiere": False,
+        "interferences_mm3": [],
+        "procede": "",
+        "mesures": {},
+    }
+    assert juger(vide) == [], juger(vide)
+    vide["masse_g"] = 2.4
+    assert "masse inventee" in juger(vide)
+    assert masse_calculee(2400, None, "") == (None, False)
+    assert masse_calculee(2400, 0.001, "") == (None, False)
+    calculee, fiche = masse_calculee(2400, 0.001, "fiche PETG")
+    assert fiche is True and abs(calculee - 2.4) < 1e-9
     assert any(e.startswith("cartouche vide") for e in mauvais)
     assert any(e.startswith("cote en double") for e in mauvais)
     assert "masse nulle" in mauvais
