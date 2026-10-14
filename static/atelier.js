@@ -515,10 +515,10 @@ function renderEquipeRow() {
   const el = $("#equipe-row"); if (!el) return;
   const taches = state.taches || [];
   const executions = state.executions || [];
-  
+
   // Agents actifs : ceux qui ont une tâche en_cours ou une execution actif
   const actifs = new Map();
-  
+
   // Tâches en cours
   for (const t of taches) {
     if (t.etat === "en_cours" && t.responsable) {
@@ -529,7 +529,7 @@ function renderEquipeRow() {
       actifs.get(agent).taches.push(t.titre);
     }
   }
-  
+
   // Executions actives
   for (const e of executions) {
     if (e.etat === "actif" && e.agent) {
@@ -542,13 +542,13 @@ function renderEquipeRow() {
       }
     }
   }
-  
+
   if (!actifs.size) {
     el.hidden = true;
     el.innerHTML = "";
     return;
   }
-  
+
   el.hidden = false;
   const items = Array.from(actifs.values()).map(a => {
     const depuis = a.dernier_signe ? `<span class="cap">${esc(heure(a.dernier_signe))}</span>` : "";
@@ -560,7 +560,7 @@ function renderEquipeRow() {
     }
     return `<span class="equipe-item"><b>${esc(a.agent)}</b>${sur}${depuis}</span>`;
   }).join("");
-  
+
   el.innerHTML = `<b>Équipe</b> ${items}`;
 }
 
