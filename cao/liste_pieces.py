@@ -1,5 +1,6 @@
-"""Liste de pièces ASME v1.1 (14 oct. 2026).
+"""Liste de pièces ASME v1.2 (14 oct. 2026).
 
+v1.2 : essai d'une révision refusée, et d'un lien qui sort de la sortie.
 v1.1 : le jeton ne part que vers VAULTIA_ORIGINE, et le fichier reste sous la sortie.
 v1.0 : enfants directs de GET /api/v2/pieces/{id}/nomenclature, au-dessus du cartouche.
 Pas de prix ni de fournisseur. Lancer :
@@ -376,6 +377,31 @@ def essai():
             assert str(exc) == "numero illisible"
         else:
             raise AssertionError("numero")
+        fuite["numero"] = "VLT-10010"
+        fuite["revision"] = "P00"
+        try:
+            produire(fuite, tmp)
+        except ValueError as exc:
+            assert str(exc) == "revision illisible"
+        else:
+            raise AssertionError("revision")
+        assert list(Path(tmp).rglob("*")) == []
+    with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as dehors:
+        lien = Path(tmp) / "VLT-10010"
+        lien.symlink_to(dehors, target_is_directory=True)
+        try:
+            _dans_sortie(tmp, Path("VLT-10010") / "P01")
+        except ValueError as exc:
+            assert str(exc) == "chemin hors sortie"
+        else:
+            raise AssertionError("lien")
+        try:
+            produire(ESSAI, tmp)
+        except ValueError as exc:
+            assert str(exc) == "chemin hors sortie"
+        else:
+            raise AssertionError("produire lien")
+        assert list(Path(dehors).rglob("*")) == []
     assert all("prix" not in r and "12.5" not in "".join(r.values()) for r in rangs)
     assert "VLT-10012" not in {r["numero"] for r in rangs}
     rapport = produire(ESSAI, gabarit.racine_sortie())
