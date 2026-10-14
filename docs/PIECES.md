@@ -1,4 +1,7 @@
-# Pièces et nomenclature — spécification v0.1
+# Pièces et nomenclature — spécification v0.2
+
+v0.2 (13 oct. 2026, claude) : copie hors de la tour sur l'autre laptop de Charles (msg 2302), par SSH (`x1`, joignable
+par clé, vérifié). Format des numéros `PROJET-SOUS-SYSTEME-NNN` retenu par défaut.
 
 v0.1 (13 oct. 2026, claude) : premier jet, sans code. Demande de Charles (msg 2293) : des sous-niveaux, une base de
 données pour contrôler les pièces, des nomenclatures. Contraintes : la base est sur la tour (msg 2299) ; une pièce
@@ -23,7 +26,10 @@ nomenclature, chacune rattachée à la tâche qui la conçoit ou l'achète.
 - Accès par le serveur de la salle seulement (127.0.0.1, et Tailscale pour le cell). Aucun service de base de données à
   installer ni à exposer.
 - Sauvegarde : copie quotidienne `data/pieces.db` → `data/sauvegardes/pieces-AAAA-MM-JJ.db` (API `sqlite3 backup`, sûre
-  pendant l'écriture), 30 jours gardés. À compléter par une copie hors de la tour : à décider par Charles.
+  pendant l'écriture), 30 jours gardés.
+- Copie hors de la tour : chaque sauvegarde quotidienne est copiée sur l'autre laptop de Charles par `scp` (hôte SSH
+  `x1`, clé déjà en place) dans un dossier dédié ; un échec de copie s'écrit dans le journal et dans la ronde, sans
+  bloquer le serveur. Le laptop éteint = copie reprise au jour suivant.
 - Fichiers CAO et plans : dans les worktrees de l'atelier (racine des livrables S5) ; la pièce garde le chemin et
   l'empreinte sha256, comme les révisions figées.
 
@@ -84,5 +90,4 @@ d'achats du projet. Le rail montre les sous-projets sous leur parent.
 
 ## Questions ouvertes pour Charles
 
-1. Copie de sauvegarde hors de la tour : disque externe, NAS, autre ? (sans réponse : copie locale seulement)
-2. Numérotation des pièces : `PROJET-SOUS-SYSTEME-NNN` proposé ; un format existant à reprendre (PME) ?
+1. Numérotation : `PROJET-SOUS-SYSTEME-NNN` par défaut ; un format existant à reprendre (PME) le remplacera.
