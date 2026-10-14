@@ -509,12 +509,68 @@ function renderAlertes() {
     liste.map(a => `<span class="al">· ${esc(a)}</span>`).join("");
 }
 
+// U5 : rangée « Équipe » — qui travaille, sur quoi, depuis quand.
+// Lit les tâches en cours et les exécutions pour afficher les agents actifs.
+function renderEquipeRow() {
+  const el = $("#equipe-row"); if (!el) return;
+  const taches = state.taches || [];
+  const executions = state.executions || [];
+  
+  // Agents actifs : ceux qui ont une tâche en_cours ou une execution actif
+  const actifs = new Map();
+  
+  // Tâches en cours
+  for (const t of taches) {
+    if (t.etat === "en_cours" && t.responsable) {
+      const agent = t.responsable.toLowerCase();
+      if (!actifs.has(agent)) {
+        actifs.set(agent, {agent, taches: [], dernier_signe: null});
+      }
+      actifs.get(agent).taches.push(t.titre);
+    }
+  }
+  
+  // Executions actives
+  for (const e of executions) {
+    if (e.etat === "actif" && e.agent) {
+      const agent = e.agent.toLowerCase();
+      if (!actifs.has(agent)) {
+        actifs.set(agent, {agent, taches: [], dernier_signe: null});
+      }
+      if (e.dernier_signe) {
+        actifs.get(agent).dernier_signe = e.dernier_signe;
+      }
+    }
+  }
+  
+  if (!actifs.size) {
+    el.hidden = true;
+    el.innerHTML = "";
+    return;
+  }
+  
+  el.hidden = false;
+  const items = Array.from(actifs.values()).map(a => {
+    const depuis = a.dernier_signe ? `<span class="cap">${esc(heure(a.dernier_signe))}</span>` : "";
+    let sur = "";
+    if (a.taches.length) {
+      const liste = a.taches.slice(0, 2).join("; ");
+      const plus = a.taches.length > 2 ? ` +${a.taches.length - 2}` : "";
+      sur = `<span class="cap">${esc(liste)}${plus}</span>`;
+    }
+    return `<span class="equipe-item"><b>${esc(a.agent)}</b>${sur}${depuis}</span>`;
+  }).join("");
+  
+  el.innerHTML = `<b>Équipe</b> ${items}`;
+}
+
 function renderTous() {
   renderRail(); renderProjets();
   $("#projhead").hidden = true;
   renderProjHead();
   renderEquipe(); renderCarte(); renderPieces(); renderHist(); renderLivrable();
   renderAlertes();
+  renderEquipeRow();
   syncNav();
 }
 
