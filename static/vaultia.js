@@ -35,6 +35,7 @@
     crayon: ["M15.5 5.5l3 3L9 18H6v-3z", "M13.5 7.5l3 3"],
     plusieurs: ["circle:5.5,12,1.3", "circle:12,12,1.3", "circle:18.5,12,1.3"],
     bas: ["M12 5v13", "M6.5 12.5L12 18l5.5-5.5"],
+    horloge: ["circle:12,12,8.5", "M12 7.5v4.8l3.2 1.9"],
   };
   function ico(nom, taille) {
     const s = document.createElementNS(SVG_NS, "svg");
@@ -414,8 +415,8 @@
     row.insertBefore(b, doc ? doc.nextSibling : row.firstChild);
   }
 
-  // ---------- envois programmés : au téléphone, dans « ⋯ » au lieu d'une barre sur la saisie ----------
-  // La barre de chat.js (#schedules-bar) reste la source : elle est masquée au téléphone (vaultia-mobile.css)
+  // ---------- envois programmés : dans l'en-tête (horloge au bureau, « ⋯ » au téléphone), plus sur la saisie ----------
+  // La barre de chat.js (#schedules-bar) reste la source : elle est masquée (vaultia-theme.css)
   // et on la surveille pour savoir quand la liste change. La liste elle-même est schedulesList (chat.js).
   const horaires = () => (typeof schedulesList !== "undefined" && Array.isArray(schedulesList) ? schedulesList : []);
   const deux = (n) => String(n).padStart(2, "0");
@@ -508,6 +509,40 @@
     overlay("Envois programmés", liste, true, () => { if (obs) obs.disconnect(); clearInterval(minuterie); clearTimeout(delaiConfirmer); });
   }
 
+  // Bureau : une horloge dans l'en-tête (le compte en pastille discrète, le prochain envoi en infobulle).
+  // Au téléphone elle est masquée (vaultia-mobile.css) et la ligne « Envois programmés » de « ⋯ » la remplace.
+  function horairesEntete() {
+    const droite = document.querySelector("header .header-right");
+    if (!droite || document.getElementById("vt-horaires-entete")) return;
+    const pastille = el("span", { class: "vt-horaires-badge", "aria-hidden": "true", hidden: true });
+    const b = el("button", { id: "vt-horaires-entete", class: "settings-btn", type: "button", title: "Envois programmés",
+      "aria-label": "Envois programmés", onclick: ouvrirHoraires }, ico("horloge", 17), pastille);
+    droite.insertBefore(b, document.getElementById("rules-toggle"));
+    const maj = () => {
+      const tout = horaires(), actifs = tout.filter((s) => s.active !== false);
+      pastille.hidden = !tout.length; pastille.textContent = tout.length > 99 ? "99+" : String(tout.length);
+      const futurs = actifs.filter((s) => s.next_run && s.next_run * 1000 > Date.now());
+      const proche = futurs.length ? futurs.reduce((a, s) => (s.next_run < a.next_run ? s : a)) : null;
+      const resume = !tout.length ? "Envois programmés : aucun"
+        : `${tout.length} envoi${tout.length > 1 ? "s" : ""} programmé${tout.length > 1 ? "s" : ""}`
+          + (tout.length > actifs.length ? ` (${tout.length - actifs.length} en pause)` : "")
+          + (proche ? " · " + prochain(proche) : "");
+      b.title = resume; b.setAttribute("aria-label", resume);
+    };
+    maj();
+    surChangementHoraires(maj);
+    setInterval(() => { if (!document.hidden) maj(); }, 30000);
+    // La barre est masquée partout : son éclair de confirmation (chat.js) ne se voit plus. Un message le remplace.
+    const barre = document.getElementById("schedules-bar");
+    let eclair = false;   // un seul message par éclair, même si la barre change de classe pendant les 2 s
+    if (barre) new MutationObserver(() => {
+      const maintenant = barre.classList.contains("sched-flash");
+      if (maintenant && !eclair && typeof window.showToast === "function")
+        window.showToast(estMobile() ? "Envoi programmé. Il est dans ⋯ › Envois programmés." : "Envoi programmé. Il est sous l'horloge, en haut.", "success");
+      eclair = maintenant;
+    }).observe(barre, { attributes: true, attributeFilter: ["class"] });
+  }
+
   // ---------- en-tête du téléphone : titre de la conversation + menu « plus » ----------
   function enteteTelephone() {
     const gauche = document.querySelector("header .header-left");
@@ -530,15 +565,6 @@
     const recompterHoraires = () => { const n = horaires().length; compteHoraires.textContent = n ? String(n) : ""; };
     recompterHoraires();
     surChangementHoraires(recompterHoraires);
-    // La barre est masquée au téléphone : son éclair de confirmation (chat.js) ne se voit plus. Un message le remplace.
-    const barreHoraires = document.getElementById("schedules-bar");
-    let eclair = false;   // un seul message par éclair, même si la barre change de classe pendant les 2 s
-    if (barreHoraires) new MutationObserver(() => {
-      const maintenant = barreHoraires.classList.contains("sched-flash");
-      if (maintenant && !eclair && estMobile() && typeof window.showToast === "function")
-        window.showToast("Envoi programmé. Il est dans ⋯ › Envois programmés.", "success");
-      eclair = maintenant;
-    }).observe(barreHoraires, { attributes: true, attributeFilter: ["class"] });
     [["rules-toggle", "Règles de la salle", "rules-badge"], ["pins-toggle", "Épingles", null], ["help-btn", "Aide", null]].forEach(([id, texte, badge]) => {
       const compte = el("span", { class: "vt-menu-compte" });
       lignes[id] = { compte, badge };
@@ -696,6 +722,6 @@
     setTimeout(verifier, 4000);
   }
 
-  function init() { railMenu(); boutonPhoto(); bandeauReflexion(); enteteTelephone(); reglages(); badgesAvatars(); miseAJour(); }
+  function init() { railMenu(); boutonPhoto(); bandeauReflexion(); horairesEntete(); enteteTelephone(); reglages(); badgesAvatars(); miseAJour(); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init); else init();
 })();
