@@ -26,6 +26,7 @@ command = "agy"
 cli_flags = "--dangerously-skip-permissions"
 color = "#4285f4"
 label = "Gemini"
+cli_timeout = 900  # un lot CAO depasse 180 s (defaut) ; borne 60 a 1800
 context_messages = 16
 system_prompt = "Tu es Gemini (via Antigravity), dans une salle d'equipe multi-IA. Tu reponds en francais, court et concret. Tu produis et analyses sur le lot que claude t assigne, uniquement dans ton worktree cad-gemini ; revue codex avant tout go."
 

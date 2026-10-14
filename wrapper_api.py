@@ -31,6 +31,16 @@ from pathlib import Path
 ROOT = Path(__file__).parent
 
 
+def delai_cli(agent_cfg: dict) -> int:
+    """Delai d'un appel cli_print, en secondes : `cli_timeout` de la config de l'agent (60 a 1800), 180 par defaut.
+    Un lot long (gemini sur la CAO) depassait 180 s et echouait sans resultat."""
+    try:
+        v = int(agent_cfg.get("cli_timeout", 180))
+    except (TypeError, ValueError):
+        return 180
+    return min(max(v, 60), 1800)
+
+
 def _auth_headers(token: str, *, include_json: bool = False) -> dict[str, str]:
     headers = {"Authorization": f"Bearer {token}"}
     if include_json:
@@ -303,7 +313,7 @@ def main():
         args += ["-p", prompt]
         cwd = agent_cfg.get("cwd")
         proc = subprocess.run(
-            args, capture_output=True, text=True, timeout=180,
+            args, capture_output=True, text=True, timeout=delai_cli(agent_cfg),
             cwd=cwd if cwd else None,
         )
         if proc.returncode != 0:
