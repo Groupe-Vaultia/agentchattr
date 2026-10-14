@@ -1,6 +1,7 @@
 """Contrat du gabarit CAO N2b.
 
-v0.4 (2026-10-14, codex) : compare le volume commun avec tolérance flottante.
+v0.5 (2026-10-14, codex) : place les fichiers de sortie hors du dépôt.
+v0.4 : compare le volume commun avec tolérance flottante.
 v0.3 : expose FreeCAD dans le runner pour TechDraw.
 v0.2 : place les fixtures temporaires sous le worktree pour FreeCAD Snap.
 v0.1 : contrôle du rapport de niveau 1, les exports,
@@ -42,8 +43,10 @@ class CaoN2bContractTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which("freecad.cmd"), "freecad.cmd unavailable")
     def test_headless_exports_and_report_match_the_contract(self):
-        with tempfile.TemporaryDirectory(prefix=".codex-n2b-", dir=ROOT) as temp:
+        with tempfile.TemporaryDirectory(prefix=".codex-n2b-", dir=ROOT) as temp, \
+                tempfile.TemporaryDirectory(prefix=".codex-n2b-out-", dir=ROOT.parent) as output:
             temp_path = Path(temp)
+            output_path = Path(output)
             runner = temp_path / "run_n2b.py"
             runner.write_text(textwrap.dedent(f"""
                 import json, sys
@@ -53,7 +56,7 @@ class CaoN2bContractTests(unittest.TestCase):
                 import TechDraw
                 sys.path.insert(0, {str(ROOT)!r})
                 from cao import gabarit_piece as gp
-                report = gp.produire(gp.ESSAI, Path({str(temp_path / 'out')!r}))
+                report = gp.produire(gp.ESSAI, Path({str(output_path)!r}))
                 a = gp.Part.makeBox(10, 10, 10)
                 b = gp.Part.makeBox(10, 10, 10)
                 b.translate(gp.App.Vector(5, 0, 0))
