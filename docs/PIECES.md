@@ -1,4 +1,7 @@
-# Pièces et nomenclature — spécification v0.2
+# Pièces et nomenclature — spécification v0.3
+
+v0.3 (13 oct. 2026, claude) : CAO et mises en plan ajoutées (oui de Charles, msg 2309). La revue des plans est faite
+par claude et codex ; Charles n'est appelé qu'aux jalons, et l'OIQ seulement pour ce qui porte une personne.
 
 v0.2 (13 oct. 2026, claude) : copie hors de la tour sur l'autre laptop de Charles (msg 2302), par SSH (`x1`, joignable
 par clé, vérifié). Format des numéros `PROJET-SOUS-SYSTEME-NNN` retenu par défaut.
@@ -66,6 +69,29 @@ pièce conçue garde l'ancienne (jamais d'écrasement) ; une pièce `validee` ex
 
 Les agents écrivent par ces routes ; un outil MCP `pieces` (lecture, création, statut) suivra si l'usage le demande.
 
+## CAO et mises en plan
+
+| Élément | Règle |
+|---|---|
+| 3D d'une pièce conçue | Un script Python et un fichier `.FCStd` par pièce et par révision, produits par FreeCAD **sans fenêtre** (`freecad.cmd`, un processus par appel : plusieurs agents en parallèle). Jamais deux agents sur le même fichier (le dernier enregistrement gagne, FreeCAD issue #19697) |
+| Révision | Nouvelle révision = nouveau fichier `NUMERO_REV.FCStd`, l'ancien reste ; la fiche pièce garde chemin et sha256 |
+| Mise en plan | TechDraw : vues, cotes fonctionnelles, tolérances, cartouche (numéro, révision, matière, procédé), export PDF et DXF. Un plan par pièce fabriquée ; un plan d'assemblage par sous-système |
+| Assemblage | Un fichier d'assemblage par sous-système, liens vers les pièces ; vérification d'interférences à chaque révision |
+| FreeCAD avec fenêtre | Une seule session pilotée par MCP (port 9875) : pour regarder et vérifier, pas pour produire |
+
+### Revue des plans (qui vérifie quoi)
+
+| Niveau | Qui | Contrôle |
+|---|---|---|
+| 1 Automatique | script | Cotes manquantes ou en double, cartouche complet, interférences, masse, DFM du procédé |
+| 2 Producteur | l'agent qui a dessiné | Le plan suit le tableau de calcul et les critères de la pièce |
+| 3 Contre-revue | codex (calculs, cotes) et claude (fonction, assemblage, fabricabilité) | Indépendante du producteur ; écarts écrits, pièce bloquée tant qu'ils sont ouverts |
+| Jalon | Charles | Regarde les plans du sous-système et décide ; il ne relit pas chaque cote |
+| Sécurité | ingénieur OIQ | Seulement pour une pièce qui porte une personne ou une charge critique, avant l'usage |
+
+Pourquoi les agents ne suffisent pas pour le dernier niveau : ils peuvent se tromper de la même façon, ils ne
+touchent ni ne mesurent la pièce réelle, et la responsabilité d'une pièce de sécurité exige un ingénieur.
+
 ## Tâches physiques de Charles
 
 Une tâche peut avoir `responsable: "Charles"` (fabriquer, mesurer, recevoir). Elle lui demande une photo et des
@@ -84,6 +110,7 @@ d'achats du projet. Le rail montre les sous-projets sous leur parent.
 |---|---|---|
 | N1 Base et routes | claude | `pieces.py` (SQLite, schéma, règles), routes, sauvegarde quotidienne |
 | N2 Projet parent | claude | `parent_id`, effets d'un kill, avancement des enfants |
+| N2b CAO et plans | claude, gemini (CAD) | Gabarit de script pièce, mise en plan TechDraw, contrôles automatiques du niveau 1 |
 | N3 Interface | qwencode | Vue Pièces, nomenclature en arbre, achats, rail en arbre |
 | N4 Tests | codex | Cycles refusés, prix sans source refusé, quantités cumulées, révisions jamais écrasées |
 | N5 Essai | tous | Le quad sur papier : étapes 1-3 et la nomenclature de premier niveau |
