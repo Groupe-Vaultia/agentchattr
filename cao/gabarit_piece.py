@@ -1,11 +1,9 @@
-"""Gabarit N2b v1.2 (13 oct. 2026). Sortie hors du dépôt.
+"""Gabarit N2b v1.3 (13 oct. 2026). Le PDF est écrit dans le snap.
 
-v1.1 : gabarit ASME, vues alignées, dossier de révision, empreinte SHA-256.
 v1.2 : les fichiers générés vont dans ~/atelier/cao-pieces, pas dans le dépôt.
+v1.3 : le PDF est produit par Qt dans freecad.cmd, sans rsvg sur l'hôte.
 Remplacer solide() pour la vraie géométrie. Lancer depuis ce dépôt :
     freecad.cmd -c "import runpy; runpy.run_path('cao/gabarit_piece.py', run_name='__main__')"
-Le snap ne voit pas rsvg-convert. Le PDF se finit sur l'hôte :
-    /usr/bin/rsvg-convert -f pdf -o <dossier>/VLT-10001_plaque-gabarit_P01.pdf <dossier>/VLT-10001_plaque-gabarit_P01.svg
 """
 
 import hashlib
@@ -339,7 +337,35 @@ def _composer_svg(textes, vues, cotes_texte, chemin):
     chemin.write_text(svg[:indice] + "\n".join(blocs) + "\n" + svg[indice:], encoding="utf-8")
 
 
+def _pdf_qt(svg, chemin):
+    """Le snap ne voit pas rsvg-convert. Qt, livré avec FreeCAD, écrit le PDF."""
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QMarginsF, QSizeF
+    from PySide6.QtGui import QPageLayout, QPageSize, QPainter, QPdfWriter
+    from PySide6.QtSvg import QSvgRenderer
+    from PySide6.QtWidgets import QApplication
+
+    QApplication.instance() or QApplication([])
+    renderer = QSvgRenderer(str(svg))
+    if not renderer.isValid():
+        return False
+    writer = QPdfWriter(str(chemin))
+    writer.setPageSize(QPageSize(QSizeF(279.4, 215.9), QPageSize.Unit.Millimeter))
+    writer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
+    painter = QPainter(writer)
+    if not painter.isActive():
+        return False
+    renderer.render(painter)
+    painter.end()
+    return chemin.is_file() and chemin.stat().st_size > 0
+
+
 def _exporter_pdf(svg, chemin):
+    try:
+        if _pdf_qt(svg, chemin):
+            return str(chemin)
+    except Exception:
+        pass
     import subprocess
 
     try:
