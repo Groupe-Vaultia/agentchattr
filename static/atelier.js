@@ -45,6 +45,7 @@ const state = {
   pieces: null,     // N3 : pièces du projet {pieces:[…]} — null si pas encore chargé
   achats: null,     // N3 : liste d'achats {lignes, sans_offre, totaux}
   cout: null,       // N3 : coût cumulé {totaux, sans_prix, a_convertir}
+  alertes: [],      // U4 : alertes globales de GET /api/v2/ronde (sauvegarde, copie x1) — [] si rien
 };
 // N3 : statuts de pièce (spec PIECES.md) — libellé + classe de pilule.
 const PIECE_STATUT = {
@@ -497,11 +498,23 @@ async function loadProjet() {
   renderTous();
 }
 
+// U4 : bandeau d'alertes globales (sauvegarde, copie hors tour) venant de GET /api/v2/ronde.
+// `alertes` est une liste de chaînes ; rien n'est affiché quand elle est vide.
+function renderAlertes() {
+  const el = $("#alertes"); if (!el) return;
+  const liste = state.alertes || [];
+  if (!liste.length) { el.hidden = true; el.innerHTML = ""; return; }
+  el.hidden = false;
+  el.innerHTML = `<b>⚠️ ${liste.length} alerte${liste.length > 1 ? "s" : ""}</b> ` +
+    liste.map(a => `<span class="al">· ${esc(a)}</span>`).join("");
+}
+
 function renderTous() {
   renderRail(); renderProjets();
   $("#projhead").hidden = true;
   renderProjHead();
   renderEquipe(); renderCarte(); renderPieces(); renderHist(); renderLivrable();
+  renderAlertes();
   syncNav();
 }
 
@@ -799,9 +812,17 @@ $("#pc-q").addEventListener("input", renderPieces);
 $("#pc-f").addEventListener("change", renderPieces);
 window.addEventListener("resize", () => {});
 
+// U4 : les alertes (sauvegarde, copie hors tour) sont globales, pas propres à un projet.
+// Chargées une fois au démarrage ; GET /api/v2/ronde absent (404) = bandeau vide, pas d'erreur.
+async function loadAlertes() {
+  const r = await getJSON("/api/v2/ronde");
+  state.alertes = (r.ok && r.data && Array.isArray(r.data.alertes)) ? r.data.alertes : [];
+}
+
 // ---------- démarrage ----------
 (async function init() {
   try { const v = localStorage.getItem("rd-view"); if (v) state.view = v; } catch (_) {}
+  await loadAlertes();
   await loadProjets();
   await loadProjet();
   go(state.view || "projets");
