@@ -1,5 +1,6 @@
 # Méthodes par étape
 
+v1.2 (15 oct. 2026) : deux règles universelles ajoutées (structure suit la fonction ; « vert » ≠ « réel »), pour que le principe s'applique à **tout produit futur**, pas seulement au quad (Charles, 15 oct.).
 v1.1 (14 oct. 2026) : étape `design_initial` entre `concepts` et `conception` (skill `designer-produit`), décision de Charles msg 2945.
 v1.0 (13 oct. 2026) : méthodes des 8 étapes pour la consigne `methode_etape` (lot P3, SOCLE-SHOP v1.1).
 
@@ -11,6 +12,8 @@ Règles pour toutes les étapes :
 - Au plus 3 questions à Charles, seulement si la réponse change la cible, le coût, le délai, le risque ou une décision difficile à défaire. Le reste est une hypothèse écrite (`source: claude`, `etat: a_verifier`).
 - Aucun chiffre externe sans source. Sans source : « ? » et où vérifier.
 - `fait` exige une preuve : commande et sa sortie, sortie d'outil, ou fichier:ligne.
+- **La structure suit la fonction, jamais l'enveloppe.** Tout objet se conçoit à partir de ses **interfaces et points durs** — où il se monte, se connecte, pivote, prend ou transmet des charges, où l'usager le touche, où ses composants s'attachent — puis la forme, puis la matière. Remplir une boîte paramétrique qui respecte l'enveloppe (empattement, voie, hauteur…) n'est PAS une conception : chaque élément de matière existe pour tenir un point dur ou en relier deux. Vaut pour un châssis, un boîtier, un bâti, un outil, un montage — tout produit. (Détail : skill `designer-produit`, étape `design_initial`.)
+- **« Vert » ≠ « réel ».** Un livrable visuel ou destiné à l'usager (dessin, modèle 3D, page, pièce) n'est `fait` que **rendu ET regardé** : le plan à côté d'une vraie référence, la 3D ou la page chargée et vue (navigateur headless s'il le faut), pas seulement « le script a tourné » ou « le test passe ». L'agent signale ce qui « ne ressemble pas » ou « ne s'affiche pas » avant de livrer, au lieu de laisser Charles le découvrir.
 - TRIZ est obligatoire à `concepts`, et dès qu'un essai bute sur une contradiction (améliorer A dégrade B, ou le même paramètre doit prendre deux valeurs). S'il n'y a pas de contradiction, l'écrire en une ligne et ne pas en inventer une. La matrice se consulte par `python3 ~/atelier/.claude/skills/triz/scripts/matrice.py AMÉLIORÉ DÉGRADÉ`, jamais de mémoire. Une piste TRIZ reste une hypothèse tant que le calcul, le DFM et l'essai ne l'ont pas confirmée.
 
 ## probleme
