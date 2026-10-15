@@ -424,9 +424,12 @@ def configure(cfg: dict, session_token: str = ""):
                             else:
                                 mcp_bridge._activity[name] = False  # auto-expire
 
-                # Crash timeout: if a wrapper hasn't heartbeated for 60s,
-                # it's dead — deregister it to free the slot.
-                _CRASH_TIMEOUT = 15
+                # Crash timeout : le battement est envoye toutes les 5 s ; sous charge, 2-3
+                # battements lents/en timeout depassaient 15 s et marquaient a tort un agent
+                # OCCUPE (FreeCAD, gros calcul) comme "parti" — surtout le chef. 60 s = 12
+                # battements de marge : un agent occupe ne clignote plus, un vrai mort est
+                # detecte en 1 min.
+                _CRASH_TIMEOUT = 60
                 registered = set(registry.get_all_names())
                 for name in registered:
                     with mcp_bridge._presence_lock:
@@ -2692,13 +2695,25 @@ def _methodes_etapes() -> dict:
     except OSError:
         return {}
     out, courante, lignes = {}, None, []
+    preambule = []
     for ligne in texte.splitlines() + ["## "]:
         if ligne.startswith("## "):
-            if courante in _jobs_mod.ETAPES:
+            if courante is None:
+                preambule = lignes[:]              # tout ce qui precede la 1re etape
+            elif courante in _jobs_mod.ETAPES:
                 out[courante] = "\n".join(lignes).strip()
             courante, lignes = ligne[3:].strip(), []
         else:
             lignes.append(ligne)
+    # Les regles universelles (prambule, a partir de "Regles pour toutes les etapes") sont
+    # prefixees a CHAQUE etape : sinon elles n'atteignent jamais l'agent, qui ne recoit que la
+    # section de son etape, et la doctrine reste decorative.
+    pre = "\n".join(preambule).strip()
+    i = pre.find("Règles pour toutes les étapes")
+    if i >= 0:
+        pre = pre[i:].strip()
+        for k in list(out):
+            out[k] = pre + "\n\n" + out[k]
     return out
 
 
