@@ -3770,6 +3770,15 @@ async def post_offre(piece_id: int, request: Request):
     return JSONResponse(pieces.ajouter_offre(piece_id, body, _auteur(body)))
 
 
+@app.post("/api/v2/offres/{offre_id}/retrait")
+@_piece_route
+async def post_retrait_offre(offre_id: int, request: Request):
+    body = await _corps(request)
+    if isinstance(body, JSONResponse):
+        return body
+    return JSONResponse(pieces.retirer_offre(offre_id, body.get("motif", ""), _auteur(body)))
+
+
 @app.post("/api/v2/pieces/{piece_id}/mouvements")
 @_piece_route
 async def post_mouvement(piece_id: int, request: Request):
