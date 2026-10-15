@@ -27,7 +27,7 @@ UNITES = ("u", "m", "kg")
 MOUVEMENTS = ("commande", "reception", "fabrication", "rebut", "consommation")
 _REVISION = re.compile(r"^(P(0[1-9]|[1-9][0-9])|[A-HJ-NPRTUVWY]{1,2})$")  # P01-P99, puis A… sans I O Q S X Z
 PREMIER_NUMERO = 10001
-VERSION_SCHEMA = 1  # PRAGMA user_version : toute evolution du schema passe par une migration numerotee (_MIGRATIONS)
+VERSION_SCHEMA = 2  # PRAGMA user_version : toute evolution du schema passe par une migration numerotee (_MIGRATIONS)
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS compteur (nom TEXT PRIMARY KEY, valeur INTEGER NOT NULL);
@@ -88,6 +88,15 @@ def source_valide(source: str) -> bool:
 _SIGNE = {"commande": 1, "reception": 1, "fabrication": 1, "rebut": -1, "consommation": -1}
 
 
+def _migration_2(db) -> None:
+    """v2 : une offre fausse ou perimee se retire avec un motif, sans etre effacee (revue claude msg 2896)."""
+    cols = {r[1] for r in db.execute("PRAGMA table_info(offres)")}
+    if "retiree" not in cols:
+        db.execute("ALTER TABLE offres ADD COLUMN retiree REAL")
+    if "motif_retrait" not in cols:
+        db.execute("ALTER TABLE offres ADD COLUMN motif_retrait TEXT DEFAULT ''")
+
+
 class PieceStore:
     def __init__(self, path: str):
         self._path = Path(path)
@@ -102,7 +111,7 @@ class PieceStore:
 
     # Migrations : une fonction par version, appliquee une seule fois, dans l'ordre. Une base plus recente que ce
     # code est refusee (on ne l'abime pas avec un ancien serveur).
-    _MIGRATIONS: dict = {}
+    _MIGRATIONS: dict = {2: _migration_2}
 
     def _migrer(self) -> None:
         v = self._db.execute("PRAGMA user_version").fetchone()[0]
@@ -310,7 +319,25 @@ class PieceStore:
         with self._lock:
             return [dict(r) for r in self._db.execute(
                 "SELECT o.*, f.nom AS fournisseur FROM offres o LEFT JOIN fournisseurs f ON f.id = o.fournisseur_id "
-                "WHERE o.piece_id = ? ORDER BY o.prix", (piece_id,))]
+                "WHERE o.piece_id = ? AND o.retiree IS NULL ORDER BY o.prix", (piece_id,))]
+
+    def retirer_offre(self, offre_id: int, motif: str, qui: str) -> dict:
+        """Retire une offre (motif obligatoire) : elle sort des offres et des achats, l'historique la garde."""
+        motif = str(motif or "").strip()
+        if not motif:
+            raise Erreur("motif de retrait requis")
+        with self._lock:
+            o = self._db.execute("SELECT * FROM offres WHERE id = ?", (offre_id,)).fetchone()
+            if o is None:
+                raise Erreur("offre inconnue", 404)
+            if o["retiree"] is not None:
+                raise Erreur("offre deja retiree", 409)
+            t = time.time()
+            self._db.execute("UPDATE offres SET retiree = ?, motif_retrait = ? WHERE id = ?", (t, motif, offre_id))
+            self._db.execute("INSERT INTO historique_pieces (piece_id, champ, avant, apres, qui, date) "
+                             "VALUES (?, 'offre_retiree', ?, ?, ?, ?)", (o["piece_id"], str(offre_id), motif, qui, t))
+            self._db.commit()
+            return dict(self._db.execute("SELECT * FROM offres WHERE id = ?", (offre_id,)).fetchone())
 
     # ---------- nomenclature ----------
     def _enfants(self, parent_id: int) -> list[sqlite3.Row]:
@@ -384,7 +411,7 @@ class PieceStore:
                 p = self._ligne(pid)
                 offres = [dict(r) for r in self._db.execute(
                     "SELECT o.*, f.nom AS fournisseur FROM offres o LEFT JOIN fournisseurs f ON f.id = o.fournisseur_id "
-                    "WHERE o.piece_id = ?", (pid,))]
+                    "WHERE o.piece_id = ? AND o.retiree IS NULL", (pid,))]
                 if not offres:
                     sans_offre.append({"piece_id": pid, "numero": p["numero"], "nom": p["nom"], "quantite": qte})
                     continue
