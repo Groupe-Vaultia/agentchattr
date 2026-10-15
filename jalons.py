@@ -16,9 +16,9 @@ ISSUES = ("go", "recycle", "hold", "kill")
 ETATS_CRITERE = ("atteint", "partiel", "rate", "a_mesurer")
 # Etapes qu'un recycle peut viser, par jalon (pilote-rd : J1 suit concepts, J2 suit essais).
 RECYCLE = {
-    "J1": ("probleme", "etat_art", "concepts"),
-    "J2": ("probleme", "etat_art", "concepts", "conception", "prototype", "essais"),
-    "revue": ("probleme", "etat_art", "concepts", "conception", "prototype", "essais", "industrialisation"),
+    "J1": ("probleme", "etat_art", "concepts", "design_initial"),
+    "J2": ("probleme", "etat_art", "concepts", "design_initial", "conception", "prototype", "essais"),
+    "revue": ("probleme", "etat_art", "concepts", "design_initial", "conception", "prototype", "essais", "industrialisation"),
 }
 
 

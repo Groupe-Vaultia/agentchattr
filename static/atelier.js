@@ -1,3 +1,4 @@
+import { choisirFantomes, BBOX_DEF } from './fantomes.js';
 /* Atelier R&D · Vaultia — logique de la page.
    Ne lit que les routes du socle (FICHES-LOTS.md). Chaque route « à venir » est enveloppée :
    tant que claude n'a pas branché le lot (ou si la réponse est 404/500), l'interface affiche
@@ -45,7 +46,8 @@ const state = {
   pieces: null,     // N3 : pièces du projet {pieces:[…]} — null si pas encore chargé
   achats: null,     // N3 : liste d'achats {lignes, sans_offre, totaux}
   cout: null,       // N3 : coût cumulé {totaux, sans_prix, a_convertir}
-  alertes: [],      // U4 : alertes globales de GET /api/v2/ronde (sauvegarde, copie x1) — [] si rien
+  alertes: [],      // U4 : alertes globales de GET /api/v2/ronde
+  v3d: null,          // G5 : instance du viewer 3D (three-viewer.js) (sauvegarde, copie x1) — [] si rien
 };
 // N3 : statuts de pièce (spec PIECES.md) — libellé + classe de pilule.
 const PIECE_STATUT = {
@@ -634,8 +636,64 @@ function renderEquipeRow() {
   el.innerHTML = `<b>Équipe</b> ${items}`;
 }
 
+// G5 : vue 3D de la progression — charge les GLB via la route A1,
+// colore par statut, affiche les fantômes, clic → fiche pièce.
+async function renderVue3D() {
+  const el = $("#v3d-canvas"); if (!el) return;
+  if (!state.sel) { if (state.v3d) { state.v3d.destroy(); state.v3d = null; } return; }
+  if (typeof window.creerVue3D !== "function") return;
+  // Recrée le viewer à chaque changement de projet
+  if (state.v3d) { state.v3d.destroy(); state.v3d = null; }
+  const cap = $("#v3d-cap");
+  if (cap) cap.textContent = "Chargement…";
+  state.v3d = window.creerVue3D(el, (pieceId) => { ouvrirPiece(pieceId); });
+  const leg = state.v3d.creerLegende(el.parentElement);
+
+  // Charger les pièces avec leur fichier GLB (route A1)
+  const pieces = (state.pieces && state.pieces.pieces) || [];
+  // Positions des pièces dans le repère du véhicule (mm, Z vers le haut).
+  // Source : geometrie.py retenue() + maillage.py. Bbox par défaut = boîte au centre.
+  const POS_PIECES = {
+    "VLT-10002": { xMin: -20, xMax: 1366, yMin: -16, yMax: 416, zMin: -21, zMax: 316 },   // cadre treillis
+    "VLT-10090": { xMin: 1435, xMax: 1560, yMin: 175, yMax: 225, zMin: -165, zMax: -95 },  // attelage (sur le bras)
+    "VLT-10013": { xMin: -20, xMax: 1366, yMin: -16, yMax: 416, zMin: -21, zMax: 316 },    // tube cadre
+  };
+
+  const pieces3d = [];
+  for (const p of pieces) {
+    const bbox = POS_PIECES[p.numero] || BBOX_DEF;
+    const entry = { id: p.id, numero: p.numero, nom: p.nom, statut: p.statut, fichier_glb: null, bbox };
+    if (p.fichier && p.fichier.endsWith(".glb")) {
+      entry.fichier_glb = "/api/v2/pieces/" + encodeURIComponent(p.id) + "/fichiers/" +
+        encodeURIComponent(p.revision || "P01") + "/" + encodeURIComponent(p.fichier.split("/").pop());
+    }
+    pieces3d.push(entry);
+  }
+
+  // Fantômes : volumes schématiques des sous-ensembles non modélisés.
+  // Positions dans le repère du véhicule (mm, Z vers le haut), source : maillage.py + geometrie.py retenue().
+  // Repère corrigé (msg 3007) : pivot (1100, 0), bras 360 mm, essieu à (1435.7, -130),
+  // branches bras y = 200 ± 250, roue AV x = 40, empattement 1396.
+
+  // Fantômes : sélection via le module static/fantomes.js
+  let fantomes;
+  try {
+    const racine = pieces.find(p => p.type === "assemblage" && !p.sous_systeme);
+    if (racine) {
+      const r = await getJSON(`/api/v2/pieces/${encodeURIComponent(racine.id)}/nomenclature`);
+      if (r.ok && r.data) {
+        fantomes = choisirFantomes(r.data.enfants);
+      }
+    }
+  } catch (_) {}
+  if (!fantomes) fantomes = choisirFantomes(null);
+
+  await state.v3d.charger(pieces3d, fantomes);
+  if (cap) cap.textContent = pieces3d.length ? pieces3d.length + " pièce(s) chargée(s)" : "aucun GLB";
+}
+
 function renderTous() {
-  renderRail(); renderProjets();
+  renderRail(); renderProjets(); renderVue3D();
   $("#projhead").hidden = true;
   renderProjHead();
   renderEquipe(); renderCarte(); renderPieces(); renderHist(); renderLivrable();
@@ -1100,6 +1158,13 @@ async function loadAlertes() {
 }
 
 // ---------- démarrage ----------
+// G5 : curseur d'éclaté
+document.addEventListener("input", e => {
+  if (e.target.id === "v3d-eclate" && state.v3d) {
+    state.v3d.setEclate(parseInt(e.target.value, 10) / 100);
+  }
+});
+
 (async function init() {
   try { const v = localStorage.getItem("rd-view"); if (v) state.view = v; } catch (_) {}
   await loadAlertes();

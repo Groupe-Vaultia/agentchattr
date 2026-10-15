@@ -15,7 +15,7 @@ import uuid
 from pathlib import Path
 
 
-ETAPES = ("probleme", "etat_art", "concepts", "conception", "prototype", "essais",
+ETAPES = ("probleme", "etat_art", "concepts", "design_initial", "conception", "prototype", "essais",
           "industrialisation", "lancement")
 ETATS = ("a_faire", "en_cours", "attend_charles", "bloque", "fait")
 ROLES = ("producteur", "verificateur", "relecteur", "proposant")
