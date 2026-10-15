@@ -2579,6 +2579,60 @@ async def projet_verifier(projet_id: str, numero: str):
         return JSONResponse({"error": "revision inconnue"}, status_code=404)
 
 
+# Visualiseur de livrables (14 oct. 2026, Charles msg du 13 oct.) : servir le CONTENU d'un livrable
+# pour le LIRE dans l'atelier (une preuve n'etait qu'une ligne de texte, sans acces au document).
+# Borne a racine_livrables par le MEME garde-fou que S5 (RevisionStore.resoudre : chemin absolu,
+# « .. » ou lien qui sort de la racine = refuse). Protege par le token de session comme toute route.
+_LIVR_TEXTE = {".md", ".markdown", ".txt", ".csv", ".json"}
+_LIVR_IMAGE = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+               ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml"}
+# Types connus servis en telechargement (jamais rendus inline) ; un type inconnu tombe sur octet-stream.
+_LIVR_TELECHARGER = {".pdf": "application/pdf", ".step": "application/step", ".stp": "application/step",
+                     ".stl": "model/stl", ".dxf": "image/vnd.dxf", ".fcstd": "application/octet-stream",
+                     ".3mf": "model/3mf", ".iges": "model/iges", ".igs": "model/iges",
+                     ".obj": "model/obj", ".glb": "model/gltf-binary"}
+_LIVR_MAX_TEXTE = 2 * 1024 * 1024  # 2 Mio : au-dela, on ne rend pas le texte inline (message clair).
+
+
+@app.get("/api/v2/livrable")
+async def livrable_contenu(chemin: str = ""):
+    """Contenu d'un livrable sous racine_livrables, pour le visualiseur de l'atelier.
+    - .md/.markdown/.txt/.csv/.json -> JSON {chemin, type:"texte", ext, contenu} (rendu inline cote client) ;
+      au-dela de 2 Mio -> JSON {type:"trop_volumineux"} avec un message, sans servir le texte.
+    - .png/.jpg/.jpeg/.gif/.webp/.svg -> FileResponse image, inline, sans droit d'executer (CSP).
+    - tout autre type (PDF, STEP/STL/DXF/FCStd, binaire) -> FileResponse en telechargement, jamais rendu.
+    Un futur type CAO (apercu 3D, « Ouvrir dans FreeCAD ») se branche cote client sur l'extension/type."""
+    if revisions is None:
+        return JSONResponse({"error": "store des livrables indisponible"}, status_code=503)
+    try:
+        f = revisions.resoudre(chemin)
+    except ValueError as err:
+        return JSONResponse({"error": f"chemin refuse : {err}"}, status_code=403)
+    if not f.is_file():
+        return JSONResponse({"error": f"livrable introuvable : {chemin}"}, status_code=404)
+    ext = f.suffix.lower()
+    # 1) Texte lisible inline (markdown, texte, csv, json) : echappe et rendu cote client, jamais en HTML brut.
+    if ext in _LIVR_TEXTE:
+        taille = f.stat().st_size
+        if taille > _LIVR_MAX_TEXTE:
+            return JSONResponse({"chemin": chemin, "type": "trop_volumineux", "octets": taille,
+                                 "message": f"Fichier de {taille // 1024} Kio — trop gros pour l'aperçu "
+                                            f"(limite {_LIVR_MAX_TEXTE // (1024 * 1024)} Mio). "
+                                            f"Télécharge-le pour le lire."})
+        contenu = f.read_text("utf-8", errors="replace")
+        return JSONResponse({"chemin": chemin, "type": "texte", "ext": ext[1:], "contenu": contenu})
+    # 2) Image : servie inline. Un SVG peut porter du script : on le sert sans droit d'executer quoi que ce soit.
+    if ext in _LIVR_IMAGE:
+        entetes = {"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:",
+                   "X-Content-Type-Options": "nosniff"}
+        return FileResponse(f, media_type=_LIVR_IMAGE[ext], headers=entetes,
+                            content_disposition_type="inline", filename=f.name)
+    # 3) Tout le reste : telechargement, jamais rendu ici (type inconnu = octet-stream).
+    media = _LIVR_TELECHARGER.get(ext, "application/octet-stream")
+    return FileResponse(f, media_type=media, headers={"X-Content-Type-Options": "nosniff"},
+                        content_disposition_type="attachment", filename=f.name)
+
+
 # SOCLE-SHOP S6 : ce que la ronde planifiee du gestionnaire doit traiter, pour les projets actifs.
 @app.get("/api/v2/ronde")
 async def get_ronde():

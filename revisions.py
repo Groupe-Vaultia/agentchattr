@@ -121,6 +121,12 @@ class RevisionStore:
             raise ValueError(f"chemin hors de la racine : {chemin!r}")
         return f
 
+    def resoudre(self, chemin: str) -> Path:
+        """Chemin absolu d'un livrable sous la racine, ou ValueError (chemin absolu, « .. » ou lien
+        qui sort de la racine une fois resolu). Meme garde-fou que ajouter_livrable/approuver/verifier
+        (un seul endroit a durcir), expose pour servir le contenu d'un livrable au visualiseur."""
+        return self._fichier(chemin)
+
     def _derniere(self, projet_id: str, chemin: str) -> dict | None:
         versions = [l for l in self._etat["livrables"] if l["projet_id"] == projet_id and l["chemin"] == chemin]
         return max(versions, key=lambda l: l["version"]) if versions else None
