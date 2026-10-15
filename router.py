@@ -5,12 +5,15 @@ import re
 
 class Router:
     def __init__(self, agent_names: list[str], default_mention: str = "both",
-                 max_hops: int = 4, online_checker=None):
+                 max_hops: int = 4, online_checker=None, anti_spin_ticks: int = 3):
         self.agent_names = set(n.lower() for n in agent_names)
         self.default_mention = default_mention
         self.max_hops = max_hops
+        # Anti-tournage-a-vide : apres ce nombre de battements de ronde recurrente consecutifs
+        # SANS progres reel (note_progress), on cesse de relancer claude dans ce canal.
+        self.anti_spin_ticks = anti_spin_ticks
         self._online_checker = online_checker  # callable() -> set of online agent names
-        # Per-channel state: { channel: { hop_count, paused, guard_emitted } }
+        # Per-channel state: { channel: { hop_count, paused, guard_emitted, heartbeats } }
         self._channels: dict[str, dict] = {}
         self._build_pattern()
 
@@ -20,6 +23,8 @@ class Router:
                 "hop_count": 0,
                 "paused": False,
                 "guard_emitted": False,
+                # battements de ronde recurrente depuis le dernier progres reel (anti-spin)
+                "heartbeats": 0,
             }
         return self._channels[channel]
 
@@ -95,6 +100,28 @@ class Router:
 
     def set_guard_emitted(self, channel: str = "general"):
         self._get_ch(channel)["guard_emitted"] = True
+
+    def note_progress(self, channel: str = "general"):
+        """Un progres reel sur ce canal (tache qui avance, execution terminee, revue rendue,
+        jalon franchi). Remet le compteur de relais agent->agent ET le compteur anti-tournage-a-vide
+        a zero, comme un message humain, mais SANS router de message."""
+        ch = self._get_ch(channel)
+        ch["hop_count"] = 0
+        ch["paused"] = False
+        ch["guard_emitted"] = False
+        ch["heartbeats"] = 0
+
+    def note_heartbeat(self, channel: str = "general") -> tuple[int, bool]:
+        """Compte un battement de ronde recurrente (une planification qui relance claude) dans ce
+        canal. Rend (nombre de battements depuis le dernier progres, seuil tout juste franchi).
+        « franchi » n'est vrai qu'au battement qui atteint anti_spin_ticks, pour n'avertir qu'une fois."""
+        ch = self._get_ch(channel)
+        ch["heartbeats"] += 1
+        franchi = ch["heartbeats"] == self.anti_spin_ticks
+        return ch["heartbeats"], franchi
+
+    def heartbeats_since_progress(self, channel: str = "general") -> int:
+        return self._get_ch(channel)["heartbeats"]
 
     def update_agents(self, names: list[str]):
         """Replace the agent name set and rebuild the mention regex."""
