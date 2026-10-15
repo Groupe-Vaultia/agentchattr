@@ -464,10 +464,18 @@ async function ouvrirPiece(id) {
     // 403, 5xx ou erreur réseau (err=0 au catch) → message d'erreur visible
     fel.innerHTML = `<span class="cap" style="color:var(--bad)">${fr.err ? "Erreur " + fr.err : "Erreur réseau"} — impossible de charger les plans.</span>`;
   } else if (fr.data && fr.data.fichiers && fr.data.fichiers.length) {
+    const tok = encodeURIComponent(window.__SESSION_TOKEN__ || "");
+    const url = (f) => `/api/v2/pieces/${encodeURIComponent(id)}/fichiers/${encodeURIComponent(f.revision || "P01")}/${encodeURIComponent(f.nom)}?token=${tok}`;
     const svg = fr.data.fichiers.find(f => f.nom.endsWith(".svg"));
-    fel.innerHTML = svg
-      ? `<img src="/api/v2/pieces/${encodeURIComponent(id)}/fichiers/${encodeURIComponent(svg.revision || "P01")}/${encodeURIComponent(svg.nom)}?token=${encodeURIComponent(window.__SESSION_TOKEN__ || "")}" alt="Plan ${esc(svg.nom)}" style="max-width:100%;border:1px solid var(--line);border-radius:8px;margin-top:6px;background:#fff;padding:8px">`
-      : `<span class="cap">Aucun plan SVG disponible. Fichiers : ${fr.data.fichiers.map(f => esc(f.nom)).join(", ")}</span>`;
+    // Liens de telechargement : PDF (bien voir le plan), STEP (CAO), GLB (3D), SVG.
+    const liens = ["pdf", "step", "stp", "glb", "svg", "dxf"].map((ext) => {
+      const f = fr.data.fichiers.find(x => x.nom.toLowerCase().endsWith("." + ext));
+      return f ? `<a href="${url(f)}" download="${esc(f.nom)}" class="liv-lien" target="_blank" rel="noopener">${ext.toUpperCase()}</a>` : "";
+    }).filter(Boolean).join(" · ");
+    const imgHtml = svg
+      ? `<img src="${url(svg)}" alt="Plan ${esc(svg.nom)}" style="max-width:100%;border:1px solid var(--line);border-radius:8px;margin-top:6px;background:#fff;padding:8px">`
+      : `<span class="cap">Aucun plan SVG à afficher.</span>`;
+    fel.innerHTML = imgHtml + (liens ? `<div class="cap" style="margin-top:8px">Télécharger : ${liens}</div>` : "");
   } else {
     fel.innerHTML = `<span class="cap">Aucun plan pour l'instant (les vrais plans arrivent avec G3c).</span>`;
   }
