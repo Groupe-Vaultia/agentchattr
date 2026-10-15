@@ -424,9 +424,12 @@ def configure(cfg: dict, session_token: str = ""):
                             else:
                                 mcp_bridge._activity[name] = False  # auto-expire
 
-                # Crash timeout: if a wrapper hasn't heartbeated for 60s,
-                # it's dead — deregister it to free the slot.
-                _CRASH_TIMEOUT = 15
+                # Crash timeout : le battement est envoye toutes les 5 s ; sous charge, 2-3
+                # battements lents/en timeout depassaient 15 s et marquaient a tort un agent
+                # OCCUPE (FreeCAD, gros calcul) comme "parti" — surtout le chef. 60 s = 12
+                # battements de marge : un agent occupe ne clignote plus, un vrai mort est
+                # detecte en 1 min.
+                _CRASH_TIMEOUT = 60
                 registered = set(registry.get_all_names())
                 for name in registered:
                     with mcp_bridge._presence_lock:
