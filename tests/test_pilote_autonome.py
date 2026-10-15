@@ -183,6 +183,7 @@ class RondeMoteurTests(unittest.TestCase):
             {"id": 1, "projet_id": "alpha", "etape": "probleme", "etat": "fait"},
             {"id": 2, "projet_id": "alpha", "etape": "etat_art", "etat": "fait"},
             {"id": 3, "projet_id": "alpha", "etape": "concepts", "etat": "fait"},
+            {"id": 30, "projet_id": "alpha", "etape": "design_initial", "etat": "fait"},
             {"id": 4, "projet_id": "alpha", "etape": "conception", "etat": "a_faire", "titre": "Dessiner",
              "responsable": "gemini"},
         ]
@@ -205,6 +206,7 @@ class RondeMoteurTests(unittest.TestCase):
             {"id": 1, "projet_id": "alpha", "etape": "probleme", "etat": "fait", "created_at": 10},
             {"id": 2, "projet_id": "alpha", "etape": "etat_art", "etat": "fait", "created_at": 20},
             {"id": 3, "projet_id": "alpha", "etape": "concepts", "etat": "fait", "created_at": 30},
+            {"id": 30, "projet_id": "alpha", "etape": "design_initial", "etat": "fait", "created_at": 35},
             {"id": 4, "projet_id": "alpha", "etape": "conception", "etat": "a_faire", "responsable": "gemini",
              "created_at": 40},
         ]
@@ -225,12 +227,16 @@ class RondeMoteurTests(unittest.TestCase):
         self.assertEqual([t["tache_id"] for t in with_rework["prochaines"]], [5])
 
         rework["etat"] = "fait"
-        after_rework = ronde.ronde(projects_by_id, tasks + [rework], [], recycle)
+        # Le nouveau concept doit repasser par un choix visuel : l'ancien design_initial (t=35) ne compte pas.
+        sans_design = ronde.ronde(projects_by_id, tasks + [rework], [], recycle)
+        self.assertEqual(sans_design["jalons_dus"], [])
+        design = {"id": 6, "projet_id": "alpha", "etape": "design_initial", "etat": "fait", "created_at": 102}
+        after_rework = ronde.ronde(projects_by_id, tasks + [rework, design], [], recycle)
         self.assertEqual(after_rework["recyclages"], [])
         self.assertEqual(after_rework["jalons_dus"], [{"projet_id": "alpha", "jalon": "J1"}])
         self.assertEqual(after_rework["prochaines"], [])
 
-        after_go = ronde.ronde(projects_by_id, tasks + [rework], [], recycle + [
+        after_go = ronde.ronde(projects_by_id, tasks + [rework, design], [], recycle + [
             {"id": 2, "projet_id": "alpha", "jalon": "J1", "decision": "go", "decision_date": 200},
         ])
         self.assertEqual(after_go["jalons_dus"], [])
