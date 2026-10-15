@@ -252,3 +252,26 @@ button.step:hover,.steph:hover{background:var(--slate-soft)}
   .map{grid-template-columns:1fr;min-width:0}
   .col.vide{display:none}
 }
+
+/* Visualiseur de livrables (modale #fiche) : rendu markdown, images, code, tableaux. */
+.btn.mini{font-size:12px;padding:3px 10px}
+.liv-vue{overflow-x:auto}
+.liv-img{max-width:100%;height:auto;border:1px solid var(--line);border-radius:8px;background:var(--paper)}
+.liv-md{line-height:1.6;overflow-wrap:anywhere}
+.liv-md .liv-h{margin:14px 0 6px;line-height:1.3}
+.liv-md h1.liv-h{font-size:20px}.liv-md h2.liv-h{font-size:17px}.liv-md h3.liv-h{font-size:15px}
+.liv-md h4.liv-h,.liv-md h5.liv-h,.liv-md h6.liv-h{font-size:13.5px}
+.liv-md p{margin:6px 0;white-space:normal}
+.liv-md .liv-list{margin:6px 0;padding-left:22px}
+.liv-md .liv-list .liv-list{margin:2px 0}
+.liv-md li{margin:2px 0}
+.liv-md .liv-hr{border:none;border-top:1px solid var(--line2);margin:12px 0}
+.liv-md .liv-bq{border-left:3px solid var(--line2);margin:8px 0;padding:2px 0 2px 12px;color:var(--ink2)}
+.liv-md code{font:12px var(--mono);background:var(--surface);border:1px solid var(--line2);border-radius:4px;padding:0 4px}
+.liv-code{background:var(--surface);border:1px solid var(--line2);border-radius:8px;padding:10px 12px;overflow-x:auto;margin:8px 0}
+.liv-code code{font:12.5px/1.5 var(--mono);background:none;border:none;padding:0;white-space:pre}
+.liv-tblw{overflow-x:auto;margin:8px 0}
+.liv-tbl{border-collapse:collapse;width:100%;font-size:13px}
+.liv-tbl th,.liv-tbl td{border:1px solid var(--line2);padding:5px 9px;text-align:left;vertical-align:top}
+.liv-tbl th{background:var(--surface);font-weight:600}
+.liv-lien{cursor:pointer;text-decoration:underline;text-underline-offset:2px}

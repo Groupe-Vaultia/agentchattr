@@ -291,8 +291,8 @@ function renderLivrable() {
     return;
   }
   const liv = state.liv.livrables || [];
-  tbl.innerHTML = `<tr><th>Fichier</th><th>Version</th><th class="n">Empreinte</th></tr>` +
-    (liv.length ? liv.map(l => `<tr><td>${esc(l.chemin)}</td><td>${esc(l.version)}</td><td class="n"><code>${esc((l.empreinte || "").slice(0, 12))}</code></td></tr>`).join("") : `<tr><td colspan="3" class="sub">aucun livrable</td></tr>`);
+  tbl.innerHTML = `<tr><th>Fichier</th><th>Version</th><th class="n">Empreinte</th><th></th></tr>` +
+    (liv.length ? liv.map(l => `<tr><td>${esc(l.chemin)}</td><td>${esc(l.version)}</td><td class="n"><code>${esc((l.empreinte || "").slice(0, 12))}</code></td><td class="n"><button class="btn mini" type="button" data-voir="${esc(l.chemin)}">voir</button></td></tr>`).join("") : `<tr><td colspan="4" class="sub">aucun livrable</td></tr>`);
   cap.textContent = liv.length ? `${liv.length} livrable(s) au projet.` : "";
   const revisions = state.liv.revisions || [];
   rev.innerHTML = revisions.length
@@ -734,6 +734,147 @@ const mdCourt = txt => esc(String(txt || ""))
   .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
   .replace(/`([^`]+)`/g, "<code>$1</code>");
 
+// ---------- visualiseur de livrables : rendu markdown sûr + modale par type ----------
+// chat.js rend le markdown avec la bibliothèque `marked`, qui n'est pas chargée sur cette page
+// (atelier.html ne charge que atelier.js). On garde donc un rendu autonome, minimal et SÛR :
+// tout contenu de fichier est échappé AVANT d'être balisé — jamais d'innerHTML de HTML brut.
+// Mise en forme en ligne : `code`, **gras**, *italique*, [texte](url) http(s)/mailto seulement.
+function livInline(raw) {
+  const codes = [];
+  let s = String(raw ?? "").replace(/`([^`]+)`/g, (m, c) => { codes.push(c); return "\x00c" + (codes.length - 1) + "\x00"; });
+  s = esc(s); // échappe &<>" — les marqueurs *, _, [, ], (, ) survivent
+  s = s.replace(/!\[([^\]]*)\]\([^)\s]+\)/g, (m, alt) => `<em>[image : ${alt}]</em>`); // pas de chargement externe
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, txt, url) =>
+    /^(https?:\/\/|mailto:)/i.test(url) ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${txt}</a>` : txt);
+  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>").replace(/__([^_]+)__/g, "<strong>$1</strong>");
+  s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>").replace(/(^|[^_\w])_([^_\n]+)_/g, "$1<em>$2</em>");
+  s = s.replace(/\x00c(\d+)\x00/g, (m, i) => `<code>${esc(codes[+i])}</code>`);
+  return s;
+}
+// Listes imbriquées (indentation = 2 espaces par niveau), ordonnées ou non.
+function livListe(lignes) {
+  const items = [];
+  lignes.forEach(l => {
+    const m = l.match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/);
+    if (m) items.push({ lvl: Math.floor(m[1].replace(/\t/g, "  ").length / 2), ol: /\d/.test(m[2]), txt: m[3] });
+    else if (items.length) items[items.length - 1].txt += "\n" + l.trim(); // continuation d'item
+  });
+  let html = ""; const open = [];
+  items.forEach(it => {
+    if (!open.length || it.lvl > open[open.length - 1].lvl) {
+      const tag = it.ol ? "ol" : "ul"; open.push({ lvl: it.lvl, tag }); html += `<${tag} class="liv-list">`;
+    } else {
+      while (open.length > 1 && it.lvl < open[open.length - 1].lvl) html += `</li></${open.pop().tag}>`;
+      html += "</li>";
+    }
+    html += `<li>${livInline(it.txt)}`;
+  });
+  while (open.length) html += `</li></${open.pop().tag}>`;
+  return html;
+}
+// Rendu markdown par blocs : code clôturé, titres, filets, tableaux, citations, listes, paragraphes.
+function livMarkdown(src) {
+  const lines = String(src || "").replace(/\r\n?/g, "\n").split("\n");
+  const out = []; let i = 0;
+  const sep = s => /^\s*\|?[\s:|-]*-{1,}[\s:|-]*$/.test(s) && s.includes("-") && s.includes("|");
+  const special = s => /^\s*(#{1,6}\s|```|>|[-*+]\s|\d+[.)]\s)/.test(s) || /^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(s);
+  while (i < lines.length) {
+    const line = lines[i];
+    const fence = line.match(/^\s*```+\s*\S*\s*$/);
+    if (fence) {
+      i++; const buf = [];
+      while (i < lines.length && !/^\s*```+\s*$/.test(lines[i])) { buf.push(lines[i]); i++; }
+      i++; out.push(`<pre class="liv-code"><code>${esc(buf.join("\n"))}</code></pre>`); continue;
+    }
+    if (/^\s*$/.test(line)) { i++; continue; }
+    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    if (h) { const n = h[1].length; out.push(`<h${n} class="liv-h">${livInline(h[2].replace(/#+\s*$/, "").trim())}</h${n}>`); i++; continue; }
+    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { out.push('<hr class="liv-hr">'); i++; continue; }
+    if (line.includes("|") && i + 1 < lines.length && sep(lines[i + 1])) {
+      const cells = r => r.replace(/^\s*\|/, "").replace(/\|\s*$/, "").split("|").map(c => c.trim());
+      const head = cells(line); i += 2; const rows = [];
+      while (i < lines.length && lines[i].includes("|") && !/^\s*$/.test(lines[i])) { rows.push(cells(lines[i])); i++; }
+      out.push(`<div class="liv-tblw"><table class="liv-tbl"><thead><tr>${head.map(c => `<th>${livInline(c)}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${livInline(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
+      continue;
+    }
+    if (/^\s*>/.test(line)) {
+      const buf = [];
+      while (i < lines.length && /^\s*>/.test(lines[i])) { buf.push(lines[i].replace(/^\s*>\s?/, "")); i++; }
+      out.push(`<blockquote class="liv-bq">${livMarkdown(buf.join("\n"))}</blockquote>`); continue;
+    }
+    if (/^\s*([-*+]|\d+[.)])\s+/.test(line)) {
+      const buf = [];
+      while (i < lines.length && (/^\s*([-*+]|\d+[.)])\s+/.test(lines[i]) || (buf.length && /^\s+\S/.test(lines[i])))) { buf.push(lines[i]); i++; }
+      out.push(livListe(buf)); continue;
+    }
+    const buf = [line]; i++;
+    while (i < lines.length && !/^\s*$/.test(lines[i]) && !special(lines[i])) { buf.push(lines[i]); i++; }
+    out.push(`<p>${buf.map(livInline).join("<br>")}</p>`);
+  }
+  return out.join("\n");
+}
+
+// URL de l'endpoint de contenu. Le jeton va en query : un <img>/<a download> ne peut pas poser
+// l'en-tête x-session-token, et le serveur accepte ?token= comme équivalent (middleware de sécurité).
+const urlLivrable = chemin => {
+  const t = window.__SESSION_TOKEN__;
+  return `/api/v2/livrable?chemin=${encodeURIComponent(chemin)}` + (t ? `&token=${encodeURIComponent(t)}` : "");
+};
+const LIV_IMG = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
+const LIV_TXT = new Set(["md", "markdown", "txt", "csv", "json"]);
+const extLivrable = chemin => { const m = String(chemin || "").toLowerCase().match(/\.([a-z0-9]+)$/); return m ? m[1] : ""; };
+
+// Ouvre le visualiseur sur un livrable (chemin relatif à la racine). Rendu selon le type ;
+// un type non rendu propose Télécharger. Point d'extension CAO marqué ci-dessous.
+async function ouvrirLivrable(chemin) {
+  const nom = String(chemin || "").split("/").pop() || chemin;
+  const ext = extLivrable(chemin);
+  const tete = enteteFiche("Livrable", nom);
+  const tele = `<div class="fc"><a class="btn pri" href="${esc(urlLivrable(chemin))}" download="${esc(nom)}">Télécharger</a> <span class="cap"><code>${esc(chemin)}</code></span></div>`;
+  ouvrirFiche(tete + `<div class="fc"><div class="lbl">Chargement…</div></div>`);
+  // Image : affichée directement (servie inline, CSP stricte côté serveur).
+  if (LIV_IMG.has(ext)) {
+    $("#fiche-c").innerHTML = tete + `<div class="fc liv-vue"><img class="liv-img" src="${esc(urlLivrable(chemin))}" alt="${esc(nom)}"></div>` + tele;
+    return;
+  }
+  // Markdown / texte / csv / json : on récupère le contenu (JSON) et on le rend échappé.
+  if (LIV_TXT.has(ext)) {
+    const r = await getJSON(urlLivrable(chemin));
+    if (!$("#fiche-c")) return;
+    if (!r.ok) {
+      const msg = r.err === 404 ? "Ce livrable n'existe plus sur la tour."
+        : r.err === 403 ? "Chemin refusé (hors de la racine des livrables)."
+        : "Impossible de charger ce livrable" + (r.err ? ` (erreur ${r.err})` : " (erreur réseau)") + ".";
+      $("#fiche-c").innerHTML = tete + `<div class="fc"><p class="cap" style="color:var(--bad)">${esc(msg)}</p></div>` + tele;
+      return;
+    }
+    const d = r.data || {};
+    if (d.type === "trop_volumineux") {
+      $("#fiche-c").innerHTML = tete + `<div class="fc"><p>${esc(d.message || "Fichier trop volumineux pour l'aperçu.")}</p></div>` + tele;
+      return;
+    }
+    const corps = (ext === "md" || ext === "markdown")
+      ? `<div class="liv-md">${livMarkdown(d.contenu || "")}</div>`
+      : `<pre class="liv-code"><code>${esc(d.contenu || "")}</code></pre>`;
+    $("#fiche-c").innerHTML = tete + `<div class="fc liv-vue">${corps}</div>` + tele;
+    return;
+  }
+  // Tout autre type (PDF, STEP/STL/DXF/FCStd, binaire) : pas de rendu, bouton Télécharger.
+  // ── POINT D'EXTENSION CAO ──────────────────────────────────────────────────────────────
+  // Pour brancher un aperçu 3D ou « Ouvrir dans FreeCAD », ajouter ici une branche par `ext`
+  // (ex. if (ext === "step" || ext === "stl" || ext === "fcstd") { … visionneuse 3D … }).
+  // ───────────────────────────────────────────────────────────────────────────────────────
+  $("#fiche-c").innerHTML = tete +
+    `<div class="fc"><p>Type <code>${esc(ext || "?")}</code> non rendu ici.</p><p class="cap">Ce document n'a pas d'aperçu dans l'atelier pour l'instant — télécharge-le pour l'ouvrir.</p></div>` + tele;
+}
+
+// Rend cliquable chaque chemin de fichier d'une preuve de tâche (best-effort : rien ne casse si aucun).
+// Applique d'abord l'échappement + liens « PR #n », puis repère les chemins par leur extension.
+const RE_LIVR = /([\w./-]+\.(?:md|markdown|txt|csv|json|png|jpe?g|gif|webp|svg|pdf|fcstd|step|stp|stl|dxf|3mf|obj|glb|iges?|igs))\b/gi;
+const avecLivrables = txt => avecLiens(txt).replace(RE_LIVR, m =>
+  // m est déjà échappé (esc n'altère pas [\w./-]) ; sûr en attribut et en texte.
+  `<a href="#" class="liv-lien" data-voir="${m}" title="Ouvrir ${m}">${m}</a>`);
+
 function ouvrirFiche(html) {
   $("#fiche-c").innerHTML = html;
   const d = $("#fiche");
@@ -751,7 +892,8 @@ async function ouvrirTache(id) {
   const st = normEtat(t.etat);
   const equipe = (t.equipe || []).map(m => `${esc(m.agent)} <span class="cap">(${esc(m.role)})</span>`).join(", ") || esc(t.responsable || "—");
   const champs = CHAMPS_FICHE.filter(([c]) => String(t[c] || "").trim())
-    .map(([c, l]) => `<div class="fc"><div class="lbl">${l}</div><p>${avecLiens(t[c])}</p></div>`).join("")
+    // La preuve nomme souvent un livrable (chemin de fichier) : on le rend cliquable vers le visualiseur.
+    .map(([c, l]) => `<div class="fc"><div class="lbl">${l}</div><p>${c === "preuve" ? avecLivrables(t[c]) : avecLiens(t[c])}</p></div>`).join("")
     || `<p class="cap">Rien d'écrit encore sur cette tâche.</p>`;
   const tete = enteteFiche(`Tâche ${t.id} · ${NOM_ETAPES[t.etape] || t.etape || ""}`, t.titre);
   const meta = `<div class="fm"><span class="pill ${ETAT_CLS[st] || "s-afaire"}">${esc(ETAT_TACHE[st] || t.etat)}</span><span>Responsable : <b>${esc(t.responsable || "—")}</b></span><span>Équipe : ${equipe}</span></div>`;
@@ -904,6 +1046,8 @@ async function discuter(tacheId) {
 
 document.addEventListener("click", e => {
   const t = e.target;
+  // Visualiseur de livrable : bouton « voir » (table des livrables) ou chemin cliquable (preuve d'une tâche).
+  const lv = t.closest("[data-voir]"); if (lv) { e.preventDefault(); e.stopPropagation(); return ouvrirLivrable(lv.dataset.voir); }
   const tab = t.closest("#tabs [role=tab]"); if (tab) return go(tab.dataset.v);
   const g = t.closest("[data-go]"); if (g) return go(g.dataset.go);
   // Un clic sur un projet ouvre sa carte de tâches (avant : il ne faisait que le surligner).
