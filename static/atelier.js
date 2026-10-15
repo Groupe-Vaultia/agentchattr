@@ -701,13 +701,16 @@ async function renderVue3D() {
             const nomSe = (se.nom || "").trim().toLowerCase();
             // 1. Correspondance exacte du nom
             let match = FANTOMES_VEH.find(f => f.nom.toLowerCase() === nomSe);
-            // 2. Tous les mots du nom du sous-ensemble (y compris AV/AR/G/D)
+            // 2. Tous les mots du nom du sous-ensemble (y compris AV/AR/G/D).
+            //    Un seul match accepté : si plusieurs fantômes contiennent tous
+            //    les mots, c'est ambigu → fallback BBOX_DEF.
             if (!match) {
               const motsSe = nomSe.split(/\s+/);
-              match = FANTOMES_VEH.find(f => {
+              const candidats = FANTOMES_VEH.filter(f => {
                 const motsF = f.nom.toLowerCase().split(/\s+/);
                 return motsSe.every(m => motsF.includes(m));
               });
+              if (candidats.length === 1) match = candidats[0];
             }
             fantomes.push(match ? { nom: se.nom, bbox: match.bbox } : { nom: se.nom, bbox: BBOX_DEF });
           }
