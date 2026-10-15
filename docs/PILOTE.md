@@ -1,5 +1,6 @@
 # Méthodes par étape
 
+v1.1 (14 oct. 2026) : étape `design_initial` entre `concepts` et `conception` (skill `designer-produit`), décision de Charles msg 2945.
 v1.0 (13 oct. 2026) : méthodes des 8 étapes pour la consigne `methode_etape` (lot P3, SOCLE-SHOP v1.1).
 
 Le serveur copie la section `## <etape>` dans la consigne de la tâche. Un agent qui n'a pas le skill suit cette section. Le skill nommé s'ajoute quand l'agent l'a ; il ne remplace pas le critère de sortie.
@@ -63,7 +64,25 @@ Règles pour toutes les étapes :
 
 **Livrable.** Deux ou trois concepts, la contradiction ou son absence écrite, la matrice, le concept retenu et pourquoi.
 
-**Critère de sortie.** Le concept retenu vient de la matrice. La contradiction est écrite, ou son absence l'est. Les tâches des étapes 1 à 3 peuvent alors aller au jalon J1 : claude recommande, Charles décide.
+**Critère de sortie.** Le concept retenu vient de la matrice. La contradiction est écrite, ou son absence l'est. Le concept retenu passe ensuite à `design_initial`.
+
+## design_initial
+
+**Risque visé.** Calculer et dessiner un produit juste qui ne ressemble pas à ce qu'on attend, puis devoir refaire les calculs pour en changer l'allure (cadre « boîte » du quad, msg 2909).
+
+**Méthode.**
+
+1. Brief : pour qui, quel usage, quelle impression, contraintes reprises de `probleme` et du concept retenu.
+2. 3 à 5 références réelles, chacune avec une image ouverte (URL) ; une cote de référence vient d'une fiche ouverte, sinon « ? ».
+3. Planche de proportions chiffrée (encombrement, garde au sol, ergonomie de l'utilisateur), valeur visée et plage des références.
+4. 2 ou 3 pistes de style rendues à la même échelle que les références, avec ce que chacune coûte (pièces, outillage, effet sur le calcul).
+5. Carte à Charles, piste recommandée en premier (R12). Le choix devient hypothèse `confirmee` et les proportions deviennent des critères de la fiche.
+
+**Skills.** `designer-produit`. gemini en avis de style.
+
+**Livrable.** `design/brief.md` : références sourcées, planche de proportions, pistes avec rendus, choix de Charles, critères.
+
+**Critère de sortie.** Charles a choisi une piste sur rendu. Les proportions retenues sont des critères mesurables de la fiche, repris en entrée par `conception`. Les tâches des étapes 1 à 4 peuvent alors aller au jalon J1.
 
 ## conception
 

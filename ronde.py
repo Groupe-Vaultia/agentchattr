@@ -19,9 +19,9 @@ message du canal tache-<id> a au moins une heure.
 
 SEUIL_INACTIF = 20 * 60  # 20 min sans activite = l'agent attend un lot
 
-ETAPES = ("probleme", "etat_art", "concepts", "conception", "prototype", "essais", "industrialisation", "lancement")
+ETAPES = ("probleme", "etat_art", "concepts", "design_initial", "conception", "prototype", "essais", "industrialisation", "lancement")
 # Jalon -> etapes dont toutes les taches doivent etre faites pour qu'il soit du.
-_AVANT = {"J1": ETAPES[:3], "J2": ("essais",), "revue": ("industrialisation",)}
+_AVANT = {"J1": ETAPES[:4], "J2": ("essais",), "revue": ("industrialisation",)}
 _JALONS_PAR_NIVEAU = {"leger": ("J2",), "moyen": ("J1", "J2"), "lourd": ("J1", "J2", "revue")}
 
 
