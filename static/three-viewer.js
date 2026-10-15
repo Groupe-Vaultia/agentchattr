@@ -3,9 +3,9 @@
    colore par statut, affiche les fantômes, et ouvre la fiche au clic.
    Repère CAO : X vers l'arrière, Y latéral, Z vertical.
    Repère three.js : Y_up → on fait x→x, z→y, y→z. */
-import * as THREE from './three.module.min.js';
-import { OrbitControls } from './OrbitControls.js';
-import { GLTFLoader } from './GLTFLoader.js';
+import * as THREE from './three.module.min.js?v=2';
+import { OrbitControls } from './OrbitControls.js?v=2';
+import { GLTFLoader } from './GLTFLoader.js?v=2';
 
 const COULEURS = {
   a_concevoir: 0xb0b8c4,
@@ -92,7 +92,6 @@ export function creerVue3D(conteneur, onClicPiece) {
     mesh.userData = { fantome: true, nom };
     scene.add(mesh);
     fantomes.push(mesh);
-  }
   }
 
   async function chargerGLB(url, piece) {

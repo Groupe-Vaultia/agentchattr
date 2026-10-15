@@ -1,5 +1,5 @@
 /* GLTFLoader for three.js r160 — minimal embedded version for .glb files. */
-import * as THREE from './three.module.min.js';
+import * as THREE from './three.module.min.js?v=2';
 
 const GLTFLoader = (function () {
   class GLTFLoader {
