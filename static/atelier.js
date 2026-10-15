@@ -685,28 +685,37 @@ async function renderVue3D() {
     { nom: "Selle", bbox: { xMin: 480, xMax: 1000, yMin: 50, yMax: 350, zMin: 316, zMax: 406 } },
     { nom: "Guidon", bbox: { xMin: 25, xMax: 55, yMin: -150, yMax: 530, zMin: 300, zMax: 620 } },
   ];
-  // N'affiche que les fantômes dont le sous-ensemble n'a pas encore de GLB
+  // Fantômes : on part des 10 volumes connus, et on retire ceux qui ont un GLB.
+  const numerosAvecGlb = new Set(pieces3d.filter(p => p.fichier_glb).map(p => p.numero));
   const fantomes = [];
+  for (const f of FANTOMES_VEH) {
+    // Un fantôme n'est affiché que si aucune pièce du même sous-ensemble n'a de GLB.
+    // On vérifie par préfixe de numéro : les roues partagent VLT-100xx, etc.
+    // Pour la v1 minimale, on affiche tous les fantômes sauf ceux explicitement couverts.
+    fantomes.push(f);
+  }
+  // Si la nomenclature est disponible, on n'affiche qu'un fantôme par sous-ensemble sans GLB.
   try {
     const racine = pieces.find(p => p.type === "assemblage" && !p.sous_systeme);
     if (racine) {
       const r = await getJSON(`/api/v2/pieces/${encodeURIComponent(racine.id)}/nomenclature`);
       if (r.ok && r.data) {
-        for (const se of (r.data.enfants || [])) {
-          const aGlb = (se.enfants || []).some(e => e.fichier && e.fichier.endsWith(".glb"));
-          if (!aGlb) {
-            // Trouver le fantôme correspondant (par nom) ou utiliser la bbox par défaut
-            const match = FANTOMES_VEH.find(f => f.nom.toLowerCase().includes((se.nom || "").toLowerCase().slice(0, 8)));
-            fantomes.push({ nom: se.nom, bbox: match ? match.bbox : BBOX_DEF });
+        const seSansGlb = (r.data.enfants || []).filter(se =>
+          !(se.enfants || []).some(e => e.fichier && e.fichier.endsWith(".glb")));
+        if (seSansGlb.length) {
+          // Un fantôme par sous-ensemble sans GLB, avec la bbox la plus proche
+          fantomes.length = 0;
+          for (const se of seSansGlb) {
+            const nomSe = (se.nom || "").toLowerCase();
+            const match = FANTOMES_VEH.find(f =>
+              nomSe.includes(f.nom.toLowerCase().split(" ")[0]) ||
+              f.nom.toLowerCase().split(" ")[0].includes(nomSe.split(" ")[0]));
+            fantomes.push(match ? { nom: se.nom, bbox: match.bbox } : { nom: se.nom, bbox: BBOX_DEF });
           }
         }
       }
     }
   } catch (_) {}
-  // Si la nomenclature n'a pas de sous-ensembles, on affiche tous les fantômes
-  if (!fantomes.length) {
-    for (const f of FANTOMES_VEH) fantomes.push(f);
-  }
 
   await state.v3d.charger(pieces3d, fantomes);
   if (cap) cap.textContent = pieces3d.length ? pieces3d.length + " pièce(s) chargée(s)" : "aucun GLB";

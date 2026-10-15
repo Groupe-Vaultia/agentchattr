@@ -75,18 +75,24 @@ export function creerVue3D(conteneur, onClicPiece) {
 
   function creerFantome(nom, bbox) {
     const { xMin, xMax, yMin, yMax, zMin, zMax } = bbox;
-    const w = xMax - xMin, d = yMax - yMin, h = zMax - zMin;
-    const geo = new THREE.BoxGeometry(w, d, h);
+    // Repère CAO : X (longueur), Y (transversal), Z (vertical).
+    // Rotation -90° X : CAO (x,y,z) → three (x, z, -y).
+    // BoxGeometry(width, height, depth) = (CAO X, CAO Z, CAO Y) après rotation.
+    const w = xMax - xMin;
+    const h = zMax - zMin;
+    const d = yMax - yMin;
+    const geo = new THREE.BoxGeometry(w, h, d);
     const mat = new THREE.MeshLambertMaterial({
       color: FANTOME_COLOR, transparent: true, opacity: FANTOME_OPACITY,
     });
     const mesh = new THREE.Mesh(geo, mat);
-    // Même repère que les GLB : CAO → three via rotation -90° X
     mesh.rotation.x = -Math.PI / 2;
-    mesh.position.set((xMin + xMax) / 2, (zMin + zMax) / 2, (yMin + yMax) / 2);
+    // Position center en three space: (xCenter, zCenter_CAO, -yCenter_CAO)
+    mesh.position.set((xMin + xMax) / 2, (zMin + zMax) / 2, -(yMin + yMax) / 2);
     mesh.userData = { fantome: true, nom };
     scene.add(mesh);
     fantomes.push(mesh);
+  }
   }
 
   async function chargerGLB(url, piece) {
