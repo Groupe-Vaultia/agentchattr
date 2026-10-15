@@ -2692,13 +2692,25 @@ def _methodes_etapes() -> dict:
     except OSError:
         return {}
     out, courante, lignes = {}, None, []
+    preambule = []
     for ligne in texte.splitlines() + ["## "]:
         if ligne.startswith("## "):
-            if courante in _jobs_mod.ETAPES:
+            if courante is None:
+                preambule = lignes[:]              # tout ce qui precede la 1re etape
+            elif courante in _jobs_mod.ETAPES:
                 out[courante] = "\n".join(lignes).strip()
             courante, lignes = ligne[3:].strip(), []
         else:
             lignes.append(ligne)
+    # Les regles universelles (prambule, a partir de "Regles pour toutes les etapes") sont
+    # prefixees a CHAQUE etape : sinon elles n'atteignent jamais l'agent, qui ne recoit que la
+    # section de son etape, et la doctrine reste decorative.
+    pre = "\n".join(preambule).strip()
+    i = pre.find("Règles pour toutes les étapes")
+    if i >= 0:
+        pre = pre[i:].strip()
+        for k in list(out):
+            out[k] = pre + "\n\n" + out[k]
     return out
 
 
