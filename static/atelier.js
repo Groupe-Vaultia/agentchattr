@@ -685,15 +685,8 @@ async function renderVue3D() {
     { nom: "Selle", bbox: { xMin: 480, xMax: 1000, yMin: 50, yMax: 350, zMin: 316, zMax: 406 } },
     { nom: "Guidon", bbox: { xMin: 25, xMax: 55, yMin: -150, yMax: 530, zMin: 300, zMax: 620 } },
   ];
-  // Fantômes : on part des 10 volumes connus, et on retire ceux qui ont un GLB.
-  const numerosAvecGlb = new Set(pieces3d.filter(p => p.fichier_glb).map(p => p.numero));
-  const fantomes = [];
-  for (const f of FANTOMES_VEH) {
-    // Un fantôme n'est affiché que si aucune pièce du même sous-ensemble n'a de GLB.
-    // On vérifie par préfixe de numéro : les roues partagent VLT-100xx, etc.
-    // Pour la v1 minimale, on affiche tous les fantômes sauf ceux explicitement couverts.
-    fantomes.push(f);
-  }
+  // Fantômes : par défaut, les 10 volumes du véhicule.
+  const fantomes = FANTOMES_VEH.slice();
   // Si la nomenclature est disponible, on n'affiche qu'un fantôme par sous-ensemble sans GLB.
   try {
     const racine = pieces.find(p => p.type === "assemblage" && !p.sous_systeme);
@@ -703,13 +696,19 @@ async function renderVue3D() {
         const seSansGlb = (r.data.enfants || []).filter(se =>
           !(se.enfants || []).some(e => e.fichier && e.fichier.endsWith(".glb")));
         if (seSansGlb.length) {
-          // Un fantôme par sous-ensemble sans GLB, avec la bbox la plus proche
           fantomes.length = 0;
           for (const se of seSansGlb) {
-            const nomSe = (se.nom || "").toLowerCase();
-            const match = FANTOMES_VEH.find(f =>
-              nomSe.includes(f.nom.toLowerCase().split(" ")[0]) ||
-              f.nom.toLowerCase().split(" ")[0].includes(nomSe.split(" ")[0]));
+            const nomSe = (se.nom || "").trim().toLowerCase();
+            // 1. Correspondance exacte du nom
+            let match = FANTOMES_VEH.find(f => f.nom.toLowerCase() === nomSe);
+            // 2. Tous les mots du nom du sous-ensemble (y compris AV/AR/G/D)
+            if (!match) {
+              const motsSe = nomSe.split(/\s+/);
+              match = FANTOMES_VEH.find(f => {
+                const motsF = f.nom.toLowerCase().split(/\s+/);
+                return motsSe.every(m => motsF.includes(m));
+              });
+            }
             fantomes.push(match ? { nom: se.nom, bbox: match.bbox } : { nom: se.nom, bbox: BBOX_DEF });
           }
         }
