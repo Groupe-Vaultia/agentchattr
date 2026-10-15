@@ -23,6 +23,7 @@ import jobs as _jobs_mod
 from executions import ExecutionStore
 import historique as _historique
 from revisions import RevisionStore
+import revisions as _revisions_mod
 from jalons import JalonStore
 from pieces import PieceStore, Erreur as _ErreurPiece
 import jalons as _jalons_mod
@@ -2771,6 +2772,19 @@ async def tache_conversation(tache_id: int):
     return JSONResponse({"channel": canal, "projet_id": tache["projet_id"], "tache_id": tache_id})
 
 
+def _enregistrer_livrables_tache(tache: dict) -> dict | None:
+    """SOCLE-SHOP S5 v2 : a la completion d'une tache, double sa `preuve` d'une (ou de) fiche(s) de livrable
+    structuree(s) (RevisionStore), reliee(s) a {projet, tache, piece}. Addition isolee : ne bloque JAMAIS la
+    transition de tache (elle logue l'erreur et continue)."""
+    if revisions is None:
+        return None
+    try:
+        return _revisions_mod.associer_livrables_tache(tache, revisions, pieces, qui="socle")
+    except Exception:
+        log.exception("S5 : enregistrement des livrables de la tache %s", tache.get("id"))
+        return None
+
+
 @app.patch("/api/v2/taches/{tache_id}")
 async def update_tache(tache_id: int, request: Request):
     try:
@@ -2782,6 +2796,8 @@ async def update_tache(tache_id: int, request: Request):
     tache, err = jobs.update_tache(tache_id, body)
     if err:
         return JSONResponse({"error": err}, status_code=404 if err == "tache inconnue" else 400)
+    if tache.get("etat") == "fait":
+        _enregistrer_livrables_tache(tache)
     return JSONResponse(tache)
 
 
