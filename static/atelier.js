@@ -466,7 +466,7 @@ async function ouvrirPiece(id) {
   } else if (fr.data && fr.data.fichiers && fr.data.fichiers.length) {
     const svg = fr.data.fichiers.find(f => f.nom.endsWith(".svg"));
     fel.innerHTML = svg
-      ? `<img src="/api/v2/pieces/${encodeURIComponent(id)}/fichiers/${encodeURIComponent(svg.revision || "P01")}/${encodeURIComponent(svg.nom)}" alt="Plan ${esc(svg.nom)}" style="max-width:100%;border:1px solid var(--line);border-radius:8px;margin-top:6px">`
+      ? `<img src="/api/v2/pieces/${encodeURIComponent(id)}/fichiers/${encodeURIComponent(svg.revision || "P01")}/${encodeURIComponent(svg.nom)}?token=${encodeURIComponent(window.__SESSION_TOKEN__ || "")}" alt="Plan ${esc(svg.nom)}" style="max-width:100%;border:1px solid var(--line);border-radius:8px;margin-top:6px">`
       : `<span class="cap">Aucun plan SVG disponible. Fichiers : ${fr.data.fichiers.map(f => esc(f.nom)).join(", ")}</span>`;
   } else {
     fel.innerHTML = `<span class="cap">Aucun plan pour l'instant (les vrais plans arrivent avec G3c).</span>`;
@@ -664,8 +664,14 @@ async function renderVue3D() {
     const bbox = POS_PIECES[p.numero] || BBOX_DEF;
     const entry = { id: p.id, numero: p.numero, nom: p.nom, statut: p.statut, fichier_glb: null, bbox };
     if (p.fichier && p.fichier.endsWith(".glb")) {
+      // La revision du GLB vient du nom (…_P03.glb), pas de p.revision (qui peut etre plus recente
+      // que la derniere revision modelisee). Jeton en query : un fetch GLTF ne pose pas d'en-tete.
+      const nomGlb = p.fichier.split("/").pop();
+      const mRev = nomGlb.match(/_(P\d+)\.glb$/i);
+      const revGlb = mRev ? mRev[1] : (p.revision || "P01");
       entry.fichier_glb = "/api/v2/pieces/" + encodeURIComponent(p.id) + "/fichiers/" +
-        encodeURIComponent(p.revision || "P01") + "/" + encodeURIComponent(p.fichier.split("/").pop());
+        encodeURIComponent(revGlb) + "/" + encodeURIComponent(nomGlb) +
+        "?token=" + encodeURIComponent(window.__SESSION_TOKEN__ || "");
     }
     pieces3d.push(entry);
   }
