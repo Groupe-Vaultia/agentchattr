@@ -6,7 +6,10 @@ const GLTFLoader = (function () {
     constructor(manager) { this.manager = manager || THREE.DefaultLoadingManager; }
     async loadAsync(url, onLoad, onProgress, onError) {
       try {
-        const resp = await fetch(url, { headers: { 'Accept': 'model/gltf-binary' } });
+        const h = { 'Accept': 'model/gltf-binary' };
+        const t = window.__SESSION_TOKEN__;
+        if (t) h['x-session-token'] = t;
+        const resp = await fetch(url, { headers: h });
         if (!resp.ok) throw new Error('HTTP ' + resp.status + ' for ' + url);
         const buf = await resp.arrayBuffer();
         const gltf = this.parse(buf);

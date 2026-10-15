@@ -650,9 +650,18 @@ async function renderVue3D() {
 
   // Charger les pièces avec leur fichier GLB (route A1)
   const pieces = (state.pieces && state.pieces.pieces) || [];
+  // Positions des pièces dans le repère du véhicule (mm, Z vers le haut).
+  // Source : geometrie.py retenue() + maillage.py. Bbox par défaut = boîte au centre.
+  const POS_PIECES = {
+    "VLT-10002": { xMin: -20, xMax: 1366, yMin: -16, yMax: 416, zMin: -21, zMax: 316 },   // cadre treillis
+    "VLT-10090": { xMin: 1435, xMax: 1560, yMin: 175, yMax: 225, zMin: -165, zMax: -95 },  // attelage (sur le bras)
+    "VLT-10013": { xMin: -20, xMax: 1366, yMin: -16, yMax: 416, zMin: -21, zMax: 316 },    // tube cadre
+  };
+  const BBOX_DEF = { xMin: 0, xMax: 100, yMin: -50, yMax: 50, zMin: 0, zMax: 100 };
   const pieces3d = [];
   for (const p of pieces) {
-    const entry = { id: p.id, numero: p.numero, nom: p.nom, statut: p.statut, fichier_glb: null, bbox: null };
+    const bbox = POS_PIECES[p.numero] || BBOX_DEF;
+    const entry = { id: p.id, numero: p.numero, nom: p.nom, statut: p.statut, fichier_glb: null, bbox };
     if (p.fichier && p.fichier.endsWith(".glb")) {
       entry.fichier_glb = "/api/v2/pieces/" + encodeURIComponent(p.id) + "/fichiers/" +
         encodeURIComponent(p.revision || "P01") + "/" + encodeURIComponent(p.fichier.split("/").pop());
@@ -660,7 +669,23 @@ async function renderVue3D() {
     pieces3d.push(entry);
   }
 
-  // Fantômes : les sous-ensembles de la nomenclature qui n'ont pas de GLB
+  // Fantômes : volumes schématiques des sous-ensembles non modélisés.
+  // Positions dans le repère du véhicule (mm, Z vers le haut), source : maillage.py + geometrie.py retenue().
+  // Repère corrigé (msg 3007) : pivot (1100, 0), bras 360 mm, essieu à (1435.7, -130),
+  // branches bras y = 200 ± 250, roue AV x = 40, empattement 1396.
+  const FANTOMES_VEH = [
+    { nom: "Roue AV G",  bbox: { xMin: 40-203/2, xMax: 40+203/2, yMin: -300-203/2, yMax: -300+203/2, zMin: -130-355.6, zMax: -130+355.6 } },
+    { nom: "Roue AV D",  bbox: { xMin: 40-203/2, xMax: 40+203/2, yMin: 700-203/2,  yMax: 700+203/2,  zMin: -130-355.6, zMax: -130+355.6 } },
+    { nom: "Roue AR G",  bbox: { xMin: 1435.7-254/2, xMax: 1435.7+254/2, yMin: -300-254/2, yMax: -300+254/2, zMin: -130-355.6, zMax: -130+355.6 } },
+    { nom: "Roue AR D",  bbox: { xMin: 1435.7-254/2, xMax: 1435.7+254/2, yMin: 700-254/2,   yMax: 700+254/2,   zMin: -130-355.6, zMax: -130+355.6 } },
+    { nom: "Batterie (3× 48 V)", bbox: { xMin: 430, xMax: 680, yMin: 120, yMax: 280, zMin: 20, zMax: 190 } },
+    { nom: "Moteur + boîte 2 gammes", bbox: { xMin: 1100, xMax: 1260, yMin: 40, yMax: 200, zMin: -20, zMax: 140 } },
+    { nom: "Bras oscillant", bbox: { xMin: 1100, xMax: 1460, yMin: -55, yMax: 455, zMin: -155, zMax: -105 } },
+    { nom: "Triangles avant", bbox: { xMin: -60, xMax: -10, yMin: -300, yMax: 340, zMin: -120, zMax: 65 } },
+    { nom: "Selle", bbox: { xMin: 480, xMax: 1000, yMin: 50, yMax: 350, zMin: 316, zMax: 406 } },
+    { nom: "Guidon", bbox: { xMin: 25, xMax: 55, yMin: -150, yMax: 530, zMin: 300, zMax: 620 } },
+  ];
+  // N'affiche que les fantômes dont le sous-ensemble n'a pas encore de GLB
   const fantomes = [];
   try {
     const racine = pieces.find(p => p.type === "assemblage" && !p.sous_systeme);
@@ -668,17 +693,20 @@ async function renderVue3D() {
       const r = await getJSON(`/api/v2/pieces/${encodeURIComponent(racine.id)}/nomenclature`);
       if (r.ok && r.data) {
         for (const se of (r.data.enfants || [])) {
-          // Un sous-ensemble sans pièce modélisée = fantôme
           const aGlb = (se.enfants || []).some(e => e.fichier && e.fichier.endsWith(".glb"));
           if (!aGlb) {
-            // bbox approximative basée sur la position dans le véhicule
-            const bbox = { xMin: 0, xMax: 200, yMin: -50, yMax: 50, zMin: 0, zMax: 100 };
-            fantomes.push({ nom: se.nom, bbox });
+            // Trouver le fantôme correspondant (par nom) ou utiliser la bbox par défaut
+            const match = FANTOMES_VEH.find(f => f.nom.toLowerCase().includes((se.nom || "").toLowerCase().slice(0, 8)));
+            fantomes.push({ nom: se.nom, bbox: match ? match.bbox : BBOX_DEF });
           }
         }
       }
     }
   } catch (_) {}
+  // Si la nomenclature n'a pas de sous-ensembles, on affiche tous les fantômes
+  if (!fantomes.length) {
+    for (const f of FANTOMES_VEH) fantomes.push(f);
+  }
 
   await state.v3d.charger(pieces3d, fantomes);
   if (cap) cap.textContent = pieces3d.length ? pieces3d.length + " pièce(s) chargée(s)" : "aucun GLB";

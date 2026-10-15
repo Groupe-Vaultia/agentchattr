@@ -38,10 +38,8 @@ export function creerVue3D(conteneur, onClicPiece) {
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio);
-  const cv = document.createElement('canvas');
-  cv.style.cssText = 'width:100%;height:100%;display:block;cursor:grab';
-  conteneur.appendChild(cv);
-  renderer.domElement = cv;
+  renderer.domElement.style.cssText = 'width:100%;height:100%;display:block;cursor:grab';
+  conteneur.appendChild(renderer.domElement);
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.target.set(700, 100, 0);
@@ -70,20 +68,22 @@ export function creerVue3D(conteneur, onClicPiece) {
     return COULEURS[statut] ?? 0x888888;
   }
 
-  // Repère CAO (x,y,z) → three.js (x, y_up=z, z=y)
+  // Repère CAO (x,y,z) → three.js après rotation -90° autour de X : (x,z,-y)
   function caoToThree(x, y, z) {
-    return new THREE.Vector3(x, z, y);
+    return new THREE.Vector3(x, z, -y);
   }
 
   function creerFantome(nom, bbox) {
     const { xMin, xMax, yMin, yMax, zMin, zMax } = bbox;
-    const w = xMax - xMin, h = zMax - zMin, d = yMax - yMin;
-    const geo = new THREE.BoxGeometry(w, h, d);
+    const w = xMax - xMin, d = yMax - yMin, h = zMax - zMin;
+    const geo = new THREE.BoxGeometry(w, d, h);
     const mat = new THREE.MeshLambertMaterial({
       color: FANTOME_COLOR, transparent: true, opacity: FANTOME_OPACITY,
     });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.copy(caoToThree((xMin + xMax) / 2, (yMin + yMax) / 2, (zMin + zMax) / 2));
+    // Même repère que les GLB : CAO → three via rotation -90° X
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set((xMin + xMax) / 2, (zMin + zMax) / 2, (yMin + yMax) / 2);
     mesh.userData = { fantome: true, nom };
     scene.add(mesh);
     fantomes.push(mesh);
