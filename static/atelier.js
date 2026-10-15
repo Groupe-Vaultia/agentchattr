@@ -1,4 +1,4 @@
-import { choisirFantomes } from './fantomes.js';
+import { choisirFantomes, BBOX_DEF } from './fantomes.js';
 /* Atelier R&D · Vaultia — logique de la page.
    Ne lit que les routes du socle (FICHES-LOTS.md). Chaque route « à venir » est enveloppée :
    tant que claude n'a pas branché le lot (ou si la réponse est 404/500), l'interface affiche
