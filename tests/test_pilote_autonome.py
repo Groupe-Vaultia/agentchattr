@@ -183,6 +183,7 @@ class RondeMoteurTests(unittest.TestCase):
             {"id": 1, "projet_id": "alpha", "etape": "probleme", "etat": "fait"},
             {"id": 2, "projet_id": "alpha", "etape": "etat_art", "etat": "fait"},
             {"id": 3, "projet_id": "alpha", "etape": "concepts", "etat": "fait"},
+            {"id": 30, "projet_id": "alpha", "etape": "design_initial", "etat": "fait"},
             {"id": 4, "projet_id": "alpha", "etape": "conception", "etat": "a_faire", "titre": "Dessiner",
              "responsable": "gemini"},
         ]
@@ -205,6 +206,7 @@ class RondeMoteurTests(unittest.TestCase):
             {"id": 1, "projet_id": "alpha", "etape": "probleme", "etat": "fait", "created_at": 10},
             {"id": 2, "projet_id": "alpha", "etape": "etat_art", "etat": "fait", "created_at": 20},
             {"id": 3, "projet_id": "alpha", "etape": "concepts", "etat": "fait", "created_at": 30},
+            {"id": 30, "projet_id": "alpha", "etape": "design_initial", "etat": "fait", "created_at": 35},
             {"id": 4, "projet_id": "alpha", "etape": "conception", "etat": "a_faire", "responsable": "gemini",
              "created_at": 40},
         ]

@@ -44,6 +44,8 @@ def _jalons_dus(pid: str, niveau: str, taches: list[dict], jalons: list[dict]) -
                 recyclages.append({"projet_id": pid, "jalon": nom, "etape": d["recycle_etape"], "jalon_id": d["id"]})
                 continue
             avant = reprise
+        if nom == "J1" and not any(t.get("etape") == "design_initial" and t.get("etat") == "fait" for t in taches):
+            continue  # PILOTE.md v1.1 : pas de J1 sans silhouette choisie par Charles (revue codex-2 msg 2963)
         if avant and all(t.get("etat") == "fait" for t in avant):
             dus.append(nom)
     return dus, recyclages

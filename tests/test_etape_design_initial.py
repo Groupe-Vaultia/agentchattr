@@ -26,6 +26,11 @@ class EtapeDesignInitialTests(unittest.TestCase):
         dus, _ = ronde._jalons_dus("p", "moyen", taches, [])
         self.assertIn("J1", dus)
 
+    def test_j1_jamais_du_sans_tache_de_design(self):
+        taches = [{"etape": e, "etat": "fait"} for e in ("probleme", "etat_art", "concepts")]
+        dus, _ = ronde._jalons_dus("p", "moyen", taches, [])
+        self.assertNotIn("J1", dus)
+
     def test_methode_de_l_etape_presente_dans_pilote(self):
         texte = (Path(__file__).resolve().parents[1] / "docs" / "PILOTE.md").read_text("utf-8")
         section = texte.split("## design_initial", 1)[1].split("\n## ", 1)[0]
