@@ -1,3 +1,4 @@
+import { choisirFantomes } from './fantomes.js';
 /* Atelier R&D · Vaultia — logique de la page.
    Ne lit que les routes du socle (FICHES-LOTS.md). Chaque route « à venir » est enveloppée :
    tant que claude n'a pas branché le lot (ou si la réponse est 404/500), l'interface affiche
@@ -657,7 +658,7 @@ async function renderVue3D() {
     "VLT-10090": { xMin: 1435, xMax: 1560, yMin: 175, yMax: 225, zMin: -165, zMax: -95 },  // attelage (sur le bras)
     "VLT-10013": { xMin: -20, xMax: 1366, yMin: -16, yMax: 416, zMin: -21, zMax: 316 },    // tube cadre
   };
-  const BBOX_DEF = { xMin: 0, xMax: 100, yMin: -50, yMax: 50, zMin: 0, zMax: 100 };
+
   const pieces3d = [];
   for (const p of pieces) {
     const bbox = POS_PIECES[p.numero] || BBOX_DEF;
@@ -673,51 +674,19 @@ async function renderVue3D() {
   // Positions dans le repère du véhicule (mm, Z vers le haut), source : maillage.py + geometrie.py retenue().
   // Repère corrigé (msg 3007) : pivot (1100, 0), bras 360 mm, essieu à (1435.7, -130),
   // branches bras y = 200 ± 250, roue AV x = 40, empattement 1396.
-  const FANTOMES_VEH = [
-    { nom: "Roue AV G",  bbox: { xMin: 40-203/2, xMax: 40+203/2, yMin: -300-203/2, yMax: -300+203/2, zMin: -130-355.6, zMax: -130+355.6 } },
-    { nom: "Roue AV D",  bbox: { xMin: 40-203/2, xMax: 40+203/2, yMin: 700-203/2,  yMax: 700+203/2,  zMin: -130-355.6, zMax: -130+355.6 } },
-    { nom: "Roue AR G",  bbox: { xMin: 1435.7-254/2, xMax: 1435.7+254/2, yMin: -300-254/2, yMax: -300+254/2, zMin: -130-355.6, zMax: -130+355.6 } },
-    { nom: "Roue AR D",  bbox: { xMin: 1435.7-254/2, xMax: 1435.7+254/2, yMin: 700-254/2,   yMax: 700+254/2,   zMin: -130-355.6, zMax: -130+355.6 } },
-    { nom: "Batterie (3× 48 V)", bbox: { xMin: 430, xMax: 680, yMin: 120, yMax: 280, zMin: 20, zMax: 190 } },
-    { nom: "Moteur + boîte 2 gammes", bbox: { xMin: 1100, xMax: 1260, yMin: 40, yMax: 200, zMin: -20, zMax: 140 } },
-    { nom: "Bras oscillant", bbox: { xMin: 1100, xMax: 1460, yMin: -55, yMax: 455, zMin: -155, zMax: -105 } },
-    { nom: "Triangles avant", bbox: { xMin: -60, xMax: -10, yMin: -300, yMax: 340, zMin: -120, zMax: 65 } },
-    { nom: "Selle", bbox: { xMin: 480, xMax: 1000, yMin: 50, yMax: 350, zMin: 316, zMax: 406 } },
-    { nom: "Guidon", bbox: { xMin: 25, xMax: 55, yMin: -150, yMax: 530, zMin: 300, zMax: 620 } },
-  ];
-  // Fantômes : par défaut, les 10 volumes du véhicule.
-  const fantomes = FANTOMES_VEH.slice();
-  // Si la nomenclature est disponible, on n'affiche qu'un fantôme par sous-ensemble sans GLB.
+
+  // Fantômes : sélection via le module static/fantomes.js
+  let fantomes;
   try {
     const racine = pieces.find(p => p.type === "assemblage" && !p.sous_systeme);
     if (racine) {
       const r = await getJSON(`/api/v2/pieces/${encodeURIComponent(racine.id)}/nomenclature`);
       if (r.ok && r.data) {
-        const seSansGlb = (r.data.enfants || []).filter(se =>
-          !(se.enfants || []).some(e => e.fichier && e.fichier.endsWith(".glb")));
-        if (seSansGlb.length) {
-          fantomes.length = 0;
-          for (const se of seSansGlb) {
-            const nomSe = (se.nom || "").trim().toLowerCase();
-            // 1. Correspondance exacte du nom
-            let match = FANTOMES_VEH.find(f => f.nom.toLowerCase() === nomSe);
-            // 2. Tous les mots du nom du sous-ensemble (y compris AV/AR/G/D).
-            //    Un seul match accepté : si plusieurs fantômes contiennent tous
-            //    les mots, c'est ambigu → fallback BBOX_DEF.
-            if (!match) {
-              const motsSe = nomSe.split(/\s+/);
-              const candidats = FANTOMES_VEH.filter(f => {
-                const motsF = f.nom.toLowerCase().split(/\s+/);
-                return motsSe.every(m => motsF.includes(m));
-              });
-              if (candidats.length === 1) match = candidats[0];
-            }
-            fantomes.push(match ? { nom: se.nom, bbox: match.bbox } : { nom: se.nom, bbox: BBOX_DEF });
-          }
-        }
+        fantomes = choisirFantomes(r.data.enfants);
       }
     }
   } catch (_) {}
+  if (!fantomes) fantomes = choisirFantomes(null);
 
   await state.v3d.charger(pieces3d, fantomes);
   if (cap) cap.textContent = pieces3d.length ? pieces3d.length + " pièce(s) chargée(s)" : "aucun GLB";
