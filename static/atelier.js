@@ -45,7 +45,8 @@ const state = {
   pieces: null,     // N3 : pièces du projet {pieces:[…]} — null si pas encore chargé
   achats: null,     // N3 : liste d'achats {lignes, sans_offre, totaux}
   cout: null,       // N3 : coût cumulé {totaux, sans_prix, a_convertir}
-  alertes: [],      // U4 : alertes globales de GET /api/v2/ronde (sauvegarde, copie x1) — [] si rien
+  alertes: [],      // U4 : alertes globales de GET /api/v2/ronde
+  v3d: null,          // G5 : instance du viewer 3D (three-viewer.js) (sauvegarde, copie x1) — [] si rien
 };
 // N3 : statuts de pièce (spec PIECES.md) — libellé + classe de pilule.
 const PIECE_STATUT = {
@@ -634,8 +635,57 @@ function renderEquipeRow() {
   el.innerHTML = `<b>Équipe</b> ${items}`;
 }
 
+// G5 : vue 3D de la progression — charge les GLB via la route A1,
+// colore par statut, affiche les fantômes, clic → fiche pièce.
+async function renderVue3D() {
+  const el = $("#v3d-canvas"); if (!el) return;
+  if (!state.sel) { if (state.v3d) { state.v3d.destroy(); state.v3d = null; } return; }
+  if (typeof window.creerVue3D !== "function") return;
+  // Recrée le viewer à chaque changement de projet
+  if (state.v3d) { state.v3d.destroy(); state.v3d = null; }
+  const cap = $("#v3d-cap");
+  if (cap) cap.textContent = "Chargement…";
+  state.v3d = window.creerVue3D(el, (pieceId) => { ouvrirPiece(pieceId); });
+  const leg = state.v3d.creerLegende(el.parentElement);
+
+  // Charger les pièces avec leur fichier GLB (route A1)
+  const pieces = (state.pieces && state.pieces.pieces) || [];
+  const pieces3d = [];
+  for (const p of pieces) {
+    const entry = { id: p.id, numero: p.numero, nom: p.nom, statut: p.statut, fichier_glb: null, bbox: null };
+    if (p.fichier && p.fichier.endsWith(".glb")) {
+      entry.fichier_glb = "/api/v2/pieces/" + encodeURIComponent(p.id) + "/fichiers/" +
+        encodeURIComponent(p.revision || "P01") + "/" + encodeURIComponent(p.fichier.split("/").pop());
+    }
+    pieces3d.push(entry);
+  }
+
+  // Fantômes : les sous-ensembles de la nomenclature qui n'ont pas de GLB
+  const fantomes = [];
+  try {
+    const racine = pieces.find(p => p.type === "assemblage" && !p.sous_systeme);
+    if (racine) {
+      const r = await getJSON(`/api/v2/pieces/${encodeURIComponent(racine.id)}/nomenclature`);
+      if (r.ok && r.data) {
+        for (const se of (r.data.enfants || [])) {
+          // Un sous-ensemble sans pièce modélisée = fantôme
+          const aGlb = (se.enfants || []).some(e => e.fichier && e.fichier.endsWith(".glb"));
+          if (!aGlb) {
+            // bbox approximative basée sur la position dans le véhicule
+            const bbox = { xMin: 0, xMax: 200, yMin: -50, yMax: 50, zMin: 0, zMax: 100 };
+            fantomes.push({ nom: se.nom, bbox });
+          }
+        }
+      }
+    }
+  } catch (_) {}
+
+  await state.v3d.charger(pieces3d, fantomes);
+  if (cap) cap.textContent = pieces3d.length ? pieces3d.length + " pièce(s) chargée(s)" : "aucun GLB";
+}
+
 function renderTous() {
-  renderRail(); renderProjets();
+  renderRail(); renderProjets(); renderVue3D();
   $("#projhead").hidden = true;
   renderProjHead();
   renderEquipe(); renderCarte(); renderPieces(); renderHist(); renderLivrable();
@@ -956,6 +1006,13 @@ async function loadAlertes() {
 }
 
 // ---------- démarrage ----------
+// G5 : curseur d'éclaté
+document.addEventListener("input", e => {
+  if (e.target.id === "v3d-eclate" && state.v3d) {
+    state.v3d.setEclate(parseInt(e.target.value, 10) / 100);
+  }
+});
+
 (async function init() {
   try { const v = localStorage.getItem("rd-view"); if (v) state.view = v; } catch (_) {}
   await loadAlertes();

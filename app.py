@@ -3802,7 +3802,7 @@ async def piece_fichier(piece_id: int, revision: str, nom: str):
     entetes = {"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:",
                "X-Content-Type-Options": "nosniff"}
     return FileResponse(f, media_type=fichiers_pieces.TYPES[f.suffix.lower()], headers=entetes,
-                        content_disposition_type="inline" if f.suffix.lower() in (".svg", ".pdf", ".png") else "attachment",
+                        content_disposition_type="inline" if f.suffix.lower() in (".svg", ".pdf", ".png", ".glb") else "attachment",
                         filename=f.name)
 
 

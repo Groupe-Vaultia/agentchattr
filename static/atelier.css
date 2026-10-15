@@ -252,3 +252,15 @@ button.step:hover,.steph:hover{background:var(--slate-soft)}
   .map{grid-template-columns:1fr;min-width:0}
   .col.vide{display:none}
 }
+
+/* G5 — Vue 3D progression */
+#v3d-wrap { background: #1a1e24; }
+#v3d-canvas canvas { display: block; }
+.v3d-legende {
+  position: absolute; bottom: 8px; left: 8px;
+  display: flex; gap: 10px; flex-wrap: wrap;
+  font-size: 11px; color: #ccc; pointer-events: none; z-index: 2;
+}
+.v3d-li { display: flex; align-items: center; gap: 4px; }
+.v3d-li i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+#v3d-eclate { accent-color: #1f6feb; }
