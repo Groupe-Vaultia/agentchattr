@@ -3,140 +3,165 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Atelier R&amp;D · Vaultia</title>
-<link rel="stylesheet" href="/static/atelier.css?v=2">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f8f7f4" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1e1e1c" media="(prefers-color-scheme: dark)">
+<title>Atelier · Vaultia</title>
+<link rel="icon" href="/static/favicon.ico" sizes="any">
+<link rel="icon" type="image/svg+xml" href="/static/icons/icone.svg">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<link rel="preload" href="/static/fonts/source-serif-4-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/static/atelier.css?v=3">
 </head>
 <body>
-<div class="mtop">
-  <span class="brand"><svg class="logo" viewBox="100 180 312 222" aria-hidden="true"><path fill-rule="evenodd" fill="currentColor" d="M106 185.5H406L256 397Z M164.59 185.5H347.41L256 314.38Z"/><path fill-rule="evenodd" fill="currentColor" fill-opacity=".55" d="M164.59 185.5H347.41L256 314.38Z M202.09 185.5H309.91L256 261.51Z"/><path fill-rule="evenodd" fill="currentColor" fill-opacity=".3" d="M202.09 185.5H309.91L256 261.51Z M234.91 185.5H277.09L256 215.24Z"/></svg>Vaultia</span>
-  <label for="msel" class="lbl" hidden>Aller à</label>
-  <select id="msel" aria-label="Aller à"></select>
-</div>
+<!-- Atelier v3 : accueil « Aujourd'hui » (ce qui t'attend, qui travaille, projets), page projet avec frise
+     des étapes et tableau des tâches par état. Routes : #/ (aujourd'hui), #/p/<projet>[/taches|pieces|hist|livrables]. -->
+<header class="topbar">
+  <button class="ibtn" id="menu" type="button" aria-label="Ouvrir le menu" aria-controls="rail" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  <span class="tb-titre" id="tb-titre">Aujourd'hui</span>
+  <button class="ibtn" type="button" data-act="rafraichir" aria-label="Mettre à jour"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4.6h-4.6"/></svg></button>
+</header>
+<div class="voile" id="voile" hidden></div>
 
 <div class="app">
-  <aside class="rail" aria-label="Atelier R&D">
-    <div class="brand"><svg class="logo" viewBox="100 180 312 222" aria-hidden="true"><path fill-rule="evenodd" fill="currentColor" d="M106 185.5H406L256 397Z M164.59 185.5H347.41L256 314.38Z"/><path fill-rule="evenodd" fill="currentColor" fill-opacity=".55" d="M164.59 185.5H347.41L256 314.38Z M202.09 185.5H309.91L256 261.51Z"/><path fill-rule="evenodd" fill="currentColor" fill-opacity=".3" d="M202.09 185.5H309.91L256 261.51Z M234.91 185.5H277.09L256 215.24Z"/></svg>Vaultia<small style="flex-basis:100%">Atelier R&amp;D</small></div>
-    <div>
-      <h4>Projets</h4>
+  <aside class="rail" id="rail" aria-label="Navigation de l'atelier">
+    <a class="marque" href="#/">
+      <svg class="logo" viewBox="100 180 312 222" aria-hidden="true"><path fill-rule="evenodd" fill="currentColor" d="M106 185.5H406L256 397Z M164.59 185.5H347.41L256 314.38Z"/><path fill-rule="evenodd" fill="currentColor" fill-opacity=".55" d="M164.59 185.5H347.41L256 314.38Z M202.09 185.5H309.91L256 261.51Z"/><path fill-rule="evenodd" fill="currentColor" fill-opacity=".3" d="M202.09 185.5H309.91L256 261.51Z M234.91 185.5H277.09L256 215.24Z"/></svg>
+      <span>Vaultia<small>Atelier R&amp;D</small></span>
+    </a>
+    <nav class="rail-nav" aria-label="Pages">
+      <a class="it" href="#/" data-nav="jour"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.75"/><path d="M12 3v1.75M12 19.25V21M3 12h1.75M19.25 12H21M5.6 5.6l1.25 1.25M17.15 17.15l1.25 1.25M5.6 18.4l1.25-1.25M17.15 6.85l1.25-1.25"/></svg><span>Aujourd'hui</span><b class="badge" id="badge-jour" hidden></b></a>
+    </nav>
+    <div class="rail-sec">
+      <div class="rail-h"><span>Projets</span><button class="ibtn petit" type="button" data-act="nouveau-projet" aria-label="Nouveau projet"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg></button></div>
       <div id="rail-proj"></div>
-      <button class="it" data-go="projets">Tous les projets</button>
     </div>
-    <div>
-      <h4>Atelier R&amp;D</h4>
-      <button class="it" data-go="equipe" aria-current="true">Équipe</button>
-      <button class="it" data-go="carte">Carte</button>
-      <button class="it" data-go="hist">Historique</button>
-      <button class="it" data-go="livrable">Livrable</button>
-    </div>
+    <a class="it rail-salle" href="/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 12a7.5 7.5 0 0 1-10.9 6.7L4.5 19.5l.9-3.8A7.5 7.5 0 1 1 19.5 12Z"/></svg><span>Retour à la salle</span></a>
   </aside>
 
   <main class="main" id="main">
-    <div class="mhead"><h1>Atelier R&amp;D</h1><span class="sub" id="mhead-sub"></span></div>
-    <div class="note" id="note" hidden></div>
-    <div class="alertes" id="alertes" hidden></div>
-    <div class="equipe-row" id="equipe-row" hidden></div>
+    <div class="note" id="note" role="alert" hidden></div>
+    <div class="alertes" id="alertes" role="status" hidden></div>
 
-    <nav class="tabs" role="tablist" id="tabs">
-      <button role="tab" aria-selected="true" data-v="projets">Projets</button>
-      <button role="tab" aria-selected="false" data-v="equipe">Équipe</button>
-      <button role="tab" aria-selected="false" data-v="carte">Carte</button>
-      <button role="tab" aria-selected="false" data-v="pieces">Pièces</button>
-      <button role="tab" aria-selected="false" data-v="hist">Historique</button>
-      <button role="tab" aria-selected="false" data-v="livrable">Livrable</button>
-    </nav>
+    <!-- ===== Aujourd'hui ===== -->
+    <section id="page-jour" class="page" hidden>
+      <header class="ph">
+        <div class="ph-titre"><h1>Aujourd'hui</h1><p class="ph-sub" id="jour-date"></p></div>
+        <div class="ph-act"><span class="maj" id="maj"></span><button class="btn" type="button" data-act="rafraichir"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4.6h-4.6"/></svg>Mettre à jour</button></div>
+      </header>
+      <p class="resume" id="jour-resume"></p>
 
-    <div id="projhead" hidden></div>
+      <section class="sec" aria-labelledby="h-attend">
+        <div class="sec-h"><h2 id="h-attend">T'attend</h2><span class="compte" id="n-attend"></span></div>
+        <div id="attend"></div>
+      </section>
 
-    <section id="v-projets">
-      <div class="summary" id="psum"></div>
-      <div id="prows"></div>
-      <div class="panel">
-        <h3>Nouveau projet</h3>
-        <form class="form" id="newproj">
-          <label class="lbl" for="np-nom">Nom</label><input id="np-nom" placeholder="Ex. : boîtier pour capteur de porte">
+      <section class="sec" aria-labelledby="h-travail">
+        <div class="sec-h"><h2 id="h-travail">Au travail</h2><span class="compte" id="n-travail"></span></div>
+        <div id="travail"></div>
+      </section>
+
+      <section class="sec" aria-labelledby="h-projets">
+        <div class="sec-h"><h2 id="h-projets">Projets</h2><span class="compte" id="n-projets"></span>
+          <button class="btn sec-act" type="button" data-act="nouveau-projet"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>Nouveau projet</button></div>
+        <form class="panneau form" id="newproj" hidden>
+          <h2 class="h-panneau">Nouveau projet</h2>
+          <label class="lbl" for="np-nom">Nom</label><input id="np-nom" autocomplete="off" placeholder="Ex. : boîtier pour capteur de porte">
           <label class="lbl" for="np-but">Objectif, en une ou deux phrases</label><textarea id="np-but" rows="2" placeholder="Ex. : tenir un capteur Zigbee sur un cadre de porte"></textarea>
           <label class="lbl" for="np-fich">Photos ou documents d'idée (facultatif)</label><input id="np-fich" type="file" multiple accept="image/*,.pdf,.txt,.md,.csv,.json,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.rtf,.odt,.dxf,.step,.stp,.stl,.3mf,.fcstd">
-          <div><button class="btn pri" type="submit">Lancer le projet</button> <span class="cap">claude découpe le travail et assigne les agents. Tes photos/documents sont joints au lancement.</span></div>
+          <div class="form-pied"><button class="btn pri" type="submit">Lancer le projet</button><button class="btn" type="button" data-act="annuler-projet">Annuler</button></div>
+          <p class="cap">claude découpe le travail et assigne les agents. Tes photos et documents partent avec le lancement.</p>
         </form>
-      </div>
+        <div id="projets"></div>
+      </section>
     </section>
 
-    <section id="v-equipe" hidden>
-      <div class="summary" id="esum"></div>
-      <div class="team" id="team"></div>
-    </section>
-
-    <section id="v-carte" hidden>
-      <div class="chips" style="margin-bottom:8px;justify-content:space-between;width:100%"><span class="cap" id="carte-proj"></span><button class="btn pri" data-act="newtask">+ Tâche</button></div>
-      <form class="panel form" id="taskform" hidden>
-        <h3>Nouvelle tâche dans ce projet</h3>
-        <label class="lbl" for="tk-t">Titre</label><input id="tk-t" placeholder="Ex. : vérifier le jeu des tenons après impression">
-        <label class="lbl" for="tk-c">Étape</label><select id="tk-c"></select>
-        <label class="lbl" for="tk-r">Responsable</label><select id="tk-r"><option>claude</option><option>codex</option><option>qwencode</option><option>grok</option><option>gemini</option><option>Charles</option></select>
-        <div><button class="btn pri" type="submit">Ajouter la tâche</button> <button class="btn" type="button" data-act="canceltask">Annuler</button></div>
-      </form>
-      <div class="legend"><span class="pill s-fait">fait</span><span class="pill s-cours">en cours</span><span class="pill s-afaire">à faire</span><span class="pill s-charles">attend Charles</span><span class="pill s-bloque">bloqué</span></div>
-      <div class="pourquoi" id="pourquoi" hidden></div>
-      <div class="mapbox" id="mapbox"><svg class="links" id="links"></svg><div class="map" id="map"></div></div>
-      <p class="cap">Clique une tâche pour sa fiche (ce qui a été fait, pourquoi, preuve, historique), ou une étape pour ce qu'elle couvre.</p>
-    </section>
-
-    <section id="v-pieces" hidden>
-      <div class="panel">
-        <h3>Vue éclatée</h3>
-        <div id="pc-eclatee" class="eclatee"></div>
-        <p class="cap">Chaque bloc est un sous-ensemble. Il s'assombrit à mesure que ses pièces sont validées. Clique un bloc pour ouvrir sa fiche.</p>
-      </div>
-      <div class="panel">
-        <div class="chips" style="margin-bottom:8px;justify-content:space-between;width:100%">
-          <h3 style="margin:0">Progression 3D</h3>
-          <span class="cap" id="v3d-cap"></span>
+    <!-- ===== Projet ===== -->
+    <section id="page-projet" class="page" hidden>
+      <nav class="fil" aria-label="Fil d'Ariane"><a href="#/">Aujourd'hui</a><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.5 6 6 6-6 6"/></svg><span id="fil-nom"></span></nav>
+      <header class="ph">
+        <div class="ph-titre"><h1 id="p-nom"></h1><span id="p-statut"></span></div>
+        <div class="ph-act">
+          <button class="btn" type="button" data-act="fiche-projet">Fiche projet</button>
+          <button class="btn" type="button" id="p-veille" data-status="" data-proj=""></button>
+          <button class="btn pri" type="button" data-act="newtask"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg>Tâche</button>
         </div>
-        <div id="v3d-wrap" style="height:420px;position:relative;border:1px solid var(--line);border-radius:8px;overflow:hidden">
-          <div id="v3d-canvas" style="width:100%;height:100%"></div>
-        </div>
-        <div class="chips" style="margin-top:8px;justify-content:space-between;width:100%">
-          <label class="lbl" for="v3d-eclate" style="margin:0">Éclaté</label>
-          <input type="range" id="v3d-eclate" min="0" max="100" value="0" style="width:120px">
-        </div>
-        <p class="cap">Rotation : glisser. Zoom : molette. Clic sur une pièce → sa fiche. Les fantômes sont les sous-ensembles non modélisés.</p>
-      </div>
+      </header>
+      <p class="objectif" id="p-objectif" hidden></p>
+      <div class="direct" id="p-direct" hidden></div>
 
-      <div class="panel">
-        <div class="chips" style="margin-bottom:8px;justify-content:space-between;width:100%">
-          <h3 style="margin:0">Pièces du projet</h3>
-          <span class="cap" id="pc-cap"></span>
-        </div>
-        <div class="pc-filtres">
-          <input id="pc-q" type="search" placeholder="Filtrer (numéro, nom, révision, origine, statut)">
-          <select id="pc-f" aria-label="Filtrer par statut"></select>
-        </div>
-        <div class="tblw"><table id="pc-tbl"></table></div>
-      </div>
-      <div class="panel">
-        <h3>Achats du projet</h3>
-        <div id="pc-achats"></div>
-        <p class="cap">Clique une pièce du tableau pour sa fiche : offres sourcées, nomenclature (où elle est utilisée), historique et fichier.</p>
-      </div>
-    </section>
+      <div class="etapes-w"><ol class="etapes" id="p-etapes" aria-label="Étapes du projet"></ol></div>
+      <div class="etape-info" id="p-etape-info"></div>
 
-    <section id="v-hist" hidden>
-      <div class="panel"><ul class="timeline" id="hlist"></ul></div>
-    </section>
+      <nav class="onglets" role="tablist" id="onglets" aria-label="Vues du projet">
+        <button role="tab" type="button" data-onglet="taches" aria-selected="true" aria-controls="t-taches">Tâches<span class="compte" id="o-taches"></span></button>
+        <button role="tab" type="button" data-onglet="pieces" aria-selected="false" aria-controls="t-pieces">Pièces<span class="compte" id="o-pieces"></span></button>
+        <button role="tab" type="button" data-onglet="hist" aria-selected="false" aria-controls="t-hist">Historique</button>
+        <button role="tab" type="button" data-onglet="livrables" aria-selected="false" aria-controls="t-livrables">Livrables<span class="compte" id="o-livrables"></span></button>
+      </nav>
 
-    <section id="v-livrable" hidden>
-      <div class="grid2">
-        <div class="panel"><h3>Livrables</h3><div class="tblw"><table id="liv-tbl"></table></div><p class="cap" id="liv-cap"></p></div>
-        <div class="panel"><h3>Révisions figées</h3><div id="liv-rev"></div></div>
-      </div>
+      <section id="t-taches" role="tabpanel" aria-label="Tâches">
+        <form class="panneau form" id="taskform" hidden>
+          <h2 class="h-panneau">Nouvelle tâche</h2>
+          <label class="lbl" for="tk-t">Titre</label><input id="tk-t" autocomplete="off" placeholder="Ex. : vérifier le jeu des tenons après impression">
+          <div class="form-2">
+            <div><label class="lbl" for="tk-c">Étape</label><select id="tk-c"></select></div>
+            <div><label class="lbl" for="tk-r">Responsable</label><select id="tk-r"><option>claude</option><option>codex</option><option>qwencode</option><option>grok</option><option>gemini</option><option>Charles</option></select></div>
+          </div>
+          <div class="form-pied"><button class="btn pri" type="submit">Ajouter la tâche</button><button class="btn" type="button" data-act="canceltask">Annuler</button></div>
+        </form>
+        <div class="tableau" id="tableau"></div>
+      </section>
+
+      <section id="t-pieces" role="tabpanel" aria-label="Pièces" hidden>
+        <div class="grille2">
+          <div class="panneau">
+            <h2 class="h-panneau">Sous-ensembles</h2>
+            <div id="pc-eclatee" class="eclatee"></div>
+            <p class="cap">La jauge avance à mesure que les pièces sont validées. Clique un bloc pour sa fiche.</p>
+          </div>
+          <div class="panneau">
+            <h2 class="h-panneau">Achats</h2>
+            <div id="pc-achats"></div>
+          </div>
+        </div>
+        <div class="panneau">
+          <div class="panneau-h"><h2 class="h-panneau">Pièces du projet</h2><span class="cap" id="pc-cap"></span></div>
+          <div class="pc-filtres">
+            <input id="pc-q" type="search" placeholder="Filtrer : numéro, nom, révision, origine, statut" aria-label="Filtrer les pièces">
+            <select id="pc-f" aria-label="Filtrer par statut"></select>
+          </div>
+          <div class="tblw"><table id="pc-tbl"></table></div>
+          <p class="cap">Clique une pièce pour sa fiche : offres sourcées, nomenclature, plans et historique.</p>
+        </div>
+        <div class="panneau">
+          <div class="panneau-h"><h2 class="h-panneau">Progression 3D</h2><span class="cap" id="v3d-cap"></span></div>
+          <div id="v3d-wrap" class="v3d-wrap"><div id="v3d-canvas" class="v3d-canvas"></div></div>
+          <div class="v3d-pied">
+            <label class="lbl" for="v3d-eclate">Éclaté</label>
+            <input type="range" id="v3d-eclate" min="0" max="100" value="0">
+            <span class="cap">Glisser pour tourner, molette pour zoomer, clic sur une pièce pour sa fiche. Les volumes pâles sont les sous-ensembles pas encore modélisés.</span>
+          </div>
+        </div>
+      </section>
+
+      <section id="t-hist" role="tabpanel" aria-label="Historique" hidden>
+        <div id="hlist" class="journal"></div>
+      </section>
+
+      <section id="t-livrables" role="tabpanel" aria-label="Livrables" hidden>
+        <div class="grille2 liv">
+          <div class="panneau"><div class="panneau-h"><h2 class="h-panneau">Livrables</h2><span class="cap" id="liv-cap"></span></div><div class="tblw"><table id="liv-tbl"></table></div></div>
+          <div class="panneau"><div class="panneau-h"><h2 class="h-panneau">Révisions figées</h2><button class="btn pri" id="btn-approuver" type="button">Approuver</button></div><div id="liv-rev"></div></div>
+        </div>
+      </section>
     </section>
   </main>
 </div>
 
-<button class="fab" id="fab" data-act="openchat" hidden>Conversation</button>
-<dialog class="fiche" id="fiche" aria-labelledby="fiche-t"><div id="fiche-c"></div></dialog>
-<div class="toast" id="toast" hidden></div>
+<dialog class="fiche" id="fiche" aria-labelledby="fiche-t"><div id="fiche-c" tabindex="-1"></div></dialog>
+<div class="toast" id="toast" role="status" hidden></div>
 <script type="module" src="/static/three-viewer.js?v=2"></script>
-<script type="module" src="/static/atelier.js?v=8"></script>
+<script type="module" src="/static/atelier.js?v=9"></script>
 </body>
 </html>
