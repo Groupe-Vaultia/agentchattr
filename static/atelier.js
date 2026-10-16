@@ -1194,7 +1194,11 @@ async function appliquerRoute() {
   }
   if (avant.page !== r.page || autreProjet) window.scrollTo(0, 0);
   rendre();
-  if (autreProjet) { await chargerProjet(); if (state.route.page === "projet") rendre(); }
+  // On recharge les données du projet à chaque entrée sur sa page (autre projet, ou retour depuis l'accueil) :
+  // sans ça, un retour au même projet montrait pièces, historique et livrables d'avant (revue codex-2, msg 4321).
+  // La vue 3D garde son garde v3dSig : elle n'est recréée que si les pièces ont changé.
+  const entre = r.page === "projet" && (autreProjet || avant.page !== "projet");
+  if (entre) { await chargerProjet(); if (state.route.page === "projet" && state.sel === r.id) rendre(); }
 }
 const allerOnglet = o => { if (state.sel) location.hash = `#/p/${encodeURIComponent(state.sel)}/${o}`; };
 
