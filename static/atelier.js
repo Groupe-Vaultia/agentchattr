@@ -1187,5 +1187,9 @@ document.addEventListener("input", e => {
   go(state.view || "projets");
   // U4 : suivre les alertes tant que la page est ouverte (5 min, en phase avec la boucle de sauvegarde).
   setInterval(loadAlertes, 5 * 60 * 1000);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) loadAlertes(); });
+  // Les nouvelles tâches (créées par l'API ou un autre client) n'arrivent PAS en direct (l'atelier n'a pas de
+  // WebSocket). On rafraîchit le projet sélectionné au retour sur l'onglet + périodiquement, pour ne plus avoir
+  // à recharger la page à la main.
+  setInterval(() => { if (!document.hidden && state.sel) loadProjet(); }, 60 * 1000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { loadAlertes(); if (state.sel) loadProjet(); } });
 })();
