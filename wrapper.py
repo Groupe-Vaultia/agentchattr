@@ -461,6 +461,51 @@ def _ensure_gemini_folder_trusted(project_dir: Path) -> None:
         print(f"  Warning: could not update Gemini trusted folders: {exc}")
 
 
+_AUTO_CLEAR_EVERY_DEFAULT = 25  # triggers between auto-clears (0 = disabled)
+
+# Reset slash command per CLI — they differ (Claude /clear, Codex /new,
+# gemini-cli family /clear). Override per agent with agent_cfg["clear_cmd"].
+_CLEAR_CMD: dict[str, str] = {
+    "claude": "/clear",
+    "codex": "/new",
+    "qwencode": "/clear",  # Qwen Code = gemini-cli fork
+    "gemini": "/clear",
+    "grok": "/clear",
+}
+
+
+def _resolve_clear_cmd(agent: str, agent_cfg: dict) -> str:
+    """The reset command for this agent (explicit config > base name > provider > /clear)."""
+    explicit = agent_cfg.get("clear_cmd")
+    if explicit:
+        return str(explicit)
+    if agent in _CLEAR_CMD:
+        return _CLEAR_CMD[agent]
+    prov = _provider_from_command(agent_cfg.get("command", ""))
+    return _CLEAR_CMD.get(prov, "/clear")
+
+
+def _load_clear_every(agent: str, data_dir: Path) -> int:
+    """How many triggers between auto-clears for this agent (0 = never).
+
+    Read from ``data/auto-clear.json`` ({"_default": N, "<agent>": N}); a
+    per-agent entry wins, else "_default", else the module default. A broken
+    or absent file falls back to the default — the dual: the feature stays on
+    with a safe cadence rather than silently off.
+    """
+    try:
+        cfg = json.loads((data_dir / "auto-clear.json").read_text("utf-8"))
+        if agent in cfg:
+            return max(0, int(cfg[agent]))
+        if "_default" in cfg:
+            return max(0, int(cfg["_default"]))
+    except FileNotFoundError:
+        pass
+    except Exception as exc:
+        print(f"  Warning: auto-clear.json illisible ({exc}) — défaut {_AUTO_CLEAR_EVERY_DEFAULT}")
+    return _AUTO_CLEAR_EVERY_DEFAULT
+
+
 def _effort_launch_args(agent: str, agent_cfg: dict, data_dir: Path) -> list[str]:
     """Traduit l'effort choisi (rapide/standard/profond) en option de lancement selon le CLI.
 
@@ -630,8 +675,16 @@ def _report_rule_sync(server_port: int, agent_name: str, epoch: int, token: str 
 
 def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = False, trigger_flag=None,
                    server_port: int = 8300, agent_name: str = "", get_token_fn=None,
-                   refresh_interval: int = 10):
-    """Poll queue file and inject an MCP read task when triggered."""
+                   refresh_interval: int = 10, clear_fn=None, clear_every: int = 0):
+    """Poll queue file and inject an MCP read task when triggered.
+
+    ``clear_every`` > 0 : every N triggers, reset the CLI's conversation via
+    ``clear_fn`` BEFORE injecting the next task. The room (MCP) is the shared
+    memory, so a clear loses no shared state; it only stops the private
+    transcript from growing without bound (the growth is what drives the token
+    cost — cache rewrites as the context nears the cap). After a clear we reset
+    the rules/identity epoch so the fresh context gets them re-injected.
+    """
     first_mention = True
     last_rules_epoch = 0  # 0 = unknown/cold start — will inject on first trigger
     trigger_count = 0
@@ -709,6 +762,15 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
                     _token = get_token_fn() if get_token_fn else ""
                     rules_data = _fetch_active_rules(server_port, _token)
                     trigger_count += 1
+                    # Auto-clear: bound context growth. Every N triggers, reset
+                    # the CLI's conversation (the room is the memory — re-read
+                    # each trigger). Done BEFORE this prompt is injected; on a
+                    # successful clear we force rules + identity back in.
+                    if clear_fn is not None and clear_every > 0 and trigger_count % clear_every == 0:
+                        if clear_fn():
+                            last_rules_epoch = 0
+                            first_mention = True
+                            print(f"  AUTO-CLEAR: contexte réinitialisé après {trigger_count} déclenchements")
                     if rules_data:
                         # Use server-side refresh_interval (live from settings UI)
                         ri = rules_data.get("refresh_interval", refresh_interval)
@@ -966,20 +1028,27 @@ def main():
     threading.Thread(target=_heartbeat, daemon=True).start()
 
     _watcher_inject_fn = None
+    _watcher_clear_fn = None
     _watcher_thread = None
     _is_multi_instance = registration.get("slot", 1) > 1
     _trigger_flag = [False]  # shared: queue watcher sets True, activity checker reads
     _refresh_interval = 10  # default; overridden per-trigger by server settings
+    _clear_every = _load_clear_every(agent, data_dir)  # 0 = disabled
 
-    def start_watcher(inject_fn):
-        nonlocal _watcher_inject_fn, _watcher_thread
+    def _watcher_kwargs():
+        return {"is_multi_instance": _is_multi_instance, "trigger_flag": _trigger_flag,
+                "server_port": server_port, "agent_name": assigned_name,
+                "get_token_fn": get_token, "refresh_interval": _refresh_interval,
+                "clear_fn": _watcher_clear_fn, "clear_every": _clear_every}
+
+    def start_watcher(inject_fn, clear_fn=None):
+        nonlocal _watcher_inject_fn, _watcher_clear_fn, _watcher_thread
         _watcher_inject_fn = inject_fn
+        _watcher_clear_fn = clear_fn
         _watcher_thread = threading.Thread(
             target=_queue_watcher,
             args=(get_identity, inject_fn),
-            kwargs={"is_multi_instance": _is_multi_instance, "trigger_flag": _trigger_flag,
-                    "server_port": server_port, "agent_name": assigned_name,
-                    "get_token_fn": get_token, "refresh_interval": _refresh_interval},
+            kwargs=_watcher_kwargs(),
             daemon=True,
         )
         _watcher_thread.start()
@@ -992,9 +1061,7 @@ def main():
                 _watcher_thread = threading.Thread(
                     target=_queue_watcher,
                     args=(get_identity, _watcher_inject_fn),
-                    kwargs={"is_multi_instance": _is_multi_instance, "trigger_flag": _trigger_flag,
-                            "server_port": server_port, "agent_name": assigned_name,
-                            "get_token_fn": get_token, "refresh_interval": _refresh_interval},
+                    kwargs=_watcher_kwargs(),
                     daemon=True,
                 )
                 _watcher_thread.start()
@@ -1082,6 +1149,7 @@ def main():
         run_kwargs["enter_backend"] = agent_cfg.get("enter_backend", "console_input")
     if sys.platform != "win32":
         run_kwargs["session_name"] = unix_session_name
+        run_kwargs["clear_cmd"] = _resolve_clear_cmd(agent, agent_cfg)
 
     try:
         run_agent(**run_kwargs)

@@ -136,6 +136,54 @@ def _deliver(text: str, tmux_session: str, buffer_name: str, delay: float) -> bo
     return True
 
 
+def clear_context(session_name: str, cmd: str = "/clear") -> bool:
+    """Reset the CLI's conversation to bound context growth.
+
+    ``cmd`` is the CLI's reset slash command (Claude ``/clear``, Codex
+    ``/new`` — they differ).
+
+    The room (MCP) is the shared memory — an agent re-reads it on every
+    trigger — so a periodic clear loses no shared state, only the private
+    transcript whose unbounded growth drives the token cost (cache rewrites
+    near the context cap).
+
+    Literal ``send-keys -l`` (not the bracketed paste ``inject`` uses): a slash
+    command pasted as bracketed text is treated as *pasted input*, not a
+    command, and would not clear. Skips when the agent is mid-response
+    (``esc to interrupt`` on the pane) so a clear never interrupts live work;
+    the caller retries on a later trigger. Returns True only when a clear was
+    actually sent.
+    """
+    try:
+        pane = _pane_id(session_name)
+        if pane is None:
+            return False
+        cap = subprocess.run(
+            ["tmux", "capture-pane", "-t", pane, "-p", "-S", "-6"],
+            capture_output=True, timeout=TMUX_COMMAND_TIMEOUT,
+        )
+        if b"esc to interrupt" in cap.stdout:
+            return False  # busy — retry on a later trigger
+        typed = subprocess.run(
+            ["tmux", "send-keys", "-t", pane, "-l", cmd],
+            capture_output=True, timeout=TMUX_COMMAND_TIMEOUT,
+        )
+        if typed.returncode != 0:
+            return False
+        time.sleep(0.4)
+        entered = subprocess.run(
+            ["tmux", "send-keys", "-t", pane, "Enter"],
+            capture_output=True, timeout=TMUX_COMMAND_TIMEOUT,
+        )
+        if entered.returncode != 0:
+            return False
+        time.sleep(2.5)  # let the reset settle before the next inject
+        return True
+    except Exception as exc:
+        print(f"  CLEAR FAILED: {type(exc).__name__}: {exc}")
+        return False
+
+
 def _without_codex_input_animation(output: bytes) -> bytes:
     """Ignore Codex's single-dot particles in and immediately around its prompt.
 
@@ -197,6 +245,7 @@ def run_agent(
     session_name=None,
     inject_env=None,
     inject_delay: float = 0.3,
+    clear_cmd: str = "/clear",
 ):
     """Run agent inside a tmux session, inject via tmux send-keys."""
     _check_tmux()
@@ -227,7 +276,8 @@ def run_agent(
 
     # Wire up injection with the tmux session name
     inject_fn = lambda text: inject(text, tmux_session=session_name, delay=inject_delay)
-    start_watcher(inject_fn)
+    clear_fn = lambda: clear_context(session_name, clear_cmd)
+    start_watcher(inject_fn, clear_fn)
 
     print(f"  Using tmux session: {session_name}")
     print(f"  Detach: Ctrl+B, D  (agent keeps running)")
