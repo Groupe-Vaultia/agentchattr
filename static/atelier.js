@@ -24,6 +24,9 @@ const ICO = {
   pause: '<path d="M9.5 6.5v11M14.5 6.5v11"/>',
   play: '<path d="M8.5 6v12l9.5-6Z"/>',
   bas: '<path d="m6 9.5 6 6 6-6"/>',
+  photo: '<rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><circle cx="9" cy="10.5" r="1.75"/><path d="m20.5 15.5-4.5-4.5-8 7.5"/>',
+  envoyer: '<path d="M12 19V5.5M6 11.5l6-6 6 6"/>',
+  externe: '<path d="M13.5 5.5h5v5M18.5 5.5 11 13M10 6.5H7A1.5 1.5 0 0 0 5.5 8v9A1.5 1.5 0 0 0 7 18.5h9a1.5 1.5 0 0 0 1.5-1.5v-3"/>',
 };
 const ico = (n, cls = "ico") => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICO[n]}</svg>`;
 
@@ -340,7 +343,7 @@ function renderJour() {
         return `<div class="ligne" role="button" tabindex="0" data-fiche="${esc(t.id)}" data-p="${esc(x.id)}">
           <div><div class="ligne-t">${esc(t.titre)}</div>
           <div class="ligne-m"><span>${esc(p.nom || x.id)}</span><span class="sep">·</span><span>${esc(nomEtape(t.etape))}</span><span class="sep">·</span>${agent(t.responsable, true)}${x.h ? `<span class="sep">·</span><span>depuis ${esc(ilya(x.h).replace(/^il y a /, ""))}</span>` : ""}</div></div>
-          <div class="ligne-a"><button class="btn mini" type="button" data-disc="${esc(t.id)}">${ico("chat")}Discuter</button>${ico("chev", "chev")}</div></div>`;
+          <div class="ligne-a"><button class="btn mini" type="button" data-disc="${esc(t.id)}" data-p="${esc(x.id)}">${ico("chat")}Discuter</button>${ico("chev", "chev")}</div></div>`;
       }).join("")}</div>`
     : `<div class="vide"><b>Rien ne t'attend.</b> Quand un agent a besoin de ta décision, elle arrive ici en premier.</div>`;
 
@@ -503,7 +506,7 @@ function carte(t, k, sil, veille) {
   const texte = k === "fait" ? (t.conclusion || t.resultat) : k === "attend_charles" ? (t.conclusion || t.critere) : "";
   const quand = k === "en_cours" && s >= SILENCE_S ? `<span class="pill s-silence">rien depuis ${esc(duree(s))}</span>` : `<span class="quand">${esc(ilya(t.updated_at))}</span>`;
   return `<article class="carte${cls}"${veille ? ' style="opacity:.7"' : ""} role="button" tabindex="0" data-fiche="${esc(t.id)}" aria-label="${esc(t.titre)}">
-    ${k !== "fait" ? `<button class="ibtn disc" type="button" data-disc="${esc(t.id)}" aria-label="Discuter de cette tâche" title="Discuter">${ico("chat")}</button>` : ""}
+    ${k !== "fait" ? `<button class="ibtn disc" type="button" data-disc="${esc(t.id)}" data-p="${esc(state.sel)}" aria-label="Discuter de cette tâche" title="Discuter">${ico("chat")}</button>` : ""}
     ${state.filtre ? "" : `<div class="carte-e">${ETAPES.indexOf(t.etape) + 1 || "?"}. ${esc(nomEtape(t.etape))}</div>`}
     <div class="carte-t">${esc(t.titre)}</div>
     ${texte ? `<div class="carte-p">${esc(court(texte, 220))}</div>` : ""}
@@ -831,6 +834,7 @@ const lienSource = src => {
 };
 
 function ouvrirFiche(html) {
+  arreterConv();
   $("#fiche-c").innerHTML = html;
   const d = $("#fiche");
   if (!d.open) { if (d.showModal) d.showModal(); else d.setAttribute("open", ""); }
@@ -848,20 +852,27 @@ const trouverTache = (id, pid) => {
 };
 
 let REQUETE_FICHE = 0; // garde : une réponse n'affiche que si c'est encore la bonne tâche
-async function ouvrirTache(id, pid) {
+// La fiche d'une tâche a deux vues : « Conversation » (on discute du point sans quitter l'atelier) et « Détails ».
+async function ouvrirTache(id, pid, mode = "details") {
   const [t, projet] = trouverTache(id, pid || state.sel);
   if (!t) return;
   const n = ++REQUETE_FICHE;
   const st = normEtat(t.etat);
+  const p = state.projets[projet] || {};
+  const modes = `<div class="fiche-modes" role="tablist" aria-label="Vue de la tâche">${[["conv", "Conversation"], ["details", "Détails"]].map(([m, l]) =>
+    `<button type="button" role="tab" data-mode="${m}" data-tache="${esc(t.id)}" data-p="${esc(projet)}" aria-selected="${m === mode}">${l}</button>`).join("")}</div>`;
+  const tete = `<div class="fh"><div><span class="lbl">${esc(`${p.nom || projet} · Tâche ${t.id} · ${nomEtape(t.etape)}`)}</span><h2 id="fiche-t">${esc(t.titre)}</h2>${modes}</div><button class="ibtn" type="button" data-act="fermer" aria-label="Fermer">${ico("fermer")}</button></div>`;
+  if (mode === "conv") {
+    ouvrirFiche(tete + `<div class="conv" id="conv" aria-live="polite"><p class="cap">Ouverture de la conversation…</p></div>` + piedConversation(t));
+    return ouvrirConversation(t, projet);
+  }
   const equipe = (t.equipe || []).map(m => `${agent(m.agent, true)} <span class="cap" style="margin:0">${esc(m.role)}</span>`).join(" ") || agent(t.responsable, true);
   const champs = CHAMPS_FICHE.filter(([c]) => String(t[c] || "").trim())
     // La preuve nomme souvent un livrable (chemin de fichier) : on le rend cliquable vers le visualiseur.
     .map(([c, l]) => `<div class="fc"><span class="lbl">${l}</span><p class="prose">${c === "preuve" ? avecLivrables(t[c]) : avecLiens(t[c])}</p></div>`).join("")
     || `<div class="fc"><p class="cap" style="margin:0">Rien d'écrit encore sur cette tâche.</p></div>`;
-  const p = state.projets[projet] || {};
-  const tete = enteteFiche(`${p.nom || projet} · Tâche ${t.id} · ${nomEtape(t.etape)}`, t.titre);
   const meta = `<div class="fm"><span class="pill ${ETAT_CLS[st] || "s-afaire"}">${esc(ETAT_TACHE[st] || t.etat)}</span><span>Responsable : ${agent(t.responsable, true)}</span><span>Équipe : ${equipe}</span>${t.updated_at ? `<span class="cap" style="margin:0">Modifiée ${esc(ilya(t.updated_at))}</span>` : ""}</div>`;
-  const pied = `<div class="ff"><button class="btn pri" type="button" data-disc="${esc(t.id)}">${ico("chat")}Discuter de cette tâche</button></div>`;
+  const pied = `<div class="ff"><button class="btn pri" type="button" data-mode="conv" data-tache="${esc(t.id)}" data-p="${esc(projet)}">${ico("chat")}Discuter de cette tâche</button></div>`;
   ouvrirFiche(tete + meta + champs + `<div class="fc"><span class="lbl">Ce qui s'est passé</span><ul class="fhist" id="fiche-h"><li class="cap">Chargement…</li></ul></div>` + pied);
 
   const [m, e] = await Promise.all([
@@ -881,7 +892,179 @@ async function ouvrirTache(id, pid) {
     ? `<li class="cap" style="color:var(--v-danger)">Chargement de l'historique impossible (erreur réseau). Referme puis rouvre la tâche pour réessayer.</li>`
     : (lignes.length
       ? lignes.map(l => `<li><time>${esc(heure(l.h))}</time><span>${l.html}</span></li>`).join("")
-      : `<li class="cap">Aucun message ni exécution rattaché à cette tâche. « Discuter » ouvre sa conversation : tout ce qui s'y dit s'inscrit ici.</li>`);
+      : `<li class="cap">Aucun message ni exécution rattaché à cette tâche pour l'instant.</li>`);
+}
+
+// ---------- conversation d'une tâche, dans la fiche ----------
+// Lecture : GET /api/messages?channel=tache-<id> (puis since_id toutes les 3 s tant que la fiche est ouverte).
+// Écriture : POST /api/v2/messages (même circuit que la salle : les @agent mentionnés sont réveillés).
+const UTILISATEUR = "user";
+const CONV = {tache: null, projet: null, canal: "", vus: new Set(), dernier: -1, limite: 60, minuterie: 0, mentions: new Set(), pj: [], envoi: false, equipe: []};
+function arreterConv() { clearInterval(CONV.minuterie); CONV.minuterie = 0; CONV.tache = null; CONV.canal = ""; }
+const equipeDe = t => [...new Set([t.responsable, ...(t.equipe || []).map(m => m.agent)].filter(a => a && !/^(charles|user)$/i.test(a)))];
+function piedConversation(t) {
+  const equipe = equipeDe(t);
+  return `<div class="ff conv-pied">
+    <div class="reflechit" id="conv-reflechit" role="status" hidden></div>
+    ${equipe.length ? `<div class="conv-mentions" role="group" aria-label="Qui reçoit ton message">${equipe.map(a => `<button type="button" class="mtn" data-mention="${esc(a)}" aria-pressed="false">@${esc(a)}</button>`).join("")}</div>` : ""}
+    <div class="conv-pj" id="conv-pj" hidden></div>
+    <form class="composer" id="conv-form">
+      <textarea id="conv-texte" rows="1" placeholder="Écris à l'équipe de la tâche…" aria-label="Ton message"></textarea>
+      <div class="composer-b">
+        <label class="ibtn" title="Joindre une photo ou un document"><input type="file" id="conv-fich" accept="image/*,.pdf,.txt,.md,.csv" multiple hidden>${ico("photo")}<span class="sr">Joindre</span></label>
+        <a class="lien-salle" href="#" data-salle="${esc(t.id)}">${ico("externe")}Ouvrir dans la salle</a>
+        <button class="envoyer" type="submit" aria-label="Envoyer" disabled>${ico("envoyer")}</button>
+      </div>
+    </form>
+  </div>`;
+}
+async function ouvrirConversation(t, projet) {
+  arreterConv();
+  Object.assign(CONV, {tache: t.id, projet, canal: "", vus: new Set(), dernier: -1, limite: 60, pj: [], envoi: false, equipe: equipeDe(t)});
+  // Par défaut, le message va au responsable de la tâche ; Charles ajoute ou retire d'un toucher.
+  CONV.mentions = new Set(t.responsable && CONV.equipe.includes(t.responsable) ? [t.responsable] : CONV.equipe.slice(0, 1));
+  majMentions();
+  const r = await postJSON(`/api/v2/taches/${encodeURIComponent(t.id)}/conversation`, {});
+  if (CONV.tache !== t.id) return;
+  const zone = $("#conv");
+  if (!r.ok || !r.data || !r.data.channel) {
+    zone.innerHTML = `<p class="cap" style="color:var(--v-danger)">Impossible d'ouvrir la conversation de cette tâche${r.err ? ` (erreur ${r.err})` : ""}.</p>`;
+    return;
+  }
+  CONV.canal = r.data.channel;
+  await chargerConv(true);
+  if (CONV.tache !== t.id) return;
+  CONV.minuterie = setInterval(suivreConv, 3000);
+  if (!matchMedia("(hover: none)").matches) $("#conv-texte")?.focus({preventScroll: true});
+}
+async function chargerConv(bas) {
+  const tache = CONV.tache;
+  const m = await getJSON(`/api/messages?channel=${encodeURIComponent(CONV.canal)}&limit=${CONV.limite}`);
+  if (CONV.tache !== tache) return;
+  const zone = $("#conv"); if (!zone) return;
+  if (!m.ok) { zone.innerHTML = `<p class="cap" style="color:var(--v-danger)">Lecture de la conversation impossible${m.err ? ` (erreur ${m.err})` : ""}.</p>`; return; }
+  const liste = (Array.isArray(m.data) ? m.data : []).filter(x => x.type !== "join" && x.type !== "leave");
+  CONV.vus = new Set();
+  zone.innerHTML = (liste.length >= CONV.limite ? `<button class="btn mini discret plus-ancien" type="button" data-act="conv-plus">Messages plus anciens</button>` : "")
+    + (liste.length ? "" : `<div class="conv-vide"><b>Pas encore de message sur cette tâche.</b> Écris ci-dessous : ton message part aux agents choisis, et leurs réponses s'affichent ici.</div>`);
+  ajouterMessages(liste, bas);
+}
+async function suivreConv() {
+  if (!CONV.tache || !CONV.canal || document.hidden || !$("#fiche").open) return;
+  const tache = CONV.tache;
+  const [m, s] = await Promise.all([
+    getJSON(`/api/messages?channel=${encodeURIComponent(CONV.canal)}&since_id=${CONV.dernier}`),
+    getJSON("/api/status"),
+  ]);
+  if (CONV.tache !== tache) return;
+  if (s.ok && s.data && typeof s.data === "object") { state.agents = s.data; majReflechit(); }
+  if (m.ok && Array.isArray(m.data)) ajouterMessages(m.data.filter(x => x.type !== "join" && x.type !== "leave"), false);
+}
+function ajouterMessages(liste, bas) {
+  const zone = $("#conv"); if (!zone) return;
+  const d = $("#fiche");
+  const presDuBas = d.scrollHeight - d.scrollTop - d.clientHeight < 160;
+  const neufs = liste.filter(x => x && x.id != null && !CONV.vus.has(x.id));
+  if (!neufs.length) return;
+  zone.querySelector(".conv-vide")?.remove();
+  neufs.forEach(x => { CONV.vus.add(x.id); CONV.dernier = Math.max(CONV.dernier, x.id); });
+  zone.insertAdjacentHTML("beforeend", neufs.map(msgHtml).join(""));
+  if (bas || presDuBas) requestAnimationFrame(() => { d.scrollTop = d.scrollHeight; });
+  majReflechit();
+}
+// Les @mentions ressortent en ardoise, comme dans la salle (jamais dans un attribut : précédées d'un blanc ou d'une balise).
+const avecMentions = html => html.replace(/(^|[\s(>])@([A-Za-z][\w-]*)/g, '$1<span class="mention">@$2</span>');
+function pieceJointe(a) {
+  const url = String(a && a.url || "");
+  const sur = url.startsWith("/uploads/") || /^https?:\/\//i.test(url);
+  if (!sur) return "";
+  return url.startsWith("/uploads/") && /\.(png|jpe?g|gif|webp)$/i.test(url)
+    ? `<a class="cm-img-l" href="${esc(url)}" target="_blank" rel="noopener"><img class="cm-img" src="${esc(url)}" alt="${esc(a.name || "image")}" loading="lazy"></a>`
+    : `<a class="btn mini" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(a.name || "fichier")}</a>`;
+}
+function msgHtml(m) {
+  if (m.type === "system") return `<div class="cm-sys">${esc(court(m.text, 300))}</div>`;
+  const moi = m.sender === UTILISATEUR;
+  const rep = m.reply_to != null ? `<span class="cm-rep">en réponse à #${esc(m.reply_to)}</span>` : "";
+  const corps = !String(m.text || "").trim() ? ""
+    : moi ? `<div class="cm-texte">${avecMentions(String(m.text).split("\n").map(livInline).join("<br>"))}</div>`
+    : `<div class="cm-prose liv-md">${avecMentions(livMarkdown(m.text))}</div>`;
+  const pj = (m.attachments || []).map(pieceJointe).filter(Boolean).join("");
+  return `<div class="cm${moi ? " moi" : ""}${m.type === "decision" ? " decision" : ""}" data-msg="${esc(m.id)}">
+    <div class="cm-h">${moi ? "<span>Toi</span>" : agent(m.sender, true)}<time>${esc(m.time || hm(m.timestamp))}</time><span class="cm-id">#${esc(m.id)}</span>${rep}</div>
+    ${corps}${pj ? `<div class="cm-pj">${pj}</div>` : ""}${m.type === "decision" ? decisionHtml(m) : ""}</div>`;
+}
+// Carte de décision d'un agent : les choix se touchent du pouce, comme dans la salle.
+function decisionHtml(m) {
+  const meta = m.metadata || {};
+  if (meta.resolved) return `<div class="cm-resolu">${meta.autrement ? "Répondu autrement" : `${meta.autre ? "Ta réponse" : "Ton choix"} : <b>${esc(meta.chosen)}</b>`}</div>`;
+  const ch = Array.isArray(meta.choices) ? meta.choices : [];
+  return ch.length ? `<div class="cm-choix">${ch.map(c => `<button class="btn" type="button" data-choix="${esc(m.id)}" data-val="${esc(c)}">${esc(c)}</button>`).join("")}</div>` : "";
+}
+async function choisir(msgId, val) {
+  const bloc = $(`.cm[data-msg="${CSS.escape(String(msgId))}"] .cm-choix`);
+  bloc?.querySelectorAll("button").forEach(b => { b.disabled = true; });
+  const r = await postJSON(`/api/messages/${encodeURIComponent(msgId)}/resolve_decision`, {choice: val});
+  if (!r.ok) { bloc?.querySelectorAll("button").forEach(b => { b.disabled = false; }); toast(r.msg || "Choix refusé (carte déjà résolue ?)."); return; }
+  if (bloc) bloc.outerHTML = `<div class="cm-resolu">Ton choix : <b>${esc(val)}</b></div>`;
+  suivreConv();
+}
+function majMentions() {
+  $$(".conv-mentions [data-mention]").forEach(b => b.setAttribute("aria-pressed", String(CONV.mentions.has(b.dataset.mention))));
+  const ta = $("#conv-texte");
+  if (ta) ta.placeholder = CONV.mentions.size ? `Écris à ${[...CONV.mentions].join(", ")}…` : "Écris un message (personne n'est mentionné)…";
+}
+function majReflechit() {
+  const el = $("#conv-reflechit"); if (!el) return;
+  const occupes = CONV.equipe.filter(occupe);
+  el.hidden = !occupes.length;
+  const html = occupes.map(a => { const c = (agentInfo(a) || {}).color; return `<span class="ag petit"${c ? ` style="--c:${esc(c)}"` : ""}><i class="souffle"></i>${esc(a)}</span>`; }).join("") +
+    (occupes.length ? `<span>${occupes.length > 1 ? "réfléchissent…" : "réfléchit…"}</span>` : "");
+  if (el.dataset.html !== html) { el.dataset.html = html; el.innerHTML = html; } // pas de re-rendu : le souffle ne repart pas à zéro
+}
+function majEnvoyer() {
+  const b = $("#conv-form .envoyer"), ta = $("#conv-texte");
+  if (b && ta) b.disabled = CONV.envoi || (!ta.value.trim() && !CONV.pj.length);
+}
+function majPJ() {
+  const el = $("#conv-pj"); if (!el) return;
+  el.hidden = !CONV.pj.length;
+  el.innerHTML = CONV.pj.map((a, i) => `<span class="chip">${esc(a.name)}<button type="button" class="ibtn petit" data-retirer-pj="${i}" aria-label="Retirer ${esc(a.name)}">${ico("fermer")}</button></span>`).join("");
+  majEnvoyer();
+}
+async function joindre(fichiers) {
+  if (!fichiers.length) return;
+  toast(`Dépôt de ${pluriel(fichiers.length, "fichier", "fichiers")}…`);
+  const ok = (await Promise.all(fichiers.map(uploadFichier))).filter(Boolean);
+  if (ok.length < fichiers.length) toast(`${pluriel(fichiers.length - ok.length, "fichier refusé", "fichiers refusés")} (type ou taille).`);
+  CONV.pj.push(...ok); majPJ();
+}
+async function envoyerConv(e) {
+  e.preventDefault();
+  const ta = $("#conv-texte");
+  if (!ta || CONV.envoi || !CONV.canal) return;
+  let texte = ta.value.trim();
+  if (!texte && !CONV.pj.length) return;
+  // Les agents choisis sont mentionnés en tête du message, sauf s'ils le sont déjà dans le texte.
+  const absents = [...CONV.mentions].filter(a => !new RegExp(`@${a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`, "i").test(texte));
+  if (absents.length) texte = absents.map(a => "@" + a).join(" ") + (texte ? " " + texte : "");
+  CONV.envoi = true; majEnvoyer();
+  const r = await postJSON("/api/v2/messages", {channel: CONV.canal, text: texte, attachments: CONV.pj, tache_id: CONV.tache});
+  CONV.envoi = false;
+  if (!r.ok) {
+    majEnvoyer();
+    toast(r.err === 405 ? "La salle en service n'a pas encore la route d'envoi de l'atelier (elle arrive avec la fusion)." : (r.msg || "Message non envoyé. Réessaie."));
+    return;
+  }
+  ta.value = ""; ta.style.height = ""; CONV.pj = []; majPJ();
+  if (r.data && r.data.id != null) ajouterMessages([r.data], true);
+}
+// Ancien comportement de « Discuter » : ouvrir la conversation dans la salle (lien en bas de la conversation).
+async function allerSalle(tacheId) {
+  const r = await postJSON(`/api/v2/taches/${encodeURIComponent(tacheId)}/conversation`, {});
+  if (!r.ok || !r.data || !r.data.channel) { toast(r.msg || "Impossible d'ouvrir la conversation de cette tâche."); return; }
+  try { localStorage.setItem("agentchattr-channel", r.data.channel); } catch (_) {}
+  window.location.href = "/";
 }
 
 // ---------- jalons (P1) : les décisions de Charles ----------
@@ -1156,14 +1339,6 @@ async function nouvelleTache(e) {
   toast(r.ok ? "Tâche ajoutée." : "Ajout refusé (route POST /api/v2/taches non branchée pour l'instant).");
   if (r.ok) { e.target.reset(); e.target.hidden = true; await rafraichir(); }
 }
-// « Discuter » : la route crée le canal tache-<id> une seule fois et rend {channel} ; on y va dans la salle.
-async function discuter(tacheId) {
-  const r = await postJSON(`/api/v2/taches/${encodeURIComponent(tacheId)}/conversation`, {});
-  if (!r.ok || !r.data || !r.data.channel) { toast(r.msg || "Impossible d'ouvrir la conversation de cette tâche."); return; }
-  try { localStorage.setItem("agentchattr-channel", r.data.channel); } catch (_) {}
-  window.location.href = "/";
-}
-
 // =====================================================================================
 // Navigation (routes dans l'ancre : le bouton Retour du téléphone fonctionne)
 // =====================================================================================
@@ -1221,7 +1396,12 @@ function fermerRail() { $("#rail").classList.remove("ouvert"); $("#voile").hidde
 document.addEventListener("click", e => {
   const t = e.target;
   const lv = t.closest("[data-voir]"); if (lv) { e.preventDefault(); e.stopPropagation(); return ouvrirLivrable(lv.dataset.voir); }
-  const d = t.closest("[data-disc]"); if (d) { e.preventDefault(); e.stopPropagation(); return discuter(d.dataset.disc); }
+  const d = t.closest("[data-disc]"); if (d) { e.preventDefault(); e.stopPropagation(); return ouvrirTache(d.dataset.disc, d.dataset.p, "conv"); }
+  const md = t.closest("[data-mode]"); if (md) { e.stopPropagation(); return ouvrirTache(md.dataset.tache, md.dataset.p, md.dataset.mode); }
+  const sa = t.closest("[data-salle]"); if (sa) { e.preventDefault(); return allerSalle(sa.dataset.salle); }
+  const mt = t.closest("[data-mention]"); if (mt) { const a = mt.dataset.mention; CONV.mentions.has(a) ? CONV.mentions.delete(a) : CONV.mentions.add(a); return majMentions(); }
+  const cx = t.closest("[data-choix]"); if (cx) { e.stopPropagation(); return choisir(cx.dataset.choix, cx.dataset.val); }
+  const rp = t.closest("[data-retirer-pj]"); if (rp) { CONV.pj.splice(+rp.dataset.retirerPj, 1); return majPJ(); }
   const st = t.closest("[data-status]"); if (st && st.dataset.status) { e.stopPropagation(); return changerStatut(st.dataset.proj, st.dataset.status); }
   const dj = t.closest("[data-dec]"); if (dj) { e.stopPropagation(); return deciderJalon(dj.dataset.dec, dj.dataset.val); }
   const oe = t.closest("[data-ouvrir-etape]"); if (oe) { e.stopPropagation(); return ouvrirEtape(oe.dataset.ouvrirEtape, oe.dataset.p); }
@@ -1240,6 +1420,7 @@ document.addEventListener("click", e => {
   if (a === "fermer") return fermerFiche();
   if (a === "rafraichir") { act.disabled = true; rafraichir().then(() => { act.disabled = false; toast("Atelier à jour."); }); return; }
   if (a === "fiche-projet") return ouvrirFicheProjet();
+  if (a === "conv-plus") { CONV.limite += 100; return chargerConv(false); }
   if (a === "pc-tout") { state.pcTout = true; return renderPieces(); }
   if (a === "fait-tout") { state.faitOuvert = !state.faitOuvert; return renderTableau(); }
   if (a === "nouveau-projet") {
@@ -1256,6 +1437,7 @@ document.addEventListener("click", e => {
 // Clavier : Entrée ou Espace ouvre une ligne ou une carte (role=button), Échap ferme le tiroir.
 document.addEventListener("keydown", e => {
   if (e.key === "Escape" && $("#rail").classList.contains("ouvert")) { fermerRail(); return; }
+  if (e.target.id === "conv-texte" && e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("#conv-form").requestSubmit(); return; }
   if ((e.key === "Enter" || e.key === " ") && e.target.matches('[role="button"][tabindex], .pc-row[tabindex]')) {
     e.preventDefault(); e.target.click();
   }
@@ -1267,7 +1449,11 @@ $("#pc-q").addEventListener("input", renderPieces);
 $("#pc-f").addEventListener("change", renderPieces);
 document.addEventListener("input", e => {
   if (e.target.id === "v3d-eclate" && state.v3d) state.v3d.setEclate(parseInt(e.target.value, 10) / 100);
+  if (e.target.id === "conv-texte") { const ta = e.target; ta.style.height = ""; ta.style.height = Math.min(ta.scrollHeight, 200) + "px"; majEnvoyer(); }
 });
+document.addEventListener("submit", e => { if (e.target.id === "conv-form") envoyerConv(e); });
+document.addEventListener("change", e => { if (e.target.id === "conv-fich") { joindre(Array.from(e.target.files || [])); e.target.value = ""; } });
+$("#fiche").addEventListener("close", arreterConv);
 window.addEventListener("hashchange", appliquerRoute);
 
 // ---------- démarrage ----------

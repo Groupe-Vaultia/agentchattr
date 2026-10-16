@@ -2507,6 +2507,41 @@ async def filtrer_messages(projet_id: str = "", tache_id: int = 0, since_id: int
                                                    max(1, min(limit, 500)))})
 
 
+# Atelier v3 : Charles écrit dans la conversation d'une tâche sans quitter l'atelier. Même circuit que la
+# salle (store.add → diffusion + réveil des @agent), sans la connexion WebSocket qui renvoie tout l'historique.
+# L'expéditeur est toujours l'utilisateur de la salle : il n'est jamais lu du corps (pas d'usurpation d'agent).
+@app.post("/api/v2/messages")
+async def ecrire_message(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "objet attendu"}, status_code=400)
+    channel = str(body.get("channel") or "").strip()
+    if not channel or channel not in room_settings.get("channels", []):
+        return JSONResponse({"error": "canal inconnu"}, status_code=404)
+    text = str(body.get("text") or "").strip()[:20000]
+    # Pièces jointes : seulement des fichiers déjà déposés par /api/upload (jamais une URL externe).
+    pieces_jointes = []
+    for a in body.get("attachments") or []:
+        if isinstance(a, dict) and str(a.get("url", "")).startswith("/uploads/") and ".." not in str(a.get("url")):
+            pieces_jointes.append({"name": str(a.get("name") or "")[:200], "url": str(a["url"])[:500]})
+    if not text and not pieces_jointes:
+        return JSONResponse({"error": "texte ou pièce jointe requis"}, status_code=400)
+    reply_to = body.get("reply_to")
+    try:
+        reply_to = int(reply_to) if reply_to not in (None, "") else None
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "reply_to entier attendu"}, status_code=400)
+    projet_id, tache_id, err = _etiquettes(body.get("projet_id"), body.get("tache_id"), channel)
+    if err:
+        return JSONResponse({"error": err}, status_code=422)
+    msg = store.add(room_settings.get("username", "user"), text, attachments=pieces_jointes, reply_to=reply_to,
+                    channel=channel, projet_id=projet_id, tache_id=tache_id)
+    return JSONResponse(msg)
+
+
 # Historique d'un projet (module de grok, lecture seule). Les id deviennent du texte, comme le veut son contrat.
 @app.get("/api/v2/projects/{projet_id}/historique")
 async def projet_historique(projet_id: str, limite: int = 200):
