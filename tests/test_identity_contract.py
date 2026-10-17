@@ -13,8 +13,10 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+TESTS = Path(__file__).resolve().parent
+for _chemin in (str(ROOT), str(TESTS)):
+    if _chemin not in sys.path:
+        sys.path.insert(0, _chemin)
 
 import app
 import mcp_bridge
@@ -26,6 +28,17 @@ if sys.platform == "win32":
 from mcp.server.fastmcp import Context
 from registry import RuntimeRegistry
 from store import MessageStore
+import _tmux_isole
+
+
+def setUpModule():
+    # Filet : WrapperUnixLifecycleTests simule subprocess.run, mais si la
+    # simulation sautait un jour, run_agent ne viserait que le serveur isolé.
+    _tmux_isole.isoler()
+
+
+def tearDownModule():
+    _tmux_isole.restaurer()
 
 
 class FakeRequest:
@@ -356,7 +369,14 @@ class WrapperUnixLifecycleTests(unittest.TestCase):
     def test_detach_keeps_wrapper_alive_until_tmux_session_ends(self):
         commands = []
         sleep_calls = []
+        watcher_args = []
         has_session_states = iter([0, 0, 1])
+
+        # Même signature que wrapper.start_watcher(inject_fn, clear_fn=None) :
+        # depuis l'auto-vidage du contexte (0026daa), run_agent lui passe aussi
+        # clear_fn. Une simulation à un seul argument casse sur TypeError.
+        def fake_start_watcher(inject_fn, clear_fn=None):
+            watcher_args.append((inject_fn, clear_fn))
 
         def fake_run(args, **kwargs):
             commands.append(args)
@@ -377,12 +397,14 @@ class WrapperUnixLifecycleTests(unittest.TestCase):
                 command="claude",
                 extra_args=["--debug"],
                 cwd=".",
-                env={},
+                # env isolé (pas {}) et nom de session de test, jamais celui
+                # d'un agent réel : new-session reçoit env= tel quel.
+                env=dict(os.environ),
                 queue_file=Path("queue.jsonl"),
                 agent="claude",
                 no_restart=False,
-                start_watcher=lambda inject_fn: None,
-                session_name="agentchattr-claude-1",
+                start_watcher=fake_start_watcher,
+                session_name="agentchattr-test-claude-1",
             )
 
         has_session_checks = [
@@ -390,6 +412,11 @@ class WrapperUnixLifecycleTests(unittest.TestCase):
         ]
         self.assertEqual(len(has_session_checks), 3)
         self.assertEqual(sleep_calls, [1])
+        # Le veilleur reçoit l'injection ET le vidage de contexte.
+        self.assertEqual(len(watcher_args), 1)
+        inject_fn, clear_fn = watcher_args[0]
+        self.assertTrue(callable(inject_fn))
+        self.assertTrue(callable(clear_fn))
 
 
 @unittest.skipUnless(sys.platform == "win32", "Windows-only wrapper compatibility test")

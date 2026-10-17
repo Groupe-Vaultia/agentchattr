@@ -1,6 +1,9 @@
 # Équipe d'agents — rôles, cycle et règles
 
-**Version : v1.6.1** — 2026-10-13.
+**Version : v1.7** — 2026-10-16.
+Changement v1.6.1 → v1.7 : §2 ajoute la sous-section « Mise en service »
+(`outils-socle/mise-en-service.sh` : fusion sans redémarrage quand seuls `static/`, `docs/`, `tests/`
+ou des `*.md` changent); §3 ajoute R13 v1 Canal de tâche (claude-1, 16 oct., carte en attente).
 Changement v1.6 → v1.6.1 (revue codex #2216) : §4 cite `config.toml` pour gemini (`config_loader.py`
 ignore les redéfinitions locales); §3 dit que la carte R1 v1.5 active est périmée sur l'équipe.
 Changement v1.5.2 → v1.6 (Charles #2214) : l'équipe réelle remplace l'ancienne — cursor et qwenlocal
@@ -75,6 +78,18 @@ alors celle-là seulement (#22 à #26, 13 oct.). Le cycle est complet à la PR m
 - Chaque agent qui écrit des fichiers travaille dans **son propre worktree git**
   (`git worktree add ../wt-<agent> -b <branche> main`). Personne ne modifie l'arbre de
   travail du clone principal `~/atelier/agentchattr` directement.
+
+### Mise en service
+
+Après la fusion d'une PR, dans le clone principal : `outils-socle/mise-en-service.sh --essai`
+(lecture seule), puis sans `--essai`. Le script fait `git fetch`, s'arrête net si un fichier qui
+arrive a des modifications locales non commitées, puis `git merge --ff-only origin/main`. Un
+changement limité à `static/`, `docs/`, `tests/` ou des `*.md` est en service sans redémarrage (le
+serveur sert `static/` en direct, relit `index.html`/`atelier.html` à chaque requête). Sinon il dit
+« redémarrage requis » et affiche la séquence sûre, exécutée seulement avec `--redemarrer` : gardien
+figé, serveur tué par PID (jamais `pkill -f run.py`), relance, attente du 200, gardien repris. Il
+compte aussi ce qui est dans le clone mais plus récent que le serveur en marche (reflog), et avertit
+quand un `static/*.js|css` change sans son `?v=` (le navigateur garderait l'ancien).
 
 ## 3. Règles (texte complet)
 
@@ -180,6 +195,13 @@ memory_save quand tu décides, termines un lot ou passes le relais (kind decisio
 titre clair, faits vérifiés, jamais de secret). Un souvenir est un indice, pas une preuve :
 revérifie avant d'agir.*
 Un souvenir n'est jamais cité comme preuve au sens de R6.
+
+### R13 v1 — Canal de tâche
+Carte : *Tout le travail d'une tâche (consigne, livraison, revue, décision) se tient dans son
+canal tache-N. Les canaux généraux servent à la ronde et aux annonces, avec renvoi vers tache-N.
+Sinon l'atelier n'en montre qu'une partie.*
+Proposée par claude-1 le 2026-10-16 sur l'accord de Charles (« Go pour tous »); carte de règle en
+attente de son approbation dans l'interface.
 
 ## 4. Capacités réelles des agents (vérifié dans la config, 2026-10-13)
 

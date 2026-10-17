@@ -7,7 +7,22 @@ import time
 import unittest
 from unittest import mock
 
-import wrapper_unix
+_TESTS = os.path.dirname(os.path.abspath(__file__))
+if _TESTS not in sys.path:
+    sys.path.insert(0, _TESTS)
+import _tmux_isole  # noqa: E402
+import wrapper_unix  # noqa: E402
+
+
+def setUpModule():
+    # Filet : le faux tmux du PATH répond ; si jamais il n'était pas trouvé,
+    # le vrai tmux (qui résout « -t test » par préfixe) ne verrait que le
+    # serveur isolé, jamais celui des agents.
+    _tmux_isole.isoler()
+
+
+def tearDownModule():
+    _tmux_isole.restaurer()
 
 
 @unittest.skipIf(sys.platform == 'win32', 'Unix executable fixture')
