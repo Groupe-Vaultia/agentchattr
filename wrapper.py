@@ -21,6 +21,7 @@ How it works:
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 import threading
@@ -598,6 +599,25 @@ def _notify_recovery(data_dir: Path, agent_name: str):
         pass
 
 
+_RULE_ID_RE = re.compile(r"\bR(\d+)\b")
+
+
+def _compact_rules(rules: list[str], width: int = 150) -> list[str]:
+    """Latest version of each numbered rule (R1, R2...), cut to ``width``.
+
+    The room keeps every version (v1.1 R1, v1.2 R1, v1.5 R1...) as separate
+    active rules; a small local model drowns in them. Later entries win; rules
+    without an R-number are kept as they are (cut too).
+    """
+    latest: dict[str, str] = {}
+    for rule in rules:
+        m = _RULE_ID_RE.search(rule)
+        key = f"R{m.group(1)}" if m else f"#{len(latest)}:{rule}"
+        latest.pop(key, None)
+        latest[key] = rule if len(rule) <= width else rule[:width - 1].rstrip() + "…"
+    return list(latest.values())
+
+
 _IDENTITY_HINT = (
     " (If this is a multi-instance session, reclaim your previous identity from "
     "your context window, NOT from the chat history before responding. If you "
@@ -676,14 +696,15 @@ def _report_rule_sync(server_port: int, agent_name: str, epoch: int, token: str 
 def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = False, trigger_flag=None,
                    server_port: int = 8300, agent_name: str = "", get_token_fn=None,
                    refresh_interval: int = 10, clear_fn=None, clear_every: int = 0,
-                   trigger_prompt: str = "", inject_rules: bool = True):
+                   trigger_prompt: str = "", rules_format: str = "complet"):
     """Poll queue file and inject an MCP read task when triggered.
 
     ``trigger_prompt`` (agents.<x>.trigger_prompt) replaces the default English
     one-liner for models that ignore it (Bolt, 2-bit local: answered in its
     terminal, never called chat_read/chat_send). Placeholders : {name} (current
-    identity), {cible} (``channel='x'`` or ``job_id=N``). ``inject_rules`` False
-    drops the long RULES block; the template then carries the key rules.
+    identity), {cible} (``channel='x'`` or ``job_id=N``). ``rules_format``
+    "court" sends the live rules compacted (_compact_rules) instead of the full
+    block, still at the current epoch, so the sync report stays truthful.
 
     ``clear_every`` > 0 : every N triggers, reset the CLI's conversation via
     ``clear_fn`` BEFORE injecting the next task. The room (MCP) is the shared
@@ -781,7 +802,7 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
                             last_rules_epoch = 0
                             first_mention = True
                             print(f"  AUTO-CLEAR: contexte réinitialisé après {trigger_count} déclenchements")
-                    if rules_data and inject_rules:
+                    if rules_data:
                         # Use server-side refresh_interval (live from settings UI)
                         ri = rules_data.get("refresh_interval", refresh_interval)
                         need_inject = (
@@ -791,7 +812,10 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
                         )
                         if need_inject:
                             if rules_data["rules"]:
-                                rules_text = "; ".join(rules_data["rules"])
+                                rules = rules_data["rules"]
+                                if rules_format == "court":
+                                    rules = _compact_rules(rules)
+                                rules_text = "; ".join(rules)
                                 prompt += f"\n\nRULES:\n{rules_text}"
                             last_rules_epoch = rules_data["epoch"]
                             _report_rule_sync(server_port, current_name, rules_data["epoch"], _token)
@@ -1051,7 +1075,7 @@ def main():
                 "get_token_fn": get_token, "refresh_interval": _refresh_interval,
                 "clear_fn": _watcher_clear_fn, "clear_every": _clear_every,
                 "trigger_prompt": agent_cfg.get("trigger_prompt", ""),
-                "inject_rules": agent_cfg.get("inject_rules", True)}
+                "rules_format": agent_cfg.get("rules_format", "complet")}
 
     def start_watcher(inject_fn, clear_fn=None):
         nonlocal _watcher_inject_fn, _watcher_clear_fn, _watcher_thread
