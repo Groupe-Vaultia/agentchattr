@@ -1,21 +1,45 @@
 import { choisirFantomes, BBOX_DEF } from './fantomes.js';
-/* Atelier R&D · Vaultia — logique de la page.
-   Ne lit que les routes du socle (FICHES-LOTS.md). Chaque route « à venir » est enveloppée :
-   tant que claude n'a pas branché le lot (ou si la réponse est 404/500), l'interface affiche
-   un état vide propre, sans erreur. Aucun jeton, aucune donnée sensible n'est logguée (R3). */
+/* Atelier R&D · Vaultia — logique de la page (v3, 2026-10-16).
+   Deux pages :
+   - « Aujourd'hui » (#/) : tous projets confondus, ce qui t'attend (tâches attend_charles + jalons sans
+     décision), qui travaille (tâches en cours ou bloquées, silences de la ronde), puis les projets ;
+   - la page projet (#/p/<id>[/onglet]) : frise des étapes (filtre du tableau), tableau des tâches par état,
+     pièces, historique, livrables.
+   Ne lit que les routes du socle. Une route absente (404) donne un état vide propre ; toute autre erreur
+   s'affiche. Aucun jeton, aucune donnée sensible n'est loggué (R3). */
 "use strict";
 
 const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
-// Les 8 étapes de pilote-rd, dans l'ordre (spec v0.7).
-const ETAPES = ["probleme","etat_art","concepts","conception","prototype","essais","industrialisation","lancement"];
-const NOM_ETAPES = {probleme:"Problème",etat_art:"État de l'art",concepts:"Concepts",conception:"Conception",prototype:"Prototype",essais:"Essais",industrialisation:"Industrialisation",lancement:"Lancement"};
-// Ce que couvre chaque étape (pilote-rd), affiché quand on clique une étape.
+// ---------- icônes (grille 24, trait 1,75, bouts arrondis) ----------
+const ICO = {
+  chev: '<path d="m9.5 6 6 6-6 6"/>',
+  chat: '<path d="M19.5 12a7.5 7.5 0 0 1-10.9 6.7L4.5 19.5l.9-3.8A7.5 7.5 0 1 1 19.5 12Z"/>',
+  check: '<path d="m5.5 12.5 4 4 9-9"/>',
+  alerte: '<path d="M12 4.5 3 19.5h18Z"/><path d="M12 10v4M12 16.8v.2"/>',
+  jalon: '<path d="M12 3.5 20.5 12 12 20.5 3.5 12Z"/>',
+  fermer: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
+  pause: '<path d="M9.5 6.5v11M14.5 6.5v11"/>',
+  play: '<path d="M8.5 6v12l9.5-6Z"/>',
+  bas: '<path d="m6 9.5 6 6 6-6"/>',
+  photo: '<rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><circle cx="9" cy="10.5" r="1.75"/><path d="m20.5 15.5-4.5-4.5-8 7.5"/>',
+  envoyer: '<path d="M12 19V5.5M6 11.5l6-6 6 6"/>',
+  externe: '<path d="M13.5 5.5h5v5M18.5 5.5 11 13M10 6.5H7A1.5 1.5 0 0 0 5.5 8v9A1.5 1.5 0 0 0 7 18.5h9a1.5 1.5 0 0 0 1.5-1.5v-3"/>',
+};
+const ico = (n, cls = "ico") => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICO[n]}</svg>`;
+
+// ---------- étapes (pilote-rd) : la liste vient du serveur (`etapes`), celle-ci est le repli ----------
+let ETAPES = ["probleme","etat_art","concepts","design_initial","conception","prototype","essais","industrialisation","lancement"];
+const NOM_ETAPES = {probleme:"Problème",etat_art:"État de l'art",concepts:"Concepts",design_initial:"Design initial",conception:"Conception",prototype:"Prototype",essais:"Essais",industrialisation:"Industrialisation",lancement:"Lancement"};
+const nomEtape = e => NOM_ETAPES[e] || String(e || "").replace(/_/g, " ");
+// Ce que couvre chaque étape, en une ligne.
 const DEF_ETAPES = {
   probleme: "Poser le problème : pour qui, quoi, pourquoi maintenant, et ce qui compte comme réussi.",
   etat_art: "Ce qui existe déjà (produits, code, publications) et pourquoi ça ne suffit pas.",
   concepts: "Les pistes possibles, comparées, et celle qu'on retient avec sa raison.",
+  design_initial: "L'allure, la silhouette et le squelette de points durs, avant tout calcul de structure.",
   conception: "Le plan de la piste retenue : règles, découpage, interfaces, avant de produire.",
   prototype: "Construire une première version qui marche, livrée par PR et revue.",
   essais: "Éprouver le prototype en vrai : hypothèse, méthode, critère, résultat (RS&DE).",
@@ -24,32 +48,37 @@ const DEF_ETAPES = {
 };
 const STATUTS = {actif:"actif",veille:"en veille",termine:"terminé",arrete:"arrêté"};
 const STATUT_CLS = {actif:"s-actif",veille:"s-veille",termine:"s-attente",arrete:"s-arrete"};
-// Les états que S2 (jobs.py) renvoie vraiment : fait / en_cours / attend_charles / a_faire / bloque.
-const ETAT_TACHE = {fait:"fait",en_cours:"en cours",attend_charles:"attend Charles",a_faire:"à faire",bloque:"bloqué"};
+// Les états que S2 (jobs.py) renvoie : fait / en_cours / attend_charles / a_faire / bloque.
+const ETAT_TACHE = {fait:"fait",en_cours:"en cours",attend_charles:"t'attend",a_faire:"à faire",bloque:"bloqué"};
 const ETAT_CLS = {fait:"s-fait",en_cours:"s-cours",attend_charles:"s-charles",a_faire:"s-afaire",bloque:"s-bloque"};
 const ETAT_EXEC = {actif:"actif",silencieux:"silencieux",fini:"fini"};
-const ETAT_EXEC_CLS = {actif:"s-actif",silencieux:"s-silence",fini:"s-fait"};
-// Normalise un état de tâche (S2) vers une clé de libellé/classe connue.
 const normEtat = e => (e && ETAT_TACHE[e] ? e : (e === "cours" ? "en_cours" : e === "charles" ? "attend_charles" : e === "afaire" ? "a_faire" : "a_faire"));
+// Colonnes du tableau, dans l'ordre de lecture : ce qui t'attend d'abord.
+const COLONNES = [
+  ["attend_charles", "T'attend"], ["en_cours", "En cours"], ["bloque", "Bloqué"], ["a_faire", "À faire"], ["fait", "Fait"],
+];
+const ONGLETS = ["taches", "pieces", "hist", "livrables"];
+const SILENCE_S = 2 * 3600; // une tâche en cours sans nouvelle depuis 2 h est signalée
 
 const state = {
-  view: "projets",
-  projets: {},      // id -> {nom, statut, memoire, channels}
+  route: {page: "jour"},
+  projets: {},       // id -> {nom, statut, objectif, parent_id, …}
   defaut: "",
-  sel: null,        // id du projet sélectionné
-  taches: [],       // tâches du projet sélectionné
-  etape: null,      // étape courante du projet (calc serveur ou local)
-  executions: [],   // exécutions du projet sélectionné
-  jalons: [],       // jalons du projet (P1) : {id, jalon, criteres, risque, recommandation, decision, …}
-  fiche: null,      // fiche projet (P2) : {objectif, niveau, trl, hypotheses, risques, questions, …}
-  methodes: null,   // méthode de chaque étape (P3) : {etape: texte} via GET /api/v2/methodes — null si absent
-  pieces: null,     // N3 : pièces du projet {pieces:[…]} — null si pas encore chargé
-  achats: null,     // N3 : liste d'achats {lignes, sans_offre, totaux}
-  cout: null,       // N3 : coût cumulé {totaux, sans_prix, a_convertir}
-  alertes: [],      // U4 : alertes globales de GET /api/v2/ronde
-  v3d: null,          // G5 : instance du viewer 3D (three-viewer.js) (sauvegarde, copie x1) — [] si rien
+  par: {},           // id -> {taches:[], etape:index|null, jalons:[]}  (chargé pour tous les projets)
+  ronde: null,       // GET /api/v2/ronde
+  alertes: [],       // ronde.alertes (sauvegarde, copie hors tour)
+  agents: {},        // GET /api/status : {nom: {busy, color, label, role}}
+  methodes: null,    // {etape: texte} (docs/PILOTE.md)
+  cartes: {},        // tache_id -> dernière carte de décision encore ouverte (pour trancher depuis l'accueil)
+  maj: 0,            // heure de la dernière mise à jour globale (ms)
+  // projet ouvert
+  sel: null, taches: [], jalons: [], etape: null, fiche: null,
+  executions: [], hist: null, liv: null, pieces: null, achats: null, cout: null,
+  filtre: null,      // étape filtrée sur le tableau
+  faitOuvert: false, // colonne « Fait » dépliée
+  v3d: null, v3dSig: "",
 };
-// N3 : statuts de pièce (spec PIECES.md) — libellé + classe de pilule.
+// N3 : statuts de pièce (spec PIECES.md) — libellé + classe de pastille.
 const PIECE_STATUT = {
   a_concevoir:["à concevoir","s-afaire"], concue:["conçue","s-cours"],
   a_commander:["à commander","s-attente"], commandee:["commandée","s-cours"],
@@ -57,10 +86,9 @@ const PIECE_STATUT = {
   validee:["validée","s-fait"], rejetee:["rejetée","s-bloque"],
 };
 const ORIGINE = {acheter:"acheter", concevoir:"concevoir"};
-const TYPE_PIECE = {assemblage:"assemblage", piece:"pièce", visserie:"visserie", matiere:"matière"};
 const PROCEDS = {laser:"laser", soudure:"soudure", cnc:"cnc", impression_3d:"impression 3D", achat:"achat"};
 
-// ---------- accès réseau : état vide propre si la route n'est pas encore branchée ----------
+// ---------- réseau : état vide propre si la route n'est pas encore branchée ----------
 // Le serveur sert /atelier avec un jeton de session injecté (comme /). Sans lui, tout est 403.
 const headers = () => {
   const h = {"Accept": "application/json"};
@@ -71,7 +99,7 @@ const headers = () => {
 function erreur(code) {
   // 404 = le lot n'est pas encore branché (état vide propre). Tout le reste (403, 400, 500…) est une
   // erreur réelle : on ne la cache pas derrière « rien à afficher ».
-  return code && code !== 404 ? `Erreur ${code} — vérifie que la salle est ouverte et que ton jeton est valide.` : "";
+  return code && code !== 404 ? `Erreur ${code} : vérifie que la salle est ouverte et que ton jeton est valide.` : "";
 }
 async function getJSON(url) {
   try {
@@ -92,250 +120,489 @@ function toast(m) {
   const t = $("#toast"); t.textContent = m; t.hidden = false;
   clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, 3800);
 }
-const heure = ts => { if (ts == null) return ""; try { return new Date(ts * 1000).toLocaleString("fr-CA", {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}); } catch (_) { return ""; } };
 
-// ---------- chargement des projets ----------
-async function loadProjets() {
-  const r = await getJSON("/api/projects");
-  if (!r.ok || !r.data || !r.data.v2) {
+// ---------- temps ----------
+const heure = ts => { if (ts == null) return ""; try { return new Date(ts * 1000).toLocaleString("fr-CA", {day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}); } catch (_) { return ""; } };
+const hm = ts => { if (ts == null) return ""; try { return new Date(ts * 1000).toLocaleTimeString("fr-CA", {hour:"2-digit",minute:"2-digit"}); } catch (_) { return ""; } };
+function duree(s) {
+  s = Math.max(0, s);
+  if (s < 3600) return `${Math.max(1, Math.round(s / 60))} min`;
+  if (s < 86400) return `${Math.round(s / 3600)} h`;
+  return `${Math.round(s / 86400)} j`;
+}
+function ilya(ts) {
+  if (!ts) return "";
+  const s = Date.now() / 1000 - ts;
+  if (s < 60) return "à l'instant";
+  if (s < 86400) return `il y a ${duree(s)}`;
+  const j = Math.round(s / 86400);
+  return j === 1 ? "hier" : `il y a ${j} j`;
+}
+const jourLong = d => d.toLocaleDateString("fr-CA", {weekday: "long", day: "numeric", month: "long"});
+const pluriel = (n, un, plusieurs) => `${n} ${n > 1 ? plusieurs : un}`;
+
+// ---------- agents (couleur d'identité depuis /api/status, comme la salle) ----------
+// La couleur peut venir de l'instance 1 (« claude » → « claude-1 ») ; l'état occupé, jamais : il est propre à l'instance.
+function agentInfo(nom, exact = false) {
+  const n = String(nom || "");
+  const direct = state.agents[n] || state.agents[n.toLowerCase()];
+  if (direct || exact) return direct || null;
+  const base = n.toLowerCase().replace(/-\d+$/, "");
+  return state.agents[base] || state.agents[base + "-1"] || null;
+}
+function agent(nom, petit = false) {
+  if (!nom) return `<span class="ag${petit ? " petit" : ""}">—</span>`;
+  const a = agentInfo(nom);
+  const c = a && /^#[0-9a-f]{3,8}$/i.test(a.color || "") ? a.color : "";
+  const libelle = /^charles$/i.test(nom) || nom === "user" ? "Charles" : nom;
+  return `<span class="ag${petit ? " petit" : ""}"${c ? ` style="--c:${c}"` : ""}><i></i>${esc(libelle)}</span>`;
+}
+const occupe = nom => { const a = agentInfo(nom, true); return !!(a && a.busy); };
+
+// ---------- chargement global : projets, ronde, agents, tâches et jalons de chaque projet ----------
+async function chargerGlobal() {
+  const [p, r, s, m] = await Promise.all([
+    getJSON("/api/projects"),
+    getJSON("/api/v2/ronde"),
+    getJSON("/api/status"),
+    state.methodes ? Promise.resolve(null) : getJSON("/api/v2/methodes"),
+  ]);
+  if (!p.ok || !p.data || !p.data.v2) {
     state.projets = {}; state.defaut = "";
     $("#note").hidden = false;
     // 404 = pas encore branché (état vide propre) ; 403/400/500 = erreur réelle, affichée.
-    $("#note").textContent = (r.msg)
-      ? r.msg
-      : "Le socle n'a pas encore retourné de projet (ou la route /api/projects n'est pas encore branchée). L'interface est prête : les projets apparaîtront ici dès que la salle en aura.";
-    return;
+    $("#note").textContent = p.msg || "Le socle n'a pas encore retourné de projet. L'atelier est prêt : les projets apparaîtront ici dès que la salle en aura.";
+  } else {
+    state.projets = p.data.v2.projets || {};
+    state.defaut = p.data.v2.defaut || "";
+    $("#note").hidden = true;
   }
-  const v2 = r.data.v2;
-  state.projets = v2.projets || {};
-  state.defaut = v2.defaut || "";
-  if (!state.sel || !state.projets[state.sel]) state.sel = state.defaut || Object.keys(state.projets)[0] || null;
-  $("#note").hidden = true;
-}
+  // U4 : on ne vide jamais les alertes sur une erreur transitoire (5xx, réseau) ; seulement sur 404 ou liste vide.
+  if (r.err === 404) { state.ronde = null; state.alertes = []; }
+  else if (r.ok && r.data) { state.ronde = r.data; if (Array.isArray(r.data.alertes)) state.alertes = r.data.alertes; }
+  if (s.ok && s.data && typeof s.data === "object") state.agents = s.data;
+  if (m && m.ok && m.data && typeof m.data === "object") state.methodes = m.data;
 
-// ---------- vue Projets : résumé + une ligne par projet ----------
-function renderProjets() {
   const ids = Object.keys(state.projets);
-  const actifs = ids.filter(id => state.projets[id].statut === "actif");
-  const veille = ids.filter(id => state.projets[id].statut === "veille");
-  const enDirect = new Set(state.executions.filter(e => e.etat === "actif" || e.etat === "silencieux").map(e => e.agent));
-  const attend = ids.filter(id => (state.projets[id].taches || []).some(t => normEtat(t.etat) === "attend_charles"));
-
-  $("#psum").innerHTML = `
-    <div class="sum"><b>${actifs.length}</b><span>projets actifs</span></div>
-    <div class="sum"><b>${veille.length}</b><span>en veille</span></div>
-    <div class="sum"><b>${enDirect.size}</b><span>agents au travail</span></div>
-    <div class="sum"><b>${attend.length}</b><span>qui t'attendent</span></div>`;
-
-  if (!ids.length) {
-    $("#prows").innerHTML = `<div class="empty">Aucun projet pour l'instant. Crée le premier ci-dessous : claude découpe le travail et assigne les agents.</div>`;
-    return;
-  }
-  $("#prows").innerHTML = ids.map(id => {
-    const p = state.projets[id];
-    const taches = p.taches || [];
-    const fait = taches.filter(t => normEtat(t.etat) === "fait").length;
-    const cours = taches.filter(t => ["en_cours","attend_charles"].includes(normEtat(t.etat))).length;
-    const afaire = taches.length - fait - cours;
-    const agents = [...new Set(taches.map(t => t.responsable).filter(Boolean))];
-    return `<div class="prow${id === state.sel ? " cur" : ""}" data-proj="${esc(id)}">
-      <div><div class="nm">${esc(p.nom || id)}</div><div class="sub"><span class="pill ${STATUT_CLS[p.statut] || "s-attente"}">${esc(STATUTS[p.statut] || p.statut || "?")}</span></div></div>
-      <div>${p.etape ? `<div class="sub">${esc(p.etape)}</div>` : `<div class="sub">étape —</div>`}<div class="bar" title="${fait} fait · ${cours} en cours · ${afaire} à faire"><i class="b-fait" style="flex:${Math.max(fait,0)}"></i><i class="b-cours" style="flex:${Math.max(cours,0)}"></i><i class="b-afaire" style="flex:${Math.max(afaire,1)}"></i></div></div>
-      <div class="sub">${agents.length ? agents.map(esc).join(", ") : "—"}</div>
-      <div class="chips"><button class="btn${p.statut === "veille" ? " pri" : ""}" data-status="${p.statut === "veille" ? "actif" : "veille"}" data-proj="${esc(id)}">${p.statut === "veille" ? "Réactiver" : "En veille"}</button></div>
-    </div>`;
-  }).join("");
+  const res = await Promise.all(ids.map(id => Promise.all([
+    getJSON(`/api/v2/taches?projet_id=${encodeURIComponent(id)}`),
+    getJSON(`/api/v2/projects/${encodeURIComponent(id)}/jalons`),
+  ])));
+  const par = {};
+  ids.forEach((id, i) => {
+    const [t, j] = res[i];
+    const d = {taches: [], etape: null, jalons: [], ok: t.ok};
+    if (t.ok && t.data) {
+      // v0.2 : {taches, etape, etapes} ; v0.1 : liste nue. `etape` est le nom d'étape (ex. "concepts").
+      if (Array.isArray(t.data)) d.taches = t.data;
+      else {
+        if (Array.isArray(t.data.etapes) && t.data.etapes.length && t.data.etapes.every(e => typeof e === "string")) ETAPES = t.data.etapes;
+        d.taches = t.data.taches || [];
+        const idx = t.data.etape ? ETAPES.indexOf(t.data.etape) : -1;
+        d.etape = idx >= 0 ? idx : (d.taches.length ? ETAPES.length : 0);
+      }
+    }
+    if (j.ok && j.data) d.jalons = j.data.jalons || (Array.isArray(j.data) ? j.data : []);
+    par[id] = d;
+  });
+  state.par = par;
+  // Piste 6 : pour chaque tâche qui t'attend, sa dernière carte de décision encore ouverte (trancher en un toucher).
+  const attente = ids.flatMap(id => par[id].taches.filter(t => normEtat(t.etat) === "attend_charles").map(t => t.id));
+  const cartes = await Promise.all(attente.map(tid => getJSON(`/api/v2/messages?tache_id=${encodeURIComponent(tid)}&limit=60`)));
+  state.cartes = {};
+  attente.forEach((tid, i) => {
+    const msgs = (cartes[i].ok && cartes[i].data && cartes[i].data.messages) || [];
+    const c = msgs.filter(m => m.type === "decision" && !(m.metadata || {}).resolved).pop();
+    if (c && Array.isArray((c.metadata || {}).choices) && c.metadata.choices.length) state.cartes[tid] = c;
+  });
+  state.maj = Date.now();
 }
-
-// ---------- rail : projets + étape ----------
-// Un bouton projet (point + nom + étape). `ind` = retrait (sous-projet).
-function _btnProjet(id, ind) {
-  const p = state.projets[id];
-  return `<button class="proj${ind ? " enfant" : ""}" data-proj="${esc(id)}" aria-current="${id === state.sel}"><span class="dot ${p.statut === "actif" ? "actif" : p.statut}"></span><span class="pn" title="${esc(p.nom || id)}">${esc(p.nom || id)}</span><span class="st">${p.etape ? esc(p.etape.split(":").pop().trim()) : ""}</span></button>`;
-}
-// Rail en arbre : les projets sans parent en haut, leurs sous-projets (parent_id) en retrait dessous.
-function renderRail() {
-  const ids = Object.keys(state.projets);
-  const parents = ids.filter(id => !state.projets[id].parent_id);
-  const enfants = id => ids.filter(x => state.projets[x].parent_id === id);
-  const html = parents.map(id =>
-    _btnProjet(id, false) +
-    enfants(id).map(e => _btnProjet(e, true)).join("")
-  ).join("");
-  // tout projet orphelin (parent_id qui ne correspond à aucun projet connu) reste visible en bas
-  const orphelins = ids.filter(id => state.projets[id].parent_id && !state.projets[state.projets[id].parent_id]);
-  $("#rail-proj").innerHTML = (html + (orphelins.length ? "<div class='rail-sep'></div>" : "") + orphelins.map(o => _btnProjet(o, false)).join(""))
-    || `<div class="sub" style="padding:2px 8px;font-size:12px;color:var(--ink3)">aucun projet</div>`;
-}
-
-// ---------- étape du projet (calc local si le serveur ne la donne pas) ----------
+// Étape courante calculée localement si le serveur ne la donne pas.
 function etapeDuProjet(taches) {
   for (let i = 0; i < ETAPES.length; i++) {
     if (taches.some(t => t.etape === ETAPES[i] && t.etat !== "fait")) return i;
   }
   return taches.length ? ETAPES.length : 0;
 }
+const idxEtape = id => { const d = state.par[id]; if (!d) return 0; return d.etape ?? etapeDuProjet(d.taches); };
+// Silences : tâches muettes de la ronde (pas de message dans tache-<id>) et exécutions silencieuses.
+function silences() {
+  const m = new Map();
+  const r = state.ronde || {};
+  (r.taches_muettes || []).forEach(x => m.set(String(x.tache_id), x.silence_s || SILENCE_S));
+  (r.silencieuses || []).forEach(x => { if (!m.has(String(x.tache_id))) m.set(String(x.tache_id), SILENCE_S); });
+  return m;
+}
+const actif = id => (state.projets[id] || {}).statut !== "veille" && (state.projets[id] || {}).statut !== "arrete" && (state.projets[id] || {}).statut !== "termine";
 
-// ---------- vue Équipe : les agents, depuis les exécutions ----------
-function renderEquipe() {
-  const parAgent = {};
-  for (const e of state.executions) {
-    const a = parAgent[e.agent] = parAgent[e.agent] || {agent: e.agent, etat: e.etat, taches: new Set(), dernier: e.dernier_signe || e.debut};
-    if (e.etat === "actif") a.etat = "actif";
-    else if (a.etat !== "actif" && e.etat === "silencieux") a.etat = "silencieux";
-    if (e.titre) a.taches.add(e.titre);
+// ---------- chargement du projet ouvert : ce qui ne sert qu'à sa page ----------
+async function chargerProjet() {
+  const id = state.sel;
+  if (!id) return;
+  const [e, h, l, pc, ac, co] = await Promise.all([
+    getJSON(`/api/v2/executions?projet_id=${encodeURIComponent(id)}`),
+    getJSON(`/api/v2/projects/${encodeURIComponent(id)}/historique`),
+    getJSON(`/api/v2/projects/${encodeURIComponent(id)}/revisions`),
+    getJSON(`/api/v2/pieces?projet_id=${encodeURIComponent(id)}`),       // N3 : pièces du projet
+    getJSON(`/api/v2/projects/${encodeURIComponent(id)}/achats`),        // N3 : liste d'achats
+    getJSON(`/api/v2/projects/${encodeURIComponent(id)}/cout`),          // N3 : coût cumulé
+  ]);
+  if (id !== state.sel) return; // un autre projet a été ouvert entre-temps
+  state.executions = e.ok && e.data ? (Array.isArray(e.data) ? e.data : (e.data.executions || [])) : [];
+  state.hist = h.ok && h.data ? h.data : null;
+  state.liv = l.ok && l.data ? l.data : null;
+  state.pieces = pc.ok && pc.data ? pc.data : null;
+  state.achats = ac.ok && ac.data ? ac.data : null;
+  state.cout = co.ok && co.data ? co.data : null;
+}
+// Recopie dans `state` ce qui a été chargé pour tous les projets (tâches, étape, jalons, fiche).
+function synchroSel() {
+  const d = state.par[state.sel] || {taches: [], etape: null, jalons: []};
+  state.taches = d.taches; state.jalons = d.jalons; state.etape = d.etape;
+  state.fiche = state.projets[state.sel] || null;
+}
+
+// =====================================================================================
+// Rail
+// =====================================================================================
+function attentesDe(id) {
+  const d = state.par[id]; if (!d) return 0;
+  return d.taches.filter(t => normEtat(t.etat) === "attend_charles").length + d.jalons.filter(j => !j.decision).length;
+}
+function renderRail() {
+  const ids = Object.keys(state.projets);
+  const ligne = (id, enfant) => {
+    const p = state.projets[id];
+    const n = attentesDe(id);
+    const i = idxEtape(id);
+    const st = n ? `<b class="badge" title="${pluriel(n, "décision t'attend", "décisions t'attendent")}">${n}</b>`
+      : `<span class="st">${!actif(id) ? esc(STATUTS[p.statut] || p.statut) : (state.par[id] && state.par[id].taches.length ? (i < ETAPES.length ? esc(nomEtape(ETAPES[i])) : "terminé") : "")}</span>`;
+    const courant = state.route.page === "projet" && state.sel === id;
+    return `<a class="proj${enfant ? " enfant" : ""}${actif(id) ? "" : " endormi"}" href="#/p/${encodeURIComponent(id)}"${courant ? ' aria-current="page"' : ""}><span class="pn" title="${esc(p.nom || id)}">${esc(p.nom || id)}</span>${st}</a>`;
+  };
+  // Arbre : les projets sans parent, leurs sous-projets (parent_id) en retrait ; actifs d'abord.
+  const ordre = (a, b) => (actif(b) - actif(a)) || attentesDe(b) - attentesDe(a);
+  const racines = ids.filter(id => !state.projets[id].parent_id || !state.projets[state.projets[id].parent_id]).sort(ordre);
+  const enfants = id => ids.filter(x => state.projets[x].parent_id === id);
+  $("#rail-proj").innerHTML = racines.map(id => ligne(id, false) + enfants(id).map(e => ligne(e, true)).join("")).join("")
+    || `<div class="rail-vide">Aucun projet</div>`;
+  const total = ids.reduce((n, id) => n + attentesDe(id), 0);
+  const b = $("#badge-jour"); b.hidden = !total; b.textContent = total;
+  $$('.rail [data-nav="jour"]').forEach(a => { if (state.route.page === "jour") a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
+}
+
+// =====================================================================================
+// Aujourd'hui
+// =====================================================================================
+function renderAlertes() {
+  const el = $("#alertes"); if (!el) return;
+  const liste = state.alertes || [];
+  if (!liste.length) { el.hidden = true; el.innerHTML = ""; return; }
+  el.hidden = false;
+  el.innerHTML = `${ico("alerte")}<div><b>${pluriel(liste.length, "alerte", "alertes")}</b><ul>${liste.map(a => `<li>${esc(a)}</li>`).join("")}</ul></div>`;
+}
+
+function renderJour() {
+  const ids = Object.keys(state.projets);
+  const sil = silences();
+  // 1. Ce qui t'attend : tâches attend_charles et jalons sans décision, la plus ancienne d'abord.
+  const attend = [];
+  for (const id of ids) {
+    const d = state.par[id]; if (!d) continue;
+    d.taches.filter(t => normEtat(t.etat) === "attend_charles").forEach(t => attend.push({type: "tache", id, t, h: t.updated_at || t.created_at}));
+    d.jalons.filter(j => !j.decision).forEach(j => attend.push({type: "jalon", id, j, h: j.date}));
   }
-  const agents = Object.values(parAgent);
-  const actif = agents.filter(a => a.etat === "actif").length;
-  const silence = agents.filter(a => a.etat === "silencieux").length;
-  const attend = state.taches.filter(t => normEtat(t.etat) === "attend_charles").length;
+  attend.sort((a, b) => (a.h || 0) - (b.h || 0));
+  // 2. Au travail : tâches en cours ou bloquées des projets actifs ; les silencieuses d'abord.
+  const travail = [];
+  for (const id of ids) {
+    if (!actif(id)) continue;
+    (state.par[id] ? state.par[id].taches : []).forEach(t => {
+      const st = normEtat(t.etat);
+      if (st === "en_cours" || st === "bloque") travail.push({id, t, st, silence: sil.get(String(t.id)) || 0});
+    });
+  }
+  travail.sort((a, b) => (b.st === "bloque") - (a.st === "bloque") || (b.silence > 0) - (a.silence > 0) || (b.t.updated_at || 0) - (a.t.updated_at || 0));
 
-  $("#esum").innerHTML = `
-    <div class="sum"><b>${actif}</b><span>agent(s) actif(s)</span></div>
-    <div class="sum"><b>${agents.length - actif - silence}</b><span>en attente ou terminé</span></div>
-    <div class="sum"><b style="color:var(--warn)">${silence}</b><span>silencieux depuis 10 min</span></div>
-    <div class="sum"><b style="color:var(--slate)">${attend}</b><span>tâches qui t'attendent</span></div>`;
+  $("#jour-date").textContent = jourLong(new Date()).replace(/^./, c => c.toUpperCase());
+  majIndicateur();
+  const muettes = travail.filter(x => x.silence >= SILENCE_S).length;
+  const horsLigne = [...new Set(travail.map(x => x.t.responsable).filter(a => { const i = agentInfo(a); return i && i.available === false; }))];
+  const bloquees = travail.filter(x => x.st === "bloque").length;
+  const morceaux = [
+    attend.length ? `<b>${pluriel(attend.length, "décision t'attend", "décisions t'attendent")}</b>` : "Rien ne t'attend",
+    travail.length ? pluriel(travail.length, "tâche en cours", "tâches en cours") : "aucune tâche en cours",
+  ];
+  if (bloquees) morceaux.push(`<b>${pluriel(bloquees, "bloquée", "bloquées")}</b>`);
+  if (muettes) morceaux.push(`${pluriel(muettes, "sans nouvelles depuis plus de 2 h", "sans nouvelles depuis plus de 2 h")}`);
+  if (horsLigne.length) morceaux.push(`<b>hors ligne avec du travail : ${horsLigne.map(esc).join(", ")}</b>`);
+  $("#jour-resume").innerHTML = morceaux.join(" · ") + ".";
 
-  if (!state.executions.length && !state.taches.length) {
-    $("#team").innerHTML = `<div class="empty">Aucun agent en cours sur ce projet. Quand claude assigne une tâche, l'agent apparaît ici avec son état, sa tâche et son dernier signe de vie.</div>`;
+  // T'attend
+  $("#n-attend").textContent = attend.length || "";
+  $("#attend").innerHTML = attend.length
+    ? `<div class="liste attend">${attend.map(x => {
+        const p = state.projets[x.id] || {};
+        if (x.type === "jalon") {
+          const j = x.j;
+          const fin = j.jalon === "J1" ? "fin des concepts" : j.jalon === "J2" ? "fin des essais" : "avant le lancement";
+          return `<div class="ligne" role="button" tabindex="0" data-ouvrir-etape="${esc(etapeDuJalon(j.jalon))}" data-p="${esc(x.id)}">
+            <div><div class="ligne-t"><span class="tag-jalon">${ico("jalon")}${esc(JALON_NOM[j.jalon] || j.jalon)}</span> · décider de la suite</div>
+            <div class="ligne-m"><span>${esc(p.nom || x.id)}</span><span class="sep">·</span><span>${esc(fin)}</span>${j.recommandation ? `<span class="sep">·</span><span>claude recommande : ${esc(JALON_DECISIONS[j.recommandation] || j.recommandation)}</span>` : ""}${x.h ? `<span class="sep">·</span><span>depuis ${esc(ilya(x.h).replace(/^il y a /, ""))}</span>` : ""}</div></div>
+            ${j.recommandation && JALON_DECISIONS[j.recommandation] && j.recommandation !== "recycle" ? `<div class="ligne-choix"><button class="btn${j.recommandation === "kill" ? " stop" : " pri"}" type="button" data-dec="${esc(j.id)}" data-val="${esc(j.recommandation)}">${esc(JALON_DECISIONS[j.recommandation])} (reco)</button><span class="cap">ou ouvre le jalon pour une autre décision</span></div>` : ""}
+            <div class="ligne-a">${ico("chev", "chev")}</div></div>`;
+        }
+        const t = x.t;
+        const carte = state.cartes[t.id];
+        return `<div class="ligne" role="button" tabindex="0" data-fiche="${esc(t.id)}" data-p="${esc(x.id)}">
+          <div><div class="ligne-t">${esc(t.titre)}</div>
+          <div class="ligne-m"><span>${esc(p.nom || x.id)}</span><span class="sep">·</span><span>${esc(nomEtape(t.etape))}</span><span class="sep">·</span>${agent(t.responsable, true)}${x.h ? `<span class="sep">·</span><span>depuis ${esc(ilya(x.h).replace(/^il y a /, ""))}</span>` : ""}</div></div>
+          <div class="ligne-a"><button class="btn mini" type="button" data-disc="${esc(t.id)}" data-p="${esc(x.id)}">${ico("chat")}Discuter</button>${ico("chev", "chev")}</div>
+          ${carte ? `<div class="ligne-choix" data-carte="${esc(carte.id)}"><span class="ligne-q">${agent(carte.sender, true)} : ${esc(court(premiereLigne(carte.text), 140))}</span>${carte.metadata.choices.map(c => `<button class="btn" type="button" data-choix="${esc(carte.id)}" data-val="${esc(c)}">${esc(c)}</button>`).join("")}</div>` : ""}</div>`;
+      }).join("")}</div>`
+    : `<div class="vide"><b>Rien ne t'attend.</b> Quand un agent a besoin de ta décision, elle arrive ici en premier.</div>`;
+
+  // Au travail
+  $("#n-travail").textContent = travail.length || "";
+  $("#travail").innerHTML = travail.length
+    ? `<div class="liste travail">${travail.map(x => {
+        const p = state.projets[x.id] || {};
+        const t = x.t;
+        const info = agentInfo(t.responsable);
+        const etat = info && info.available === false ? `<span class="pill s-bloque" title="L'agent n'est pas connecté à la salle : sa tâche n'avance pas">hors ligne</span>`
+          : x.st === "bloque" ? `<span class="pill s-bloque">bloqué</span>`
+          : x.silence >= SILENCE_S ? `<span class="pill s-silence" title="Aucun message dans la conversation de la tâche">rien depuis ${esc(duree(x.silence))}</span>`
+          : `<span class="quand">${esc(ilya(t.updated_at))}</span>`;
+        return `<div class="ligne" role="button" tabindex="0" data-fiche="${esc(t.id)}" data-p="${esc(x.id)}">
+          <div>${agent(t.responsable)}${occupe(t.responsable) ? `<span class="ag-occupe">en train d'écrire</span>` : ""}</div>
+          <div><div class="ligne-t">${esc(t.titre)}</div><div class="ligne-m"><span>${esc(p.nom || x.id)}</span><span class="sep">·</span><span>${esc(nomEtape(t.etape))}</span></div></div>
+          <div class="ligne-a">${etat}${ico("chev", "chev")}</div></div>`;
+      }).join("")}</div>`
+    : `<div class="vide"><b>Personne n'est sur une tâche en ce moment.</b> Quand claude assigne une tâche, l'agent apparaît ici avec son dernier signe de vie.</div>`;
+
+  // Projets
+  const poids = id => (state.par[id] && state.par[id].taches.length ? 1000 : 0) + attentesDe(id) * 10 + (state.par[id] ? state.par[id].taches.filter(t => normEtat(t.etat) === "en_cours").length : 0);
+  const actifs = ids.filter(actif).sort((a, b) => poids(b) - poids(a)), dormants = ids.filter(id => !actif(id));
+  $("#n-projets").textContent = ids.length || "";
+  const ligneProjet = id => {
+    const p = state.projets[id];
+    const d = state.par[id] || {taches: []};
+    const i = idxEtape(id);
+    const n = d.taches.length;
+    const fait = d.taches.filter(t => normEtat(t.etat) === "fait").length;
+    const cours = d.taches.filter(t => normEtat(t.etat) === "en_cours").length;
+    const bloque = d.taches.filter(t => normEtat(t.etat) === "bloque").length;
+    const att = attentesDe(id);
+    const etape = !n ? "Pas encore de tâche" : i < ETAPES.length ? `Étape ${i + 1} sur ${ETAPES.length} · ${nomEtape(ETAPES[i])}` : "Toutes les étapes terminées";
+    const chips = [
+      att ? `<span class="pill s-charles">${pluriel(att, "t'attend", "t'attendent")}</span>` : "",
+      bloque ? `<span class="pill s-bloque">${pluriel(bloque, "bloquée", "bloquées")}</span>` : "",
+      cours ? `<span class="pill s-cours">${cours} en cours</span>` : "",
+    ].join("");
+    return `<a class="ligne${actif(id) ? "" : " endormi"}" href="#/p/${encodeURIComponent(id)}">
+      <div style="min-width:0"><div class="p-nom">${esc(p.nom || id)}${actif(id) ? "" : `<span class="pill ${STATUT_CLS[p.statut] || "s-attente"}">${esc(STATUTS[p.statut] || p.statut)}</span>`}</div>${p.objectif ? `<div class="p-obj" title="${esc(p.objectif)}">${esc(p.objectif)}</div>` : ""}</div>
+      <div>${frise(i, n)}<div class="p-etape"><span>${esc(etape)}</span>${n ? `<span>${fait}/${n} faites</span>` : ""}</div></div>
+      <div class="p-chips">${chips}</div>
+      ${ico("chev", "chev")}</a>`;
+  };
+  $("#projets").innerHTML = ids.length
+    ? `<div class="liste projets">${actifs.map(ligneProjet).join("")}</div>` +
+      (dormants.length ? `<div class="sous-titre">En veille ou terminés</div><div class="liste projets">${dormants.map(ligneProjet).join("")}</div>` : "")
+    : `<div class="vide"><b>Aucun projet pour l'instant.</b> Lance le premier : claude découpe le travail et assigne les agents.</div>`;
+}
+// Première ligne lisible d'un message (sans les marques markdown) : la question d'une carte de décision.
+const premiereLigne = txt => (String(txt || "").split("\n").map(l => l.replace(/[#*|`>_]/g, "").replace(/^(\s*@[\w-]+)+\s*/, "").trim()).find(Boolean) || "");
+// Petite frise : une case par étape, pleine si passée, demi-teinte pour l'étape en cours.
+function frise(i, n) {
+  return `<div class="frise" style="--n:${ETAPES.length}" aria-hidden="true">${ETAPES.map((_, k) => `<i class="${!n ? "" : k < i ? "fait" : k === i ? "now" : ""}"></i>`).join("")}</div>`;
+}
+
+// =====================================================================================
+// Page projet
+// =====================================================================================
+function renderProjet() {
+  const id = state.sel; const p = state.projets[id];
+  if (!p) return;
+  synchroSel();
+  const taches = state.taches;
+  const idx = state.etape ?? etapeDuProjet(taches);
+  $("#fil-nom").textContent = p.nom || id;
+  $("#p-nom").textContent = p.nom || id;
+  $("#p-statut").innerHTML = actif(id) ? "" : `<span class="pill ${STATUT_CLS[p.statut] || "s-attente"}">${esc(STATUTS[p.statut] || p.statut || "?")}</span>`;
+  const bv = $("#p-veille");
+  const enVeille = p.statut === "veille";
+  bv.dataset.proj = id; bv.dataset.status = enVeille ? "actif" : "veille";
+  bv.innerHTML = enVeille ? `${ico("play")}<span class="lib">Réactiver</span>` : `${ico("pause")}<span class="lib">Mettre en veille</span>`;
+  bv.setAttribute("aria-label", enVeille ? "Réactiver le projet" : "Mettre le projet en veille");
+  const obj = $("#p-objectif"); obj.hidden = !p.objectif; obj.textContent = p.objectif || "";
+
+  // En direct : les exécutions actives ou silencieuses de ce projet.
+  const live = state.executions.filter(e => e.etat === "actif" || e.etat === "silencieux");
+  const vus = new Map();
+  live.forEach(e => { if (!vus.has(e.agent) || e.etat === "actif") vus.set(e.agent, e); });
+  const dir = $("#p-direct");
+  dir.hidden = !vus.size;
+  dir.innerHTML = vus.size ? `<span>En direct</span>${[...vus.values()].map(e => `<span>${agent(e.agent, true)}${e.role ? ` <span class="role">${esc(e.role)}</span>` : ""}${e.etat === "silencieux" ? ` <span class="pill s-silence">silencieux</span>` : ""}</span>`).join("")}` : "";
+
+  renderEtapes(idx);
+  // compteurs des onglets
+  $("#o-taches").textContent = taches.length || "";
+  $("#o-pieces").textContent = state.pieces && state.pieces.pieces ? (state.pieces.pieces.length || "") : "";
+  $("#o-livrables").textContent = state.liv && state.liv.livrables ? (state.liv.livrables.length || "") : "";
+  $("#tk-c").innerHTML = ETAPES.map((e, i) => `<option value="${esc(e)}"${i === Math.min(idx, ETAPES.length - 1) ? " selected" : ""}>${i + 1}. ${esc(nomEtape(e))}</option>`).join("");
+  renderTableau();
+  renderOnglet();
+}
+
+// Où vit un jalon sur la frise : J1 à la fin des concepts, J2 à la fin des essais, la revue avant le lancement.
+const etapeDuJalon = j => j === "J1" ? "concepts" : j === "J2" ? "essais" : "industrialisation";
+function renderEtapes(idx) {
+  const taches = state.taches;
+  const ol = $("#p-etapes");
+  ol.style.setProperty("--n", ETAPES.length);
+  ol.innerHTML = ETAPES.map((e, i) => {
+    const de = taches.filter(t => t.etape === e);
+    const cls = i < idx ? "fait" : i === idx ? "now" : "";
+    const jal = state.jalons.filter(j => etapeDuJalon(j.jalon) === e);
+    const enAttente = jal.some(j => !j.decision);
+    const marque = jal.length ? `<button type="button" class="jal ${enAttente ? "attend" : "decide"}" data-ouvrir-etape="${esc(e)}" title="${esc(jal.map(j => (JALON_NOM[j.jalon] || j.jalon) + (j.decision ? " : décidé (" + (JALON_DECISIONS[j.decision] || j.decision) + ")" : " : t'attend")).join(" · "))}" aria-label="Jalon">${ico("jalon", "")}</button>` : "";
+    return `<li class="${cls}"><button type="button" class="etape" data-filtre="${esc(e)}" aria-pressed="${(state.route.onglet || "taches") === "taches" && state.filtre === e}" title="${esc(DEF_ETAPES[e] || "")}"><i>${i < idx ? ico("check", "") : i + 1}</i><span>${esc(nomEtape(e))}</span><span class="nb">${de.length ? `${de.filter(t => normEtat(t.etat) === "fait").length}/${de.length}` : ""}</span></button>${marque}</li>`;
+  }).join("");
+  if (ol.dataset.projet !== state.sel) {
+    ol.dataset.projet = state.sel;
+    const w = ol.parentElement, now = ol.querySelector(".now");
+    if (now && w.scrollWidth > w.clientWidth) w.scrollLeft = Math.max(0, now.offsetLeft - (w.clientWidth - now.offsetWidth) / 2);
+  }
+  const info = $("#p-etape-info");
+  const f = (state.route.onglet || "taches") === "taches" ? state.filtre : null;
+  if (f) {
+    const i = ETAPES.indexOf(f);
+    const n = taches.filter(t => t.etape === f).length;
+    info.className = "etape-info filtre";
+    info.innerHTML = `<span class="def"><b>Filtré sur l'étape ${i + 1} · ${esc(nomEtape(f))}</b> : ${pluriel(n, "tâche", "tâches")}. ${esc(DEF_ETAPES[f] || "")}</span><button class="btn mini" type="button" data-ouvrir-etape="${esc(f)}">Méthode et jalons</button><button class="btn mini discret" type="button" data-filtre="">${ico("fermer")}Toutes les étapes</button>`;
+  } else {
+    info.className = "etape-info";
+    const e = ETAPES[idx];
+    info.innerHTML = idx < ETAPES.length
+      ? `<span class="def"><b>Étape ${idx + 1} sur ${ETAPES.length} · ${esc(nomEtape(e))}</b> : ${esc(DEF_ETAPES[e] || "")}</span><button class="btn mini" type="button" data-ouvrir-etape="${esc(e)}">Méthode et jalons</button>`
+      : `<span class="def"><b>Toutes les étapes sont terminées.</b></span>`;
+  }
+}
+
+function renderTableau() {
+  const sil = silences();
+  const taches = state.filtre ? state.taches.filter(t => t.etape === state.filtre) : state.taches;
+  const veille = !actif(state.sel);
+  const cols = COLONNES.filter(([k]) => state.filtre ? taches.some(t => normEtat(t.etat) === k) : (k !== "bloque" || taches.some(t => normEtat(t.etat) === "bloque")));
+  if (state.filtre && !taches.length) {
+    $("#tableau").style.setProperty("--cols", 1);
+    $("#tableau").innerHTML = `<div class="vide"><b>Aucune tâche à l'étape ${ETAPES.indexOf(state.filtre) + 1} · ${esc(nomEtape(state.filtre))}.</b> Elle n'a pas encore commencé, ou elle n'a pas demandé de tâche.</div>`;
     return;
   }
-  $("#team").innerHTML = agents.map(a => `
-    <div class="agent">
-      <div class="hd"><span class="nm">${esc(a.agent)}</span><span class="pill ${ETAT_EXEC_CLS[a.etat] || "s-attente"}">${esc(ETAT_EXEC[a.etat] || a.etat || "?")}</span></div>
-      <div class="lbl">Tâche</div>
-      <div class="tache">${[...a.taches].map(esc).join(" · ") || "—"}</div>
-      <div class="meta"><span>signe de vie : ${esc(heure(a.dernier)) || "—"}</span></div>
-    </div>`).join("");
-}
-
-// ---------- vue Carte : les 8 étapes, une tâche par nœud ----------
-function renderCarte() {
-  const p = state.sel ? state.projets[state.sel] : null;
-  $("#carte-proj").textContent = p ? (p.nom || state.sel) : "aucun projet sélectionné";
-  const taches = state.taches;
-
-  // options du sélecteur « + Tâche »
-  $("#tk-c").innerHTML = ETAPES.map((e, i) => `<option value="${e}">${i + 1}. ${NOM_ETAPES[e]}</option>`).join("");
-
-  if (!state.sel) { $("#map").innerHTML = ""; $("#pourquoi").hidden = true; $("#pourquoi").innerHTML = ""; return; }
-  const veille = p && p.statut === "veille";
-  const idx = state.etape ?? etapeDuProjet(taches);
-  const courante = ETAPES[idx];
-  // « Pourquoi » visible sur la carte : la méthode de l'étape courante (P3), au-dessus de la grille (pas une colonne).
-  // <details> fermé par défaut (1 800 caractères ne doivent pas noyer la carte), markdown rendu sûrement.
-  const mCourante = (state.methodes && state.methodes[courante]) || "";
-  const pq = $("#pourquoi");
-  pq.innerHTML = mCourante
-    ? `<details class="pourquoi-d"><summary>Méthode de l'étape : ${NOM_ETAPES[courante]}</summary><div class="pourquoi-c">${mdCourt(mCourante)}</div></details>`
-    : "";
-  pq.hidden = !mCourante;
-
-  $("#map").innerHTML = ETAPES.map((e, i) => {
-    const de = taches.filter(t => t.etape === e);
-    const done = de.length && de.every(t => t.etat === "fait");
-    const isNow = i === (state.etape ?? etapeDuProjet(taches)) && !done;
-    return `<div class="col${de.length ? "" : " vide"}"><h3><button type="button" class="steph" data-step="${e}">${i + 1}. ${NOM_ETAPES[e]}</button></h3>${
-      de.map(t => { const st = normEtat(t.etat); return `<div class="node${veille ? " veille" : ""}" data-node="${esc(t.id)}" data-s="${st}">
-        <div class="t">${esc(t.titre)}</div>
-        ${t.conclusion ? `<div class="pourquoi-t" title="${esc(t.conclusion)}">${esc(court(t.conclusion, 120))}</div>` : ""}
-        <div class="w">${esc(t.responsable || "")}${t.critere ? " · " + esc(t.critere) : ""}</div>
-        <div class="w"><span class="pill ${ETAT_CLS[st] || "s-afaire"}">${esc(ETAT_TACHE[st] || t.etat)}</span> <button class="btn disc" type="button" data-disc="${esc(t.id)}">Discuter</button></div>
-      </div>`; }).join("") ||
-      (done ? "" : `<div class="w" style="font-size:11.5px;color:var(--ink3)">aucune tâche</div>`)
-    }</div>`;
+  const el = $("#tableau");
+  el.style.setProperty("--cols", cols.length);
+  if (!state.taches.length) {
+    el.style.setProperty("--cols", 1);
+    el.innerHTML = `<div class="vide"><b>Aucune tâche dans ce projet.</b> claude découpe le travail au lancement ; tu peux aussi en ajouter une avec « Tâche ».</div>`;
+    return;
+  }
+  el.innerHTML = cols.map(([k, titre]) => {
+    let liste = taches.filter(t => normEtat(t.etat) === k);
+    // les plus récentes en haut ; « Fait » replié au-delà de 4
+    liste.sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0));
+    const total = liste.length;
+    let plus = "";
+    if (k === "fait" && total > 4 && !state.faitOuvert) { liste = liste.slice(0, 4); plus = `<button class="btn mini discret plus-fait" type="button" data-act="fait-tout">${ico("bas")}Voir les ${total - 4} autres</button>`; }
+    else if (k === "fait" && total > 4) plus = `<button class="btn mini discret plus-fait" type="button" data-act="fait-tout">Replier</button>`;
+    const vides = {attend_charles: "Rien ne t'attend ici.", en_cours: "Personne n'y travaille.", a_faire: "Rien en file.", fait: "Rien de terminé encore."};
+    return `<section class="col" aria-label="${esc(titre)}"><div class="col-h">${esc(titre)}<span class="compte">${total || ""}</span></div><div class="col-c">${
+      liste.map(t => carte(t, k, sil, veille)).join("") || `<div class="col-vide">${vides[k] || "—"}</div>`}${plus}</div></section>`;
   }).join("");
 }
-
-// ---------- en-tête de projet : barre d'étapes + en direct ----------
-function renderProjHead() {
-  const el = $("#projhead");
-  if (!state.sel) { el.hidden = true; el.innerHTML = ""; return; }
-  const p = state.projets[state.sel];
-  const taches = state.taches;
-  const idx = state.etape ?? etapeDuProjet(taches);
-  const veille = p.statut === "veille";
-  const live = state.executions.filter(e => e.etat === "actif" || e.etat === "silencieux");
-
-  const steps = ETAPES.map((e, i) => {
-    const cls = i < idx ? "done" : i === idx ? "now" : "";
-    return `<button type="button" class="step ${cls}" data-step="${e}"><i>${i + 1}</i>${NOM_ETAPES[e]}</button>`;
-  }).join("");
-
-  el.hidden = false;
-  el.innerHTML = `<div class="ph${veille ? " veille" : ""}">
-    <div class="top"><b>${esc(p.nom || state.sel)}</b><span class="pill ${STATUT_CLS[p.statut] || "s-attente"}">${esc(STATUTS[p.statut] || p.statut || "?")}</span>
-      ${p.memoire ? `<span class="cap" style="margin:0">${esc(p.memoire)}</span>` : ""}
-      <span style="margin-left:auto;display:flex;gap:6px"><button class="btn" data-act="fiche-projet">Fiche projet</button><button class="btn" data-act="newtask">+ Tâche</button><button class="btn${p.statut === "veille" ? " pri" : ""}" data-status="${p.statut === "veille" ? "actif" : "veille"}" data-proj="${esc(state.sel)}">${p.statut === "veille" ? "Réactiver" : "En veille"}</button></span></div>
-    <div class="steps">${steps}</div>
-    <div class="cap" style="margin:0">${idx < ETAPES.length ? `Étape ${idx + 1} sur ${ETAPES.length} : ${NOM_ETAPES[ETAPES[idx]]}` : "Toutes les étapes sont terminées"}</div>
-    ${live.length ? `<div class="live"><span class="lbl">En direct</span><ul>${live.map(e => `<li><b>${esc(e.agent)}</b> · ${esc(e.role || e.titre || "")}${e.etat === "silencieux" ? " · <span class='pill s-silence'>silencieux</span>" : ""}</li>`).join("")}</ul></div>` : ""}
-  </div>`;
+function carte(t, k, sil, veille) {
+  const s = sil.get(String(t.id)) || 0;
+  const cls = k === "attend_charles" ? " attend" : k === "bloque" ? " bloque" : k === "fait" ? " fait" : "";
+  const texte = k === "fait" ? (t.conclusion || t.resultat) : k === "attend_charles" ? (t.conclusion || t.critere) : "";
+  const quand = k === "en_cours" && s >= SILENCE_S ? `<span class="pill s-silence">rien depuis ${esc(duree(s))}</span>` : `<span class="quand">${esc(ilya(t.updated_at))}</span>`;
+  return `<article class="carte${cls}"${veille ? ' style="opacity:.7"' : ""} role="button" tabindex="0" data-fiche="${esc(t.id)}" aria-label="${esc(t.titre)}">
+    ${k !== "fait" ? `<button class="ibtn disc" type="button" data-disc="${esc(t.id)}" data-p="${esc(state.sel)}" aria-label="Discuter de cette tâche" title="Discuter">${ico("chat")}</button>` : ""}
+    ${state.filtre ? "" : `<div class="carte-e">${ETAPES.indexOf(t.etape) + 1 || "?"}. ${esc(nomEtape(t.etape))}</div>`}
+    <div class="carte-t">${esc(t.titre)}</div>
+    ${texte ? `<div class="carte-p">${esc(court(texte, 220))}</div>` : ""}
+    <div class="carte-m">${agent(t.responsable, true)}${quand}</div>
+  </article>`;
 }
 
-// ---------- vue Historique : [[jour, [entrées]]] ----------
+// ---------- onglets ----------
+function renderOnglet() {
+  const o = state.route.onglet || "taches";
+  renderEtapes(state.etape ?? etapeDuProjet(state.taches));
+  $$("#onglets [role=tab]").forEach(b => b.setAttribute("aria-selected", String(b.dataset.onglet === o)));
+  ONGLETS.forEach(x => { $("#t-" + x).hidden = x !== o; });
+  if (o === "pieces") { renderPieces(); renderVue3D(); }
+  if (o === "hist") renderHist();
+  if (o === "livrables") renderLivrable();
+}
+
+// ---------- historique : [[jour, [entrées]]] ----------
+const TYPE_HIST = {execution: "exécution", message: "message", decision: "décision", jalon: "jalon", revision: "révision", tache: "tâche"};
 function renderHist() {
   const el = $("#hlist");
-  if (!state.hist) { el.innerHTML = `<li style="border:0"><span class="empty" style="grid-column:1/-1">Aucun historique pour ce projet. Les exécutions, décisions, messages et révisions apparaîtront ici, par jour.</span></li>`; return; }
-  if (!Array.isArray(state.hist) || !state.hist.length) { el.innerHTML = `<li style="border:0"><span class="empty" style="grid-column:1/-1">Rien dans l'historique pour l'instant.</span></li>`; return; }
-  el.innerHTML = state.hist.map(([jour, entrees]) =>
-    `<div class="day">${esc(jour)}</div>` +
-    entrees.map(en => `<li><time>${esc(heure(en.heure))}</time><span><span class="type">${esc(en.type || "")}</span>${esc(en.acteur || "")} — ${esc(en.resume || "")}</span></li>`).join("")
-  ).join("");
+  if (!state.hist) { el.innerHTML = `<div class="vide"><b>Pas d'historique pour ce projet.</b> Les exécutions, décisions, messages et révisions apparaîtront ici, jour par jour.</div>`; return; }
+  if (!Array.isArray(state.hist) || !state.hist.length) { el.innerHTML = `<div class="vide">Rien dans l'historique pour l'instant.</div>`; return; }
+  el.innerHTML = state.hist.map(([jour, entrees]) => {
+    let lib = jour;
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(jour || "");
+    if (m) { const d = new Date(+m[1], +m[2] - 1, +m[3]); lib = jourLong(d).replace(/^./, c => c.toUpperCase()); }
+    return `<div class="jour-h">${esc(lib)}</div>` + (entrees || []).map(en =>
+      `<div class="ev"><time>${esc(hm(en.heure))}</time><div><div class="ev-h">${agent(en.acteur, true)}<span class="ev-type">${esc(TYPE_HIST[en.type] || en.type || "")}</span></div><div class="ev-r" title="Cliquer pour tout lire">${livInline(aplatir(en.resume))}</div></div></div>`).join("");
+  }).join("");
 }
 
-// ---------- vue Livrable : livrables + révisions ----------
+// ---------- livrables + révisions ----------
 function renderLivrable() {
-  const tbl = $("#liv-tbl"), cap = $("#liv-cap"), rev = $("#liv-rev");
+  const tbl = $("#liv-tbl"), cap = $("#liv-cap"), rev = $("#liv-rev"), b = $("#btn-approuver");
+  const revisions = (state.liv && state.liv.revisions) || [];
+  b.textContent = "Approuver (figer P" + String(revisions.length + 1).padStart(2, "0") + ")";
   if (!state.liv) {
-    tbl.innerHTML = ""; cap.textContent = "Les livrables et les révisions figées de ce projet apparaîtront ici (route /api/v2/projects/{id}/revisions).";
-    rev.innerHTML = `<div class="empty">Aucune révision figée pour l'instant. « Approuver » fige les livrables actuels en P01, P02…</div>`;
+    cap.textContent = "";
+    rev.innerHTML = `<div class="vide">Aucune révision figée pour l'instant. « Approuver » fige les livrables actuels en P01, P02…</div>`;
+    $("#liv-tbl").innerHTML = `<tr><td><div class="vide">Les livrables du projet apparaîtront ici dès que les agents en déposeront.</div></td></tr>`;
     return;
   }
   const liv = state.liv.livrables || [];
-  tbl.innerHTML = `<tr><th>Fichier</th><th>Version</th><th class="n">Empreinte</th><th></th></tr>` +
-    (liv.length ? liv.map(l => `<tr><td>${esc(l.chemin)}</td><td>${esc(l.version)}</td><td class="n"><code>${esc((l.empreinte || "").slice(0, 12))}</code></td><td class="n"><button class="btn mini" type="button" data-voir="${esc(l.chemin)}">voir</button></td></tr>`).join("") : `<tr><td colspan="4" class="sub">aucun livrable</td></tr>`);
-  cap.textContent = liv.length ? `${liv.length} livrable(s) au projet.` : "";
-  const revisions = state.liv.revisions || [];
+  tbl.innerHTML = liv.length
+    ? `<tr><th>Fichier</th><th>Version</th><th class="n">Empreinte</th><th></th></tr>` + liv.map(l => `<tr><td style="overflow-wrap:anywhere">${esc(l.chemin)}</td><td>${esc(l.version)}</td><td class="n"><code>${esc((l.empreinte || "").slice(0, 12))}</code></td><td class="n"><button class="btn mini" type="button" data-voir="${esc(l.chemin)}">Voir</button></td></tr>`).join("")
+    : `<tr><td><div class="vide">Aucun livrable pour l'instant.</div></td></tr>`;
+  cap.textContent = liv.length ? pluriel(liv.length, "fichier", "fichiers") : "";
   rev.innerHTML = revisions.length
-    ? revisions.slice().reverse().map(r => `<div class="rev"><div class="hd"><b>${esc(r.numero)}</b><span class="pill s-fait">figée</span><span class="cap" style="margin:0">${esc(r.approuvee_par || "")} · ${esc(heure(r.heure))}</span></div><div class="chips" style="margin-top:6px">${(r.livrables || []).map(l => `<span class="chip">${esc(l.chemin)} · v${esc(l.version)}</span>`).join("")}</div></div>`).join("")
-    : `<div class="empty">Aucune révision figée. « Approuver » fige les livrables actuels.</div>`;
-  // bouton Approuver (exige approuvee_par: "user" côté serveur)
-  if (!$("#btn-approuver")) {
-    const b = document.createElement("button");
-    b.id = "btn-approuver"; b.className = "btn pri"; b.type = "button";
-    b.textContent = "Approuver (figer P0" + (revisions.length + 1) + ")";
-    b.style.marginBottom = "10px";
-    b.onclick = async () => {
-      const r = await postJSON(`/api/v2/projects/${encodeURIComponent(state.sel)}/revisions`, {approuvee_par: "user"});
-      toast(r.ok ? `Révision ${r.data && r.data.numero ? r.data.numero : ""} figée.` : "Approuver n'a pas abouti (route non branchée ou refus).");
-      if (r.ok) await loadProjet();
-    };
-    rev.parentNode.insertBefore(b, rev);
-  }
+    ? revisions.slice().reverse().map(r => `<div class="rev"><div class="hd"><b>${esc(r.numero)}</b><span class="pill s-fait">figée</span><span class="cap">${esc(r.approuvee_par === "user" ? "Charles" : r.approuvee_par || "")} · ${esc(heure(r.heure))}</span></div><div class="chips" style="margin-top:8px">${(r.livrables || []).map(l => `<span class="chip">${esc(l.chemin)} · v${esc(l.version)}</span>`).join("")}</div></div>`).join("")
+    : `<div class="vide">Aucune révision figée. « Approuver » fige les livrables actuels.</div>`;
+}
+async function approuver() {
+  const r = await postJSON(`/api/v2/projects/${encodeURIComponent(state.sel)}/revisions`, {approuvee_par: "user"});
+  toast(r.ok ? `Révision ${r.data && r.data.numero ? r.data.numero : ""} figée.` : "Approuver n'a pas abouti (route non branchée ou refus).");
+  if (r.ok) await rafraichir();
 }
 
-// ---------- vue Pièces (N3) : tableau filtrable, fiche pièce, nomenclature en arbre, achats ----------
+// ---------- pièces (N3) : tableau filtrable, fiche pièce, nomenclature en arbre, achats ----------
 const fmtCAD = (n, dev = "CAD") => { if (n == null || isNaN(n)) return "—"; return dev + " " + Number(n).toLocaleString("fr-CA", {minimumFractionDigits: 2, maximumFractionDigits: 2}); };
-
 function pillStatutPiece(s) {
   const [lib, cls] = PIECE_STATUT[s] || [s || "?", "s-attente"];
   return `<span class="pill ${cls}">${esc(lib)}</span>`;
 }
-
-// Tableau des pièces du projet, filtrable (numéro, nom, révision, origine, statut).
 function renderPieces() {
   const el = $("#pc-tbl"), f = $("#pc-q"), sel = $("#pc-f");
   if (!el) return;
   if (!state.sel) { el.innerHTML = ""; renderAchats(); return; }
   if (!state.pieces) {
-    el.innerHTML = `<tr><td colspan="6"><div class="empty">Les pièces de ce projet apparaîtront ici (route /api/v2/pieces?projet_id=). Les agents y enregistrent chaque pièce conçue ou achetée, sa révision, son statut et ses offres.</div></td></tr>`;
-    renderAchats();
+    el.innerHTML = `<tr><td><div class="vide">Les pièces de ce projet apparaîtront ici. Les agents y enregistrent chaque pièce conçue ou achetée, sa révision, son statut et ses offres.</div></td></tr>`;
+    renderAchats(); renderEclatee();
     return;
   }
-  // options du filtre statut
+  const choisi = sel.value;
   const statutsVus = [...new Set((state.pieces.pieces || []).map(p => p.statut).filter(Boolean))];
-  sel.innerHTML = `<option value="">tous les statuts</option>` + statutsVus.map(s => `<option value="${esc(s)}">${esc((PIECE_STATUT[s] || [s])[0])}</option>`).join("");
+  sel.innerHTML = `<option value="">Tous les statuts</option>` + statutsVus.map(s => `<option value="${esc(s)}"${s === choisi ? " selected" : ""}>${esc((PIECE_STATUT[s] || [s])[0])}</option>`).join("");
   const q = (f.value || "").trim().toLowerCase();
   const fs = sel.value;
   const list = (state.pieces.pieces || []).filter(p => {
@@ -347,333 +614,187 @@ function renderPieces() {
     return true;
   });
   const n = list.length;
-  $("#pc-cap").textContent = n ? `${n} pièce(s)` : (state.pieces.pieces && state.pieces.pieces.length ? "aucune ne correspond au filtre" : "aucune pièce");
+  const coupe = !q && !fs && !state.pcTout && n > 25;
+  const vue = coupe ? list.slice(0, 25) : list;
+  $("#pc-cap").textContent = n ? pluriel(n, "pièce", "pièces") : (state.pieces.pieces && state.pieces.pieces.length ? "aucune ne correspond au filtre" : "aucune pièce");
   el.innerHTML = n
     ? `<tr><th>N°</th><th>Nom</th><th class="n">Rév.</th><th>Origine</th><th>Statut</th><th class="n">Masse</th></tr>` +
-      list.map(p => `<tr class="pc-row" data-piece="${esc(p.id)}">
+      vue.map(p => `<tr class="pc-row" data-piece="${esc(p.id)}" tabindex="0">
         <td><code>${esc(p.numero || "")}</code></td>
         <td><b>${esc(p.nom || "")}</b>${p.sous_systeme ? `<div class="sub">${esc(p.sous_systeme)}</div>` : ""}</td>
         <td class="n">${esc(p.revision || "")}</td>
         <td>${esc(ORIGINE[p.origine] || p.origine || "")}</td>
         <td>${pillStatutPiece(p.statut)}</td>
         <td class="n">${p.masse_g != null ? esc(p.masse_g) + " g" : ""}</td>
-      </tr>`).join("")
-    : `<tr><td colspan="6" class="sub">aucune pièce</td></tr>`;
+      </tr>`).join("") +
+      (coupe ? `<tr><td colspan="6"><button class="btn mini discret" type="button" data-act="pc-tout">${ico("bas")}Voir les ${n - 25} autres pièces</button></td></tr>` : "")
+    : `<tr><td><div class="vide">Aucune pièce.</div></td></tr>`;
   renderAchats();
   renderEclatee();
 }
 
-// U6 : vue éclatée schématique — blocs par sous-ensemble qui s'assombrissent
-// selon la part des pièces au statut validee/fabriquee/recue.
+// U6 : sous-ensembles — un bloc par enfant de l'assemblage de tête, avec la part de pièces faites.
+let ECLATEE_N = 0;
 async function renderEclatee() {
   const el = $("#pc-eclatee"); if (!el) return;
+  const n = ++ECLATEE_N;
   if (!state.sel) { el.innerHTML = ""; return; }
-  // Trouver la pièce racine (assemblage de tête) du projet
   const pieces = state.pieces && state.pieces.pieces || [];
   const racine = pieces.find(p => p.type === "assemblage" && !p.sous_systeme);
-  if (!racine) { el.innerHTML = `<span class="cap">Aucun assemblage de tête trouvé pour ce projet.</span>`; return; }
-  // Charger la nomenclature de la racine
+  if (!racine) { el.innerHTML = `<p class="cap">Aucun assemblage de tête pour ce projet.</p>`; return; }
   const r = await getJSON(`/api/v2/pieces/${encodeURIComponent(racine.id)}/nomenclature`);
-  if (!el) return;
+  if (n !== ECLATEE_N) return;
   if (!r.ok || !r.data) {
-    el.innerHTML = r.err === 404 ? `<span class="cap">Aucune nomenclature pour l'instant.</span>`
-      : `<span class="cap" style="color:var(--bad)">${r.err ? "Erreur " + r.err : "Erreur réseau"} — impossible de charger la nomenclature.</span>`;
+    el.innerHTML = r.err === 404 ? `<p class="cap">Aucune nomenclature pour l'instant.</p>`
+      : `<p class="cap" style="color:var(--v-danger)">${r.err ? "Erreur " + r.err : "Erreur réseau"} : impossible de charger la nomenclature.</p>`;
     return;
   }
-  // Statuts qui comptent comme "fait"
   const fait = new Set(["validee", "fabriquee", "recue"]);
-  // Compter récursivement les descendants d'un nœud, en excluant `rejetee`.
-  const compter = (noeud) => {
+  const compter = noeud => {
     let total = 0, faits = 0;
     for (const e of (noeud.enfants || [])) {
       if (e.statut === "rejetee") continue;
       total++;
       if (fait.has(e.statut)) faits++;
       const sub = compter(e);
-      total += sub.total;
-      faits += sub.faits;
+      total += sub.total; faits += sub.faits;
     }
-    return { total, faits };
+    return {total, faits};
   };
-  // Construire les blocs par sous-ensemble (enfants de la racine)
   const se = r.data.enfants || [];
-  if (!se.length) { el.innerHTML = `<span class="cap">Aucun sous-ensemble dans la nomenclature.</span>`; return; }
+  if (!se.length) { el.innerHTML = `<p class="cap">Aucun sous-ensemble dans la nomenclature.</p>`; return; }
   el.innerHTML = se.map(s => {
-    const { total, faits } = compter(s);
+    const {total, faits} = compter(s);
     const part = total ? faits / total : 0;
-    // Opacité : 0.25 (pâle) à 1 (foncé) selon la part de pièces faites
-    const opac = 0.25 + 0.75 * part;
-    return `<button type="button" class="eclatee-bloc" data-piece="${esc(s.id)}" style="opacity:${opac}" title="${esc(s.nom)} : ${faits}/${total} pièces faites">
-      <b>${esc(s.nom)}</b>
-      <span class="cap">${faits}/${total}</span>
-    </button>`;
+    return `<button type="button" class="eclatee-bloc" data-piece="${esc(s.id)}" title="${esc(s.nom)} : ${faits}/${total} pièces faites">
+      <b>${esc(s.nom)}</b><span class="jauge"><i style="width:${Math.round(part * 100)}%"></i></span><span class="cap">${faits}/${total} faites</span></button>`;
   }).join("");
-  // Raccorder le clic des blocs à ouvrirPiece
-  el.querySelectorAll(".eclatee-bloc").forEach(b => {
-    b.addEventListener("click", () => ouvrirPiece(b.dataset.piece));
-  });
 }
 
-// Fiche d'une pièce : offres sourcées, où elle est utilisée (nomenclature), historique, fichier.
+// Fiche d'une pièce : offres sourcées, où elle est utilisée, nomenclature, plans, historique.
 async function ouvrirPiece(id) {
   const base = (state.pieces && state.pieces.pieces || []).find(p => String(p.id) === String(id));
-  const tete = enteteFiche(`Pièce ${base ? esc(base.numero || "") : ""}`, base ? (base.nom || "") : "");
-  const chargement = `<div class="fc"><div class="lbl">Chargement…</div></div>`;
-  ouvrirFiche(tete + chargement);
+  const tete = enteteFiche(`Pièce ${base ? base.numero || "" : ""}`, base ? (base.nom || "") : "");
+  ouvrirFiche(tete + `<div class="fc"><p class="cap">Chargement…</p></div>`);
   const r = await getJSON(`/api/v2/pieces/${encodeURIComponent(id)}`);
   if (!$("#fiche-c")) return;
   if (!r.ok || !r.data) {
-    $("#fiche-c").innerHTML = tete + `<div class="fc"><div class="cap" style="color:var(--bad)">Impossible de charger cette pièce (route non branchée ou pièce inconnue).</div></div>`;
+    $("#fiche-c").innerHTML = tete + `<div class="fc"><p class="cap" style="color:var(--v-danger)">Impossible de charger cette pièce (route non branchée ou pièce inconnue).</p></div>`;
     return;
   }
   const p = r.data;
   const meta = `<div class="fm">${pillStatutPiece(p.statut)}<span>Rév. <b>${esc(p.revision || "")}</b></span><span>Origine : <b>${esc(ORIGINE[p.origine] || p.origine || "—")}</b></span>${p.matiere ? `<span>Matière : ${esc(p.matiere)}</span>` : ""}${p.procede ? `<span>Procédé : ${esc(PROCEDS[p.procede] || p.procede)}</span>` : ""}${p.masse_g != null ? `<span>${esc(p.masse_g)} g</span>` : ""}</div>`;
-  // offres sourcées
   const offres = (p.offres || []);
   const offresHtml = offres.length
-    ? `<div class="fc"><div class="lbl">Offres (${offres.length})</div><ul class="fhist">${offres.map(o => `<li><time>${esc(o.devise || "CAD")}</time><span><b>${esc(o.reference || "")}</b>${o.fournisseur ? ` <span class="cap">(${esc(o.fournisseur.nom || o.fournisseur)})</span>` : ""} · ${fmtCAD(o.prix, o.devise)}${o.livraison != null ? " + liv. " + fmtCAD(o.livraison, o.devise) : ""}${lienSource(o.source)}${o.date ? ` <span class="cap">${esc(heure(o.date))}</span>` : ""}</span></li>`).join("")}</ul></div>`
-    : (p.origine === "acheter" ? `<div class="fc"><div class="lbl">Offres</div><p class="cap" style="color:var(--warn)">Aucune offre sourcée. grok magasine au moins 3 offres pour cette pièce.</p></div>` : "");
-  // Où elle est utilisée : les assemblages parents (champ serveur utilisee_dans), à part des enfants.
+    ? `<div class="fc"><span class="lbl">Offres (${offres.length})</span><ul class="fhist">${offres.map(o => `<li><time>${esc(o.devise || "CAD")}</time><span><b>${esc(o.reference || "")}</b>${o.fournisseur ? ` <span class="cap">(${esc(o.fournisseur.nom || o.fournisseur)})</span>` : ""} · ${fmtCAD(o.prix, o.devise)}${o.livraison != null ? " + liv. " + fmtCAD(o.livraison, o.devise) : ""}${lienSource(o.source)}${o.date ? ` <span class="cap">${esc(heure(o.date))}</span>` : ""}</span></li>`).join("")}</ul></div>`
+    : (p.origine === "acheter" ? `<div class="fc"><span class="lbl">Offres</span><p class="cap" style="color:var(--v-warning)">Aucune offre sourcée. grok magasine au moins 3 offres pour cette pièce.</p></div>` : "");
   const ud = p.utilisee_dans || [];
   const utiliseeHtml = ud.length
-    ? `<div class="fc"><div class="lbl">Où elle est utilisée</div><ul class="flist">${ud.map(u => `<li><span><code>${esc(u.numero || "")}</code> <b>${esc(u.nom || "")}</b></span><span class="cap">×${esc(u.quantite != null ? u.quantite : "")}${u.unite ? " " + esc(u.unite) : ""}</span></li>`).join("")}</ul></div>`
-    : `<div class="fc"><div class="lbl">Où elle est utilisée</div><p class="cap">Pas rattachée à un assemblage pour l'instant (pièce racine ou orpheline).</p></div>`;
-  // dont elle est faite : l'arbre des enfants (nomenclature sous la pièce)
-  const nomHtml = `<div class="fc"><div class="lbl">Dont elle est faite</div><div id="pc-arbre"><span class="cap">Chargement…</span></div></div>`;
-  // historique : {champ, avant, apres, qui, date}
+    ? `<div class="fc"><span class="lbl">Où elle est utilisée</span><ul class="flist">${ud.map(u => `<li><span><code>${esc(u.numero || "")}</code> <b>${esc(u.nom || "")}</b></span><span class="cap" style="margin:0">×${esc(u.quantite != null ? u.quantite : "")}${u.unite ? " " + esc(u.unite) : ""}</span></li>`).join("")}</ul></div>`
+    : `<div class="fc"><span class="lbl">Où elle est utilisée</span><p class="cap">Pas rattachée à un assemblage pour l'instant (pièce racine ou orpheline).</p></div>`;
+  const nomHtml = `<div class="fc"><span class="lbl">Dont elle est faite</span><div id="pc-arbre"><p class="cap">Chargement…</p></div></div>`;
   const hist = (p.historical || p.historique || []);
   const histHtml = hist.length
-    ? `<div class="fc"><div class="lbl">Historique</div><ul class="fhist">${hist.slice().reverse().map(h => `<li><time>${esc(heure(h.date))}</time><span>${esc(h.champ || "")} : ${esc(h.avant || "—")} → <b>${esc(h.apres || "—")}</b>${h.qui ? ` <span class="cap">(${esc(h.qui)})</span>` : ""}</span></li>`).join("")}</ul></div>`
+    ? `<div class="fc"><span class="lbl">Historique</span><ul class="fhist">${hist.slice().reverse().map(h => `<li><time>${esc(heure(h.date))}</time><span>${esc(h.champ || "")} : ${esc(h.avant || "—")} → <b>${esc(h.apres || "—")}</b>${h.qui ? ` <span class="cap">(${esc(h.qui)})</span>` : ""}</span></li>`).join("")}</ul></div>`
     : "";
-  const fichier = p.fichier ? `<div class="fc"><div class="lbl">Fichier</div><p><code>${esc(p.fichier)}</code>${p.empreinte ? ` · <span class="cap">sha256 ${esc(String(p.empreinte).slice(0, 12))}</span>` : ""}</p></div>` : "";
-  const fichiersDiv = `<div class="fc"><div class="lbl">Plans</div><div id="pc-fichiers"><span class="cap">Chargement…</span></div></div>`;
+  const fichier = p.fichier ? `<div class="fc"><span class="lbl">Fichier</span><p><code>${esc(p.fichier)}</code>${p.empreinte ? ` · <span class="cap">sha256 ${esc(String(p.empreinte).slice(0, 12))}</span>` : ""}</p></div>` : "";
+  const fichiersDiv = `<div class="fc"><span class="lbl">Plans</span><div id="pc-fichiers"><p class="cap">Chargement…</p></div></div>`;
   $("#fiche-c").innerHTML = tete + meta +
-    (p.objectif || p.description ? `<div class="fc"><div class="lbl">Description</div><p>${esc(p.objectif || p.description)}</p></div>` : "") +
+    (p.objectif || p.description ? `<div class="fc"><span class="lbl">Description</span><p class="prose">${esc(p.objectif || p.description)}</p></div>` : "") +
     offresHtml + utiliseeHtml + nomHtml + fichiersDiv + fichier + histHtml;
-  // charge l'arbre (nomenclature) dans la fiche
   const ar = await getJSON(`/api/v2/pieces/${encodeURIComponent(id)}/nomenclature`);
   const el = $("#pc-arbre"); if (!el) return;
-  el.innerHTML = (ar.ok && ar.data) ? arbreNomenclature(ar.data, id) : `<span class="cap">Aucun lien de nomenclature (route non branchée ou pièce orpheline).</span>`;
-  // U6 : charge les fichiers (plans SVG, PDF, STEP) via la route A1
+  el.innerHTML = (ar.ok && ar.data) ? arbreNomenclature(ar.data, id) : `<p class="cap">Aucun lien de nomenclature (route non branchée ou pièce orpheline).</p>`;
+  // U6 : plans (SVG, PDF, STEP) via la route A1
   const fr = await getJSON(`/api/v2/pieces/${encodeURIComponent(id)}/fichiers`);
   const fel = $("#pc-fichiers"); if (!fel) return;
   if (fr.err === 404) {
-    // Route absente → état vide propre
-    fel.innerHTML = `<span class="cap">Aucun plan pour l'instant (les vrais plans arrivent avec G3c).</span>`;
+    fel.innerHTML = `<p class="cap">Aucun plan pour l'instant.</p>`;
   } else if (!fr.ok) {
-    // 403, 5xx ou erreur réseau (err=0 au catch) → message d'erreur visible
-    fel.innerHTML = `<span class="cap" style="color:var(--bad)">${fr.err ? "Erreur " + fr.err : "Erreur réseau"} — impossible de charger les plans.</span>`;
+    fel.innerHTML = `<p class="cap" style="color:var(--v-danger)">${fr.err ? "Erreur " + fr.err : "Erreur réseau"} : impossible de charger les plans.</p>`;
   } else if (fr.data && fr.data.fichiers && fr.data.fichiers.length) {
     const tok = encodeURIComponent(window.__SESSION_TOKEN__ || "");
-    const url = (f) => `/api/v2/pieces/${encodeURIComponent(id)}/fichiers/${encodeURIComponent(f.revision || "P01")}/${encodeURIComponent(f.nom)}?token=${tok}`;
+    const url = f => `/api/v2/pieces/${encodeURIComponent(id)}/fichiers/${encodeURIComponent(f.revision || "P01")}/${encodeURIComponent(f.nom)}?token=${tok}`;
     const svg = fr.data.fichiers.find(f => f.nom.endsWith(".svg"));
-    // Liens de telechargement : PDF (bien voir le plan), STEP (CAO), GLB (3D), SVG.
-    const liens = ["pdf", "step", "stp", "glb", "svg", "dxf"].map((ext) => {
+    const liens = ["pdf", "step", "stp", "glb", "svg", "dxf"].map(ext => {
       const f = fr.data.fichiers.find(x => x.nom.toLowerCase().endsWith("." + ext));
-      return f ? `<a href="${url(f)}" download="${esc(f.nom)}" class="liv-lien" target="_blank" rel="noopener">${ext.toUpperCase()}</a>` : "";
-    }).filter(Boolean).join(" · ");
-    const imgHtml = svg
-      ? `<img src="${url(svg)}" alt="Plan ${esc(svg.nom)}" style="max-width:100%;border:1px solid var(--line);border-radius:8px;margin-top:6px;background:#fff;padding:8px">`
-      : `<span class="cap">Aucun plan SVG à afficher.</span>`;
-    fel.innerHTML = imgHtml + (liens ? `<div class="cap" style="margin-top:8px">Télécharger : ${liens}</div>` : "");
+      return f ? `<a href="${url(f)}" download="${esc(f.nom)}" class="btn mini" target="_blank" rel="noopener">${ext.toUpperCase()}</a>` : "";
+    }).filter(Boolean).join("");
+    const imgHtml = svg ? `<img class="plan-img" src="${url(svg)}" alt="Plan ${esc(svg.nom)}">` : `<p class="cap">Aucun plan SVG à afficher.</p>`;
+    fel.innerHTML = imgHtml + (liens ? `<div class="chips" style="margin-top:10px">${liens}</div>` : "");
   } else {
-    fel.innerHTML = `<span class="cap">Aucun plan pour l'instant (les vrais plans arrivent avec G3c).</span>`;
+    fel.innerHTML = `<p class="cap">Aucun plan pour l'instant.</p>`;
   }
 }
-
-// Rend l'arbre de nomenclature : nœud = pièce + quantite_cumulee + enfants[].
 function arbreNomenclature(noeud, racineId) {
   const estRacine = String(noeud.id) === String(racineId);
-  const self = `<div class="pc-node${estRacine ? " racine" : ""}">
-    <button type="button" class="pc-toggle" data-node="${esc(noeud.id)}" aria-expanded="true">
+  return `<div class="pc-node${estRacine ? " racine" : ""}">
+    <button type="button" class="pc-toggle" data-node-arbre="${esc(noeud.id)}" aria-expanded="true">
       <span class="pc-ref"><code>${esc(noeud.numero || "")}</code> <b>${esc(noeud.nom || "")}</b></span>
       ${noeud.quantite_cumulee != null ? `<span class="pc-qt">×${esc(noeud.quantite_cumulee)}${noeud.unite ? " " + esc(noeud.unite) : ""}</span>` : ""}
       ${pillStatutPiece(noeud.statut)}
     </button>
     <div class="pc-kids">${(noeud.enfants || []).map(e => arbreNomenclature(e, racineId)).join("")}</div>
   </div>`;
-  return self;
 }
-
-// Liste d'achats du projet : comparatif, total, alertes (devise à convertir, prix > 30 j).
+// Liste d'achats du projet : meilleure offre, total par devise, alertes (devise à convertir, prix > 30 j).
 function renderAchats() {
   const el = $("#pc-achats"); if (!el) return;
   if (!state.sel) { el.innerHTML = ""; return; }
   if (!state.achats) {
-    el.innerHTML = `<div class="empty">La liste d'achats du projet apparaîtra ici (route /api/v2/projects/{id}/achats). Elle consolide les pièces « acheter », la meilleure offre sourcée, le total, et ce qui n'a pas encore d'offre.</div>`;
+    el.innerHTML = `<div class="vide">La liste d'achats apparaîtra ici : les pièces « acheter », leur meilleure offre sourcée, le total, et ce qui n'a pas encore d'offre.</div>`;
     return;
   }
   const lignes = state.achats.lignes || [];
   const sans = state.achats.sans_offre || [];
   const tot = state.achats.totaux || {};
   const row = l => {
-    const o = l.offre; // objet : {fournisseur, reference, prix, devise, livraison, source, date, …}
+    const o = l.offre;
     const offreCell = o
-      ? `<div><b>${esc(o.reference || "")}</b>${o.fournisseur ? `<div class="sub">${esc(o.fournisseur)}</div>` : ""}</div>` +
-        `<span class="cap">${fmtCAD(o.prix, o.devise)} · ${lienSource(o.source)}</span>`
-      : `<span class="cap" style="color:var(--warn)">sans offre</span>`;
+      ? `<div><b>${esc(o.reference || "")}</b>${o.fournisseur ? `<div class="sub">${esc(o.fournisseur)}</div>` : ""}</div><span class="sub">${fmtCAD(o.prix, o.devise)} · ${lienSource(o.source)}</span>`
+      : `<span class="pill s-silence">sans offre</span>`;
     return `<tr>
     <td><code>${esc(l.numero || "")}</code><div class="sub">${esc(l.nom || "")}</div></td>
     <td class="n">${esc(l.quantite != null ? l.quantite : "")}</td>
     <td>${offreCell}</td>
     <td class="n">${fmtCAD(l.total, o ? o.devise : "CAD")}</td>
-    <td>${l.a_convertir ? `<span class="pill s-attente" title="devise autre que CAD ou mixte — claude source le taux">à convertir</span>` : ""}${l.age_jours > 30 ? `<span class="pill s-silence" title="prix de plus de 30 jours — grok relève de nouveau">prix à revérifier</span>` : ""}</td>
+    <td>${l.a_convertir ? `<span class="pill s-attente" title="devise autre que CAD ou mixte : claude source le taux">à convertir</span>` : ""}${l.age_jours > 30 ? `<span class="pill s-silence" title="prix de plus de 30 jours : grok relève de nouveau">prix à revérifier</span>` : ""}</td>
   </tr>`;
   };
   el.innerHTML =
-    (lignes.length ? `<div class="tblw"><table><tr><th>Pièce</th><th class="n">Qté</th><th>Meilleure offre</th><th class="n">Total</th><th>Alertes</th></tr>${lignes.map(row).join("")}</table></div>` : `<div class="empty">Aucune pièce « acheter » pour l'instant.</div>`) +
-    (sans.length ? `<div class="cap" style="color:var(--warn);margin-top:8px">Sans offre : ${sans.map(s => esc(s.numero || s.nom || "")).join(", ")}.</div>` : "") +
-    // Un total par devise : on n'additionne jamais CAD et USD sans taux source (claude, revue N3).
-    (Object.keys(tot).length ? `<div class="cap" style="margin-top:8px">Total achats : <b>${Object.entries(tot).map(([d, v]) => fmtCAD(v, d)).join(" + ")}</b>${tot.sans_prix ? ` · ${esc(tot.sans_prix)} sans prix` : ""}</div>` : "");
+    (lignes.length ? `<div class="tblw"><table><tr><th>Pièce</th><th class="n">Qté</th><th>Meilleure offre</th><th class="n">Total</th><th></th></tr>${lignes.map(row).join("")}</table></div>` : `<div class="vide">Aucune pièce « acheter » pour l'instant.</div>`) +
+    (sans.length ? `<p class="cap" style="color:var(--v-warning)">Sans offre : ${sans.map(s => esc(s.numero || s.nom || "")).join(", ")}.</p>` : "") +
+    // Un total par devise : on n'additionne jamais CAD et USD sans taux sourcé.
+    (Object.keys(tot).length ? `<p class="cap">Total des achats : <b>${Object.entries(tot).filter(([d]) => d !== "sans_prix").map(([d, v]) => fmtCAD(v, d)).join(" + ")}</b>${tot.sans_prix ? ` · ${esc(tot.sans_prix)} sans prix` : ""}</p>` : "");
 }
 
-// ---------- chargement de tout ce qui dépend du projet sélectionné ----------
-async function loadProjet() {
-  const id = state.sel;
-  state.taches = []; state.executions = []; state.hist = null; state.liv = null; state.etape = null;
-  state.jalons = []; state.fiche = null;
-  if (!id) { renderTous(); return; }
-
-  const [t, e, h, l, j, m, pc, ac, co] = await Promise.all([
-    getJSON(`/api/v2/taches?projet_id=${encodeURIComponent(id)}`),
-    getJSON(`/api/v2/executions?projet_id=${encodeURIComponent(id)}`),
-    getJSON(`/api/v2/projects/${encodeURIComponent(id)}/historique`),
-    getJSON(`/api/v2/projects/${encodeURIComponent(id)}/revisions`),
-    getJSON(`/api/v2/projects/${encodeURIComponent(id)}/jalons`),          // P1
-    getJSON(`/api/v2/methodes`),                                          // P3 : {etape: texte}, indépendant du projet
-    getJSON(`/api/v2/pieces?projet_id=${encodeURIComponent(id)}`),         // N3 : pièces du projet
-    getJSON(`/api/v2/projects/${encodeURIComponent(id)}/achats`),          // N3 : liste d'achats
-    getJSON(`/api/v2/projects/${encodeURIComponent(id)}/cout`),            // N3 : coût cumulé
-  ]);
-
-  if (t.ok && t.data) {
-    // v0.2 : {taches, etape, etapes} ; v0.1 : liste nue. `etape` est le nom d'étape (ex. "concepts").
-    if (Array.isArray(t.data)) state.taches = t.data;
-    else {
-      state.taches = t.data.taches || [];
-      const idx = t.data.etape ? ETAPES.indexOf(t.data.etape) : -1;
-      state.etape = (idx >= 0) ? idx : (state.taches.length ? ETAPES.length : 0);
-    }
-  }
-  if (e.ok && e.data) state.executions = Array.isArray(e.data) ? e.data : (e.data.executions || []);
-  if (h.ok && h.data) state.hist = h.data;
-  if (l.ok && l.data) state.liv = l.data;
-  if (j.ok && j.data) state.jalons = j.data.jalons || (Array.isArray(j.data) ? j.data : []);
-  // P2 : la fiche projet vit dans le projet (GET /api/projects → v2.projets[id]) ; on lit l'objet projet.
-  state.fiche = state.projets[id] || null;
-  // P3 : la méthode de chaque étape (docs/PILOTE.md), servie par /api/v2/methodes. Indépendant du projet.
-  if (m.ok && m.data && typeof m.data === "object") state.methodes = m.data;
-  // N3 : pièces, achats, coût (404 = lot pas encore branché → état vide propre).
-  if (pc.ok && pc.data) state.pieces = pc.data;
-  if (ac.ok && ac.data) state.achats = ac.data;
-  if (co.ok && co.data) state.cout = co.data;
-
-  // enrichit la fiche projet pour la vue Projets (étape, taches) sans re-fetch
-  const p = state.projets[id];
-  if (p) {
-    p.taches = state.taches;
-    const idx = state.etape ?? etapeDuProjet(state.taches);
-    p.etape = idx < ETAPES.length ? `Étape ${idx + 1}/${ETAPES.length} · ${NOM_ETAPES[ETAPES[idx]]}` : "terminé";
-  }
-  renderTous();
-}
-
-// U4 : bandeau d'alertes globales (sauvegarde, copie hors tour) venant de GET /api/v2/ronde.
-// `alertes` est une liste de chaînes ; rien n'est affiché quand elle est vide.
-function renderAlertes() {
-  const el = $("#alertes"); if (!el) return;
-  const liste = state.alertes || [];
-  if (!liste.length) { el.hidden = true; el.innerHTML = ""; return; }
-  el.hidden = false;
-  el.innerHTML = `<b>⚠️ ${liste.length} alerte${liste.length > 1 ? "s" : ""}</b> ` +
-    liste.map(a => `<span class="al">· ${esc(a)}</span>`).join("");
-}
-
-// U5 : rangée « Équipe » — qui travaille, sur quoi, depuis quand.
-// Lit les tâches en cours et les exécutions pour afficher les agents actifs.
-function renderEquipeRow() {
-  const el = $("#equipe-row"); if (!el) return;
-  const taches = state.taches || [];
-  const executions = state.executions || [];
-
-  // Agents actifs : ceux qui ont une tâche en_cours ou une execution actif
-  const actifs = new Map();
-
-  // Tâches en cours
-  for (const t of taches) {
-    if (t.etat === "en_cours" && t.responsable) {
-      const agent = t.responsable.toLowerCase();
-      if (!actifs.has(agent)) {
-        actifs.set(agent, {agent, taches: [], dernier_signe: null});
-      }
-      actifs.get(agent).taches.push(t.titre);
-    }
-  }
-
-  // Executions actives
-  for (const e of executions) {
-    if (e.etat === "actif" && e.agent) {
-      const agent = e.agent.toLowerCase();
-      if (!actifs.has(agent)) {
-        actifs.set(agent, {agent, taches: [], dernier_signe: null});
-      }
-      if (e.dernier_signe) {
-        actifs.get(agent).dernier_signe = e.dernier_signe;
-      }
-    }
-  }
-
-  if (!actifs.size) {
-    el.hidden = true;
-    el.innerHTML = "";
-    return;
-  }
-
-  el.hidden = false;
-  const items = Array.from(actifs.values()).map(a => {
-    const depuis = a.dernier_signe ? `<span class="cap">${esc(heure(a.dernier_signe))}</span>` : "";
-    let sur = "";
-    if (a.taches.length) {
-      const liste = a.taches.slice(0, 2).join("; ");
-      const plus = a.taches.length > 2 ? ` +${a.taches.length - 2}` : "";
-      sur = `<span class="cap">${esc(liste)}${plus}</span>`;
-    }
-    return `<span class="equipe-item"><b>${esc(a.agent)}</b>${sur}${depuis}</span>`;
-  }).join("");
-
-  el.innerHTML = `<b>Équipe</b> ${items}`;
-}
-
-// G5 : vue 3D de la progression — charge les GLB via la route A1,
-// colore par statut, affiche les fantômes, clic → fiche pièce.
+// G5 : vue 3D de la progression — ne se (re)crée que si l'onglet Pièces est visible et que les pièces ont changé.
 async function renderVue3D() {
   const el = $("#v3d-canvas"); if (!el) return;
-  if (!state.sel) { if (state.v3d) { state.v3d.destroy(); state.v3d = null; } return; }
+  if (!state.sel || $("#t-pieces").hidden) return;
   if (typeof window.creerVue3D !== "function") return;
-  // Recrée le viewer à chaque changement de projet
+  const pieces = (state.pieces && state.pieces.pieces) || [];
+  const sig = state.sel + "|" + pieces.map(p => [p.id, p.statut, p.fichier].join(":")).join(",");
+  if (state.v3d && sig === state.v3dSig) return;
+  state.v3dSig = sig;
   if (state.v3d) { state.v3d.destroy(); state.v3d = null; }
+  $$("#v3d-wrap .v3d-legende").forEach(n => n.remove());
   const cap = $("#v3d-cap");
   if (cap) cap.textContent = "Chargement…";
-  state.v3d = window.creerVue3D(el, (pieceId) => { ouvrirPiece(pieceId); });
-  const leg = state.v3d.creerLegende(el.parentElement);
-
-  // Charger les pièces avec leur fichier GLB (route A1)
-  const pieces = (state.pieces && state.pieces.pieces) || [];
-  // Positions des pièces dans le repère du véhicule (mm, Z vers le haut).
-  // Source : geometrie.py retenue() + maillage.py. Bbox par défaut = boîte au centre.
+  state.v3d = window.creerVue3D(el, pieceId => { ouvrirPiece(pieceId); });
+  state.v3d.creerLegende(el.parentElement);
+  // Positions des pièces dans le repère du véhicule (mm, Z vers le haut). Source : geometrie.py retenue() + maillage.py.
   const POS_PIECES = {
     "VLT-10002": { xMin: -20, xMax: 1366, yMin: -16, yMax: 416, zMin: -21, zMax: 316 },   // cadre treillis
     "VLT-10090": { xMin: 1435, xMax: 1560, yMin: 175, yMax: 225, zMin: -165, zMax: -95 },  // attelage (sur le bras)
     "VLT-10013": { xMin: -20, xMax: 1366, yMin: -16, yMax: 416, zMin: -21, zMax: 316 },    // tube cadre
   };
-
   const pieces3d = [];
   for (const p of pieces) {
     const bbox = POS_PIECES[p.numero] || BBOX_DEF;
     const entry = { id: p.id, numero: p.numero, nom: p.nom, statut: p.statut, fichier_glb: null, bbox };
     if (p.fichier && p.fichier.endsWith(".glb")) {
-      // La revision du GLB vient du nom (…_P03.glb), pas de p.revision (qui peut etre plus recente
-      // que la derniere revision modelisee). Jeton en query : un fetch GLTF ne pose pas d'en-tete.
+      // La révision du GLB vient du nom (…_P03.glb). Jeton en query : un fetch GLTF ne pose pas d'en-tête.
       const nomGlb = p.fichier.split("/").pop();
       const mRev = nomGlb.match(/_(P\d+)\.glb$/i);
       const revGlb = mRev ? mRev[1] : (p.revision || "P01");
@@ -683,138 +804,411 @@ async function renderVue3D() {
     }
     pieces3d.push(entry);
   }
-
-  // Fantômes : volumes schématiques des sous-ensembles non modélisés.
-  // Positions dans le repère du véhicule (mm, Z vers le haut), source : maillage.py + geometrie.py retenue().
-  // Repère corrigé (msg 3007) : pivot (1100, 0), bras 360 mm, essieu à (1435.7, -130),
-  // branches bras y = 200 ± 250, roue AV x = 40, empattement 1396.
-
-  // Fantômes : sélection via le module static/fantomes.js
+  // Fantômes : volumes schématiques des sous-ensembles non modélisés (module static/fantomes.js).
   let fantomes;
   try {
     const racine = pieces.find(p => p.type === "assemblage" && !p.sous_systeme);
     if (racine) {
       const r = await getJSON(`/api/v2/pieces/${encodeURIComponent(racine.id)}/nomenclature`);
-      if (r.ok && r.data) {
-        fantomes = choisirFantomes(r.data.enfants);
-      }
+      if (r.ok && r.data) fantomes = choisirFantomes(r.data.enfants);
     }
   } catch (_) {}
   if (!fantomes) fantomes = choisirFantomes(null);
-
+  if (!state.v3d) return;
   await state.v3d.charger(pieces3d, fantomes);
-  if (cap) cap.textContent = pieces3d.length ? pieces3d.length + " pièce(s) chargée(s)" : "aucun GLB";
+  if (cap) cap.textContent = pieces3d.length ? pluriel(pieces3d.length, "pièce chargée", "pièces chargées") : "aucun GLB";
 }
 
-function renderTous() {
-  renderRail(); renderProjets(); renderVue3D();
-  $("#projhead").hidden = true;
-  renderProjHead();
-  renderEquipe(); renderCarte(); renderPieces(); renderHist(); renderLivrable();
-  renderAlertes();
-  renderEquipeRow();
-  syncNav();
-}
-
-// ---------- navigation ----------
-function go(v) {
-  state.view = v;
-  document.querySelectorAll("#tabs [role=tab]").forEach(b => b.setAttribute("aria-selected", b.dataset.v === v));
-  ["projets", "equipe", "carte", "pieces", "hist", "livrable"].forEach(x => { const s = $("#v-" + x); if (s) s.hidden = (x !== v); });
-  window.scrollTo(0, 0);
-  syncNav();
-}
-function syncNav() {
-  const m = $("#msel");
-  if (m) m.innerHTML = [["projets","Projets"],["equipe","Équipe"],["carte","Carte"],["pieces","Pièces"],["hist","Historique"],["livrable","Livrable"]].map(([v,l]) => `<option value="${v}"${v === state.view ? " selected" : ""}>${l}</option>`).join("");
-  // rail aria-current sur la vue
-  document.querySelectorAll(".rail [data-go]").forEach(b => b.setAttribute("aria-current", b.dataset.go === state.view));
-}
-
-// ---------- actions ----------
-async function changerStatut(id, statut) {
-  const r = await postJSON(`/api/v2/projects/${encodeURIComponent(id)}/status`, {status: statut});
-  toast(r.ok ? `${id} → ${STATUTS[statut] || statut}` : `Changement refusé (route non branchée ou statut inconnu).`);
-  if (r.ok) { await loadProjets(); await loadProjet(); }
-}
-
-// Upload d'un fichier vers POST /api/upload (rend {name, url}) — pour joindre des photos/documents au lancement.
-async function uploadFichier(f) {
-  try {
-    const fd = new FormData();
-    fd.append("file", f);
-    const r = await fetch("/api/upload", {method: "POST", headers: headers(), body: fd});
-    if (!r.ok) return null;
-    const d = await r.json().catch(() => null);
-    return (d && d.name && d.url) ? {name: d.name, url: d.url} : null;
-  } catch (_) { return null; }
-}
-
-async function nouveauProjet(e) {
-  e.preventDefault();
-  const nom = $("#np-nom").value.trim();
-  if (!nom) { toast("Donne un nom au projet."); return; }
-  const objectif = $("#np-but").value.trim();
-  // P4 : c'est POST /api/v2/projects {nom, objectif, pieces_jointes} qui crée le projet ET appelle @claude.
-  // Les photos/documents choisis sont d'abord déposés via POST /api/upload, puis passés en [{name, url}].
-  const fichiers = Array.from($("#np-fich").files || []);
-  let pieces = [];
-  if (fichiers.length) {
-    toast(`Dépôt de ${fichiers.length} fichier(s)…`);
-    pieces = (await Promise.all(fichiers.map(uploadFichier))).filter(Boolean);
-    if (pieces.length < fichiers.length) toast(`${fichiers.length - pieces.length} fichier(s) refusé(s) (type ou taille).`);
-  }
-  const r = await postJSON("/api/v2/projects", {nom, objectif, pieces_jointes: pieces});
-  toast(r.ok ? `Projet « ${nom} » lancé. claude démarre le cadrage.` : (r.msg || "Création refusée (route non branchée ou nom déjà pris)."));
-  if (r.ok) { e.target.reset(); await loadProjets(); await loadProjet(); }
-}
-
-async function nouvelleTache(e) {
-  e.preventDefault();
-  const titre = $("#tk-t").value.trim();
-  if (!titre || !state.sel) { toast("Donne un titre à la tâche."); return; }
-  // La route POST /api/v2/taches est du lot de claude ; on tente, et on le dit si absent.
-  // Rôles du contrat S2 : producteur, verificateur, relecteur, proposant (pas de « responsable »).
-  const r = await postJSON(`/api/v2/taches`, {projet_id: state.sel, titre, etape: $("#tk-c").value, responsable: $("#tk-r").value, equipe: [{agent: $("#tk-r").value, role: "producteur"}]});
-  toast(r.ok ? "Tâche ajoutée." : "Ajout refusé (route POST /api/v2/taches non branchée pour l'instant).");
-  if (r.ok) { e.target.hidden = true; await loadProjet(); }
-}
-
-// Source d'une offre : lien seulement pour http(s) ; un devis (« devis: … ») reste du texte. Jamais javascript: ni
-// data: dans un href, même si une vieille donnée en contenait (revue codex msg 2409).
-const lienSource = src => {
-  const t = String(src || "").trim();
-  if (!t) return `<span class="cap" style="color:var(--bad)">sans source</span>`;
-  return /^https?:\/\/[^\s<>"]+$/i.test(t)
-    ? ` <a href="${esc(t)}" target="_blank" rel="noopener noreferrer">source</a>`
-    : ` <span class="cap">${esc(t)}</span>`;
-};
-
-// ---------- fiche d'une tâche / d'une étape (dialogue) ----------
-// Champs de la tâche (S2), dans l'ordre de lecture ; seuls les champs remplis s'affichent.
+// =====================================================================================
+// Fiches (dialogue latéral au bureau, feuille du bas au téléphone)
+// =====================================================================================
 const CHAMPS_FICHE = [
   ["resultat", "Ce qui a été fait"], ["conclusion", "Pourquoi, et ce qu'on en retient"],
-  ["hypothese", "Hypothèse"], ["methode", "Méthode"], ["incertitude", "Incertitude"],
   ["critere", "Critère de réussite"], ["preuve", "Preuve"],
+  ["hypothese", "Hypothèse"], ["methode", "Méthode"], ["incertitude", "Incertitude"],
 ];
 // « PR #24 » devient un lien vers la PR ; le reste est échappé.
 const avecLiens = txt => esc(txt).replace(/PR #(\d+)/g,
   (m, n) => `<a href="https://github.com/Groupe-Vaultia/agentchattr/pull/${n}" target="_blank" rel="noopener">PR #${n}</a>`);
+// Les résumés de l'historique et des messages aplatissent des tableaux markdown (« | a | b | |---|---| ») :
+// on retire les rangées de séparation et on remplace les barres par des points médians.
+const aplatir = txt => String(txt || "")
+  .replace(/\|?(?:\s*:?-{3,}:?\s*\|)+/g, " ")
+  .replace(/\s*\|\s*/g, " · ")
+  .replace(/(?:\s*·\s*){2,}/g, " · ")
+  .replace(/^\s*·\s*|\s*·\s*$/g, "")
+  .replace(/\s*·\s*(…|\.\.\.)$/, "…");
 const court = (txt, n) => { const t = String(txt || ""); return t.length > n ? t.slice(0, n - 1) + "…" : t; };
 // Petit rendu sûr du markdown de PILOTE.md : d'abord esc(), puis **x** → <b>, `x` → <code>.
 const mdCourt = txt => esc(String(txt || ""))
   .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
   .replace(/`([^`]+)`/g, "<code>$1</code>");
+// Source d'une offre : lien seulement pour http(s) ; un devis reste du texte. Jamais javascript: ni data:.
+const lienSource = src => {
+  const t = String(src || "").trim();
+  if (!t) return `<span class="cap" style="color:var(--v-danger)">sans source</span>`;
+  return /^https?:\/\/[^\s<>"]+$/i.test(t)
+    ? ` <a href="${esc(t)}" target="_blank" rel="noopener noreferrer">source</a>`
+    : ` <span class="cap">${esc(t)}</span>`;
+};
 
-// ---------- visualiseur de livrables : rendu markdown sûr + modale par type ----------
-// chat.js rend le markdown avec la bibliothèque `marked`, qui n'est pas chargée sur cette page
-// (atelier.html ne charge que atelier.js). On garde donc un rendu autonome, minimal et SÛR :
-// tout contenu de fichier est échappé AVANT d'être balisé — jamais d'innerHTML de HTML brut.
-// Mise en forme en ligne : `code`, **gras**, *italique*, [texte](url) http(s)/mailto seulement.
+function ouvrirFiche(html) {
+  arreterConv();
+  $("#fiche-c").innerHTML = html;
+  const d = $("#fiche");
+  if (!d.open) { if (d.showModal) d.showModal(); else d.setAttribute("open", ""); }
+  d.scrollTop = 0;
+  // Le focus va à la fiche, pas au bouton Fermer : pas d'anneau à l'ouverture, pas de clavier qui surgit au téléphone.
+  $("#fiche-c").focus({preventScroll: true});
+}
+function fermerFiche() { const d = $("#fiche"); if (d.close) d.close(); else d.removeAttribute("open"); }
+const enteteFiche = (sur, titre) => `<div class="fh"><div><span class="lbl">${esc(sur)}</span><h2 id="fiche-t">${esc(titre)}</h2></div><button class="ibtn" type="button" data-act="fermer" aria-label="Fermer">${ico("fermer")}</button></div>`;
+const trouverTache = (id, pid) => {
+  const dans = p => ((state.par[p] || {}).taches || []).find(x => String(x.id) === String(id));
+  if (pid && dans(pid)) return [dans(pid), pid];
+  for (const p of Object.keys(state.par)) { const t = dans(p); if (t) return [t, p]; }
+  return [null, null];
+};
+
+let REQUETE_FICHE = 0; // garde : une réponse n'affiche que si c'est encore la bonne tâche
+// La fiche d'une tâche a deux vues : « Conversation » (on discute du point sans quitter l'atelier) et « Détails ».
+async function ouvrirTache(id, pid, mode = "details") {
+  const [t, projet] = trouverTache(id, pid || state.sel);
+  if (!t) return;
+  const n = ++REQUETE_FICHE;
+  const st = normEtat(t.etat);
+  const p = state.projets[projet] || {};
+  const modes = `<div class="fiche-modes" role="tablist" aria-label="Vue de la tâche">${[["conv", "Conversation"], ["details", "Détails"]].map(([m, l]) =>
+    `<button type="button" role="tab" data-mode="${m}" data-tache="${esc(t.id)}" data-p="${esc(projet)}" aria-selected="${m === mode}">${l}</button>`).join("")}</div>`;
+  const tete = `<div class="fh"><div><span class="lbl">${esc(`${p.nom || projet} · Tâche ${t.id} · ${nomEtape(t.etape)}`)}</span><h2 id="fiche-t">${esc(t.titre)}</h2>${modes}</div><button class="ibtn" type="button" data-act="fermer" aria-label="Fermer">${ico("fermer")}</button></div>`;
+  if (mode === "conv") {
+    ouvrirFiche(tete + `<div class="conv" id="conv" aria-live="polite"><p class="cap">Ouverture de la conversation…</p></div>` + piedConversation(t));
+    return ouvrirConversation(t, projet);
+  }
+  const equipe = (t.equipe || []).map(m => `${agent(m.agent, true)} <span class="cap" style="margin:0">${esc(m.role)}</span>`).join(" ") || agent(t.responsable, true);
+  const champs = CHAMPS_FICHE.filter(([c]) => String(t[c] || "").trim())
+    // La preuve nomme souvent un livrable (chemin de fichier) : on le rend cliquable vers le visualiseur.
+    .map(([c, l]) => `<div class="fc"><span class="lbl">${l}</span><p class="prose">${c === "preuve" ? avecLivrables(t[c]) : avecLiens(t[c])}</p></div>`).join("")
+    || `<div class="fc"><p class="cap" style="margin:0">Rien d'écrit encore sur cette tâche.</p></div>`;
+  const meta = `<div class="fm"><span class="pill ${ETAT_CLS[st] || "s-afaire"}">${esc(ETAT_TACHE[st] || t.etat)}</span><span>Responsable : ${agent(t.responsable, true)}</span><span>Équipe : ${equipe}</span>${t.updated_at ? `<span class="cap" style="margin:0">Modifiée ${esc(ilya(t.updated_at))}</span>` : ""}</div>`;
+  const pied = `<div class="ff"><button class="btn pri" type="button" data-mode="conv" data-tache="${esc(t.id)}" data-p="${esc(projet)}">${ico("chat")}Discuter de cette tâche</button></div>`;
+  ouvrirFiche(tete + meta + champs + `<div class="fc"><span class="lbl">Ce qui s'est passé</span><ul class="fhist" id="fiche-h"><li class="cap">Chargement…</li></ul></div>` + pied);
+
+  const [m, e] = await Promise.all([
+    getJSON(`/api/v2/messages?tache_id=${encodeURIComponent(t.id)}&limit=100`),
+    getJSON(`/api/v2/executions?tache_id=${encodeURIComponent(t.id)}`),
+  ]);
+  if (n !== REQUETE_FICHE) return;
+  const el = $("#fiche-h");
+  if (!el) return;
+  const reussi = (m.ok || m.err === 404) && (e.ok || e.err === 404);
+  const lignes = [];
+  ((m.ok && m.data && m.data.messages) || []).forEach(x => lignes.push({h: x.timestamp, html: `${agent(x.sender, true)} <span>${livInline(court(aplatir(x.text), 400))}</span>`}));
+  ((e.ok && e.data && e.data.executions) || []).forEach(x => lignes.push({h: x.fin || x.debut,
+    html: `<span class="type">exécution</span>${agent(x.agent, true)}${x.role ? ` <span class="cap" style="margin:0">${esc(x.role)}</span>` : ""} : ${livInline(court(aplatir(x.consigne), 220))}${x.issue ? ` · ${esc(x.issue)}` : x.fin ? "" : " · en cours"}`}));
+  lignes.sort((a, b) => (b.h || 0) - (a.h || 0));
+  el.innerHTML = !reussi
+    ? `<li class="cap" style="color:var(--v-danger)">Chargement de l'historique impossible (erreur réseau). Referme puis rouvre la tâche pour réessayer.</li>`
+    : (lignes.length
+      ? lignes.map(l => `<li><time>${esc(heure(l.h))}</time><span>${l.html}</span></li>`).join("")
+      : `<li class="cap">Aucun message ni exécution rattaché à cette tâche pour l'instant.</li>`);
+}
+
+// ---------- conversation d'une tâche, dans la fiche ----------
+// Lecture : GET /api/messages?channel=tache-<id> (puis since_id toutes les 3 s tant que la fiche est ouverte).
+// Écriture : POST /api/v2/messages (même circuit que la salle : les @agent mentionnés sont réveillés).
+const UTILISATEUR = "user";
+const CONV = {gen: 0, tache: null, projet: null, canal: "", vus: new Set(), dernier: -1, limite: 60, minuterie: 0, mentions: new Set(), pj: [], envoi: false, equipe: []};
+function arreterConv() { clearInterval(CONV.minuterie); CONV.minuterie = 0; CONV.tache = null; CONV.canal = ""; }
+const equipeDe = t => [...new Set([t.responsable, ...(t.equipe || []).map(m => m.agent)].filter(a => a && !/^(charles|user)$/i.test(a)))];
+function piedConversation(t) {
+  const equipe = equipeDe(t);
+  return `<div class="ff conv-pied">
+    <div class="reflechit" id="conv-reflechit" role="status" hidden></div>
+    ${equipe.length ? `<div class="conv-mentions" role="group" aria-label="Qui reçoit ton message">${equipe.map(a => `<button type="button" class="mtn" data-mention="${esc(a)}" aria-pressed="false">@${esc(a)}</button>`).join("")}</div>` : ""}
+    <div class="conv-pj" id="conv-pj" hidden></div>
+    <form class="composer" id="conv-form">
+      <textarea id="conv-texte" rows="1" placeholder="Écris à l'équipe de la tâche…" aria-label="Ton message"></textarea>
+      <div class="composer-b">
+        <label class="ibtn" title="Joindre une photo ou un document"><input type="file" id="conv-fich" accept="image/*,.pdf,.txt,.md,.csv" multiple hidden>${ico("photo")}<span class="sr">Joindre</span></label>
+        <a class="lien-salle" href="#" data-salle="${esc(t.id)}">${ico("externe")}Ouvrir dans la salle</a>
+        <button class="envoyer" type="submit" aria-label="Envoyer" disabled>${ico("envoyer")}</button>
+      </div>
+    </form>
+  </div>`;
+}
+async function ouvrirConversation(t, projet) {
+  arreterConv();
+  // Une génération par ouverture : fermer puis rouvrir la même tâche n'est plus « la même fiche » pour un envoi en vol.
+  Object.assign(CONV, {gen: CONV.gen + 1, tache: t.id, projet, canal: "", vus: new Set(), dernier: -1, limite: 60, pj: [], envoi: false, equipe: equipeDe(t)});
+  // Par défaut, le message va au responsable de la tâche ; Charles ajoute ou retire d'un toucher.
+  CONV.mentions = new Set(t.responsable && CONV.equipe.includes(t.responsable) ? [t.responsable] : CONV.equipe.slice(0, 1));
+  majMentions();
+  const r = await postJSON(`/api/v2/taches/${encodeURIComponent(t.id)}/conversation`, {});
+  if (CONV.tache !== t.id) return;
+  const zone = $("#conv");
+  if (!r.ok || !r.data || !r.data.channel) {
+    zone.innerHTML = `<p class="cap" style="color:var(--v-danger)">Impossible d'ouvrir la conversation de cette tâche${r.err ? ` (erreur ${r.err})` : ""}.</p>`;
+    return;
+  }
+  CONV.canal = r.data.channel;
+  await chargerConv(true);
+  if (CONV.tache !== t.id) return;
+  CONV.minuterie = setInterval(suivreConv, 3000);
+  if (!matchMedia("(hover: none)").matches) $("#conv-texte")?.focus({preventScroll: true});
+}
+async function chargerConv(bas) {
+  const tache = CONV.tache;
+  const m = await getJSON(`/api/messages?channel=${encodeURIComponent(CONV.canal)}&limit=${CONV.limite}`);
+  if (CONV.tache !== tache) return;
+  const zone = $("#conv"); if (!zone) return;
+  if (!m.ok) { zone.innerHTML = `<p class="cap" style="color:var(--v-danger)">Lecture de la conversation impossible${m.err ? ` (erreur ${m.err})` : ""}.</p>`; return; }
+  const liste = (Array.isArray(m.data) ? m.data : []).filter(x => x.type !== "join" && x.type !== "leave");
+  CONV.vus = new Set();
+  zone.innerHTML = (liste.length >= CONV.limite ? `<button class="btn mini discret plus-ancien" type="button" data-act="conv-plus">Messages plus anciens</button>` : "")
+    + (liste.length ? "" : `<div class="conv-vide"><b>Pas encore de message sur cette tâche.</b> Écris ci-dessous : ton message part aux agents choisis, et leurs réponses s'affichent ici.</div>`);
+  ajouterMessages(liste, bas);
+}
+async function suivreConv(force) {
+  if (!CONV.tache || !CONV.canal || document.hidden || !$("#fiche").open) return;
+  // Avec le flux en direct, les messages arrivent seuls : on ne relit que toutes les 20 s, par sécurité.
+  if (force !== true && fluxOuvert() && Date.now() - (CONV.relu || 0) < 20000) return;
+  CONV.relu = Date.now();
+  const tache = CONV.tache;
+  const [m, s] = await Promise.all([
+    getJSON(`/api/messages?channel=${encodeURIComponent(CONV.canal)}&since_id=${CONV.dernier}`),
+    getJSON("/api/status"),
+  ]);
+  if (CONV.tache !== tache) return;
+  if (s.ok && s.data && typeof s.data === "object") { state.agents = s.data; majReflechit(); }
+  if (m.ok && Array.isArray(m.data)) ajouterMessages(m.data.filter(x => x.type !== "join" && x.type !== "leave"), false);
+}
+function ajouterMessages(liste, bas) {
+  const zone = $("#conv"); if (!zone) return;
+  const d = $("#fiche");
+  const presDuBas = d.scrollHeight - d.scrollTop - d.clientHeight < 160;
+  const neufs = liste.filter(x => x && x.id != null && !CONV.vus.has(x.id));
+  if (!neufs.length) return;
+  zone.querySelector(".conv-vide")?.remove();
+  neufs.forEach(x => { CONV.vus.add(x.id); CONV.dernier = Math.max(CONV.dernier, x.id); });
+  zone.insertAdjacentHTML("beforeend", neufs.map(msgHtml).join(""));
+  if (bas || presDuBas) requestAnimationFrame(() => { d.scrollTop = d.scrollHeight; });
+  majReflechit();
+}
+// Les @mentions ressortent en ardoise, comme dans la salle (jamais dans un attribut : précédées d'un blanc ou d'une balise).
+const avecMentions = html => html.replace(/(^|[\s(>])@([A-Za-z][\w-]*)/g, '$1<span class="mention">@$2</span>');
+function pieceJointe(a) {
+  const url = String(a && a.url || "");
+  const sur = url.startsWith("/uploads/") || /^https?:\/\//i.test(url);
+  if (!sur) return "";
+  return url.startsWith("/uploads/") && /\.(png|jpe?g|gif|webp)$/i.test(url)
+    ? `<a class="cm-img-l" href="${esc(url)}" target="_blank" rel="noopener"><img class="cm-img" src="${esc(url)}" alt="${esc(a.name || "image")}" loading="lazy"></a>`
+    : `<a class="btn mini" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(a.name || "fichier")}</a>`;
+}
+function msgHtml(m) {
+  if (m.type === "system") return `<div class="cm-sys">${esc(court(m.text, 300))}</div>`;
+  const moi = m.sender === UTILISATEUR;
+  const rep = m.reply_to != null ? `<span class="cm-rep">en réponse à #${esc(m.reply_to)}</span>` : "";
+  const corps = !String(m.text || "").trim() ? ""
+    : moi ? `<div class="cm-texte">${avecMentions(String(m.text).split("\n").map(livInline).join("<br>"))}</div>`
+    : `<div class="cm-prose liv-md">${avecMentions(livMarkdown(m.text))}</div>`;
+  const pj = (m.attachments || []).map(pieceJointe).filter(Boolean).join("");
+  return `<div class="cm${moi ? " moi" : ""}${m.type === "decision" ? " decision" : ""}" data-msg="${esc(m.id)}">
+    <div class="cm-h">${moi ? "<span>Toi</span>" : agent(m.sender, true)}<time>${esc(m.time || hm(m.timestamp))}</time><span class="cm-id">#${esc(m.id)}</span>${rep}</div>
+    ${corps}${pj ? `<div class="cm-pj">${pj}</div>` : ""}${m.type === "decision" ? decisionHtml(m) : ""}</div>`;
+}
+// Carte de décision d'un agent : les choix se touchent du pouce, comme dans la salle.
+function decisionHtml(m) {
+  const meta = m.metadata || {};
+  if (meta.resolved) return `<div class="cm-resolu">${meta.autrement ? "Répondu autrement" : `${meta.autre ? "Ta réponse" : "Ton choix"} : <b>${esc(meta.chosen)}</b>`}</div>`;
+  const ch = Array.isArray(meta.choices) ? meta.choices : [];
+  return ch.length ? `<div class="cm-choix">${ch.map(c => `<button class="btn" type="button" data-choix="${esc(m.id)}" data-val="${esc(c)}">${esc(c)}</button>`).join("")}</div>` : "";
+}
+async function choisir(msgId, val) {
+  const blocs = $$(`.cm[data-msg="${CSS.escape(String(msgId))}"] .cm-choix, .ligne-choix[data-carte="${CSS.escape(String(msgId))}"]`);
+  blocs.forEach(b => b.querySelectorAll("button").forEach(x => { x.disabled = true; }));
+  const r = await postJSON(`/api/messages/${encodeURIComponent(msgId)}/resolve_decision`, {choice: val});
+  if (!r.ok) { blocs.forEach(b => b.querySelectorAll("button").forEach(x => { x.disabled = false; })); toast(r.msg || "Choix refusé (carte déjà résolue ?)."); return; }
+  blocs.forEach(b => { b.outerHTML = b.classList.contains("cm-choix") ? `<div class="cm-resolu">Ton choix : <b>${esc(val)}</b></div>` : `<div class="ligne-choix"><span class="pill s-fait">${ico("check")}Ton choix : ${esc(val)}</span></div>`; });
+  toast(`Choix envoyé : ${val}`);
+  if (CONV.canal) suivreConv(true);
+  setTimeout(rafraichir, 1200);
+}
+function majMentions() {
+  $$(".conv-mentions [data-mention]").forEach(b => b.setAttribute("aria-pressed", String(CONV.mentions.has(b.dataset.mention))));
+  const ta = $("#conv-texte");
+  if (ta) ta.placeholder = CONV.mentions.size ? `Écris à ${[...CONV.mentions].join(", ")}…` : "Écris un message (personne n'est mentionné)…";
+}
+function majReflechit() {
+  const el = $("#conv-reflechit"); if (!el) return;
+  const occupes = CONV.equipe.filter(occupe);
+  el.hidden = !occupes.length;
+  const html = occupes.map(a => { const c = (agentInfo(a) || {}).color; return `<span class="ag petit"${c ? ` style="--c:${esc(c)}"` : ""}><i class="souffle"></i>${esc(a)}</span>`; }).join("") +
+    (occupes.length ? `<span>${occupes.length > 1 ? "réfléchissent…" : "réfléchit…"}</span>` : "");
+  if (el.dataset.html !== html) { el.dataset.html = html; el.innerHTML = html; } // pas de re-rendu : le souffle ne repart pas à zéro
+}
+function majEnvoyer() {
+  const b = $("#conv-form .envoyer"), ta = $("#conv-texte");
+  if (b && ta) b.disabled = CONV.envoi || (!ta.value.trim() && !CONV.pj.length);
+}
+function majPJ() {
+  const el = $("#conv-pj"); if (!el) return;
+  el.hidden = !CONV.pj.length;
+  el.innerHTML = CONV.pj.map((a, i) => `<span class="chip">${esc(a.name)}<button type="button" class="ibtn petit" data-retirer-pj="${i}" aria-label="Retirer ${esc(a.name)}">${ico("fermer")}</button></span>`).join("");
+  majEnvoyer();
+}
+async function joindre(fichiers) {
+  if (!fichiers.length) return;
+  toast(`Dépôt de ${pluriel(fichiers.length, "fichier", "fichiers")}…`);
+  const ok = (await Promise.all(fichiers.map(uploadFichier))).filter(Boolean);
+  if (ok.length < fichiers.length) toast(`${pluriel(fichiers.length - ok.length, "fichier refusé", "fichiers refusés")} (type ou taille).`);
+  CONV.pj.push(...ok); majPJ();
+}
+async function envoyerConv(e) {
+  e.preventDefault();
+  const ta = $("#conv-texte");
+  if (!ta || CONV.envoi || !CONV.canal) return;
+  let texte = ta.value.trim();
+  if (!texte && !CONV.pj.length) return;
+  // Les agents choisis sont mentionnés en tête du message, sauf s'ils le sont déjà dans le texte.
+  const absents = [...CONV.mentions].filter(a => !new RegExp(`@${a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`, "i").test(texte));
+  if (absents.length) texte = absents.map(a => "@" + a).join(" ") + (texte ? " " + texte : "");
+  // On fige la tâche, le canal et les pièces jointes AVANT l'envoi : si Charles ferme la fiche ou ouvre une autre tâche
+  // pendant l'attente, la réponse ne doit ni s'afficher dans l'autre conversation ni vider ses pièces jointes (revue codex-2, msg 4325).
+  const envoi = {gen: CONV.gen, tache: CONV.tache, canal: CONV.canal, pj: CONV.pj.slice(), brouillon: ta.value};
+  CONV.envoi = true; majEnvoyer();
+  const r = await postJSON("/api/v2/messages", {channel: envoi.canal, text: texte, attachments: envoi.pj, tache_id: envoi.tache});
+  const memeFiche = CONV.gen === envoi.gen && CONV.tache === envoi.tache && $("#fiche").open;
+  if (memeFiche) CONV.envoi = false;
+  if (!r.ok) {
+    if (memeFiche) majEnvoyer();
+    toast(r.err === 405 ? "La salle en service n'a pas encore la route d'envoi de l'atelier (elle arrive avec la fusion)." : (r.msg || `Message non envoyé (tâche ${envoi.tache}). Réessaie.`));
+    return;
+  }
+  if (!memeFiche) { toast(`Message envoyé dans la tâche ${envoi.tache}.`); return; }
+  // On ne retire que ce qui est parti : un texte retouché ou une photo ajoutée pendant l'envoi reste en brouillon (revue codex-2, msg 4351).
+  if (ta.value === envoi.brouillon) { ta.value = ""; ta.style.height = ""; }
+  CONV.pj = CONV.pj.filter(a => !envoi.pj.includes(a)); majPJ();
+  if (r.data && r.data.id != null) ajouterMessages([r.data], true);
+}
+// Ancien comportement de « Discuter » : ouvrir la conversation dans la salle (lien en bas de la conversation).
+async function allerSalle(tacheId) {
+  const r = await postJSON(`/api/v2/taches/${encodeURIComponent(tacheId)}/conversation`, {});
+  if (!r.ok || !r.data || !r.data.channel) { toast(r.msg || "Impossible d'ouvrir la conversation de cette tâche."); return; }
+  try { localStorage.setItem("agentchattr-channel", r.data.channel); } catch (_) {}
+  window.location.href = "/";
+}
+
+// ---------- jalons (P1) : les décisions de Charles ----------
+const JALON_NOM = {J1: "Jalon J1", J2: "Jalon J2", revue: "Revue"};
+const JALON_DECISIONS = {go: "Continuer", recycle: "Recycler", hold: "Mettre en veille", kill: "Arrêter"};
+const JALON_CLS = {go: "s-fait", recycle: "s-cours", hold: "s-veille", kill: "s-bloque", "": "s-charles"};
+const ETAT_CRITERE = {atteint: "atteint", partiel: "partiel", rate: "manqué", a_mesurer: "à mesurer"};
+const CRIT_CLS = {atteint: "crit-ok", partiel: "crit-part", rate: "crit-rate", a_mesurer: "crit-mes"};
+// L'étape de recyclage doit être antérieure au jalon.
+const recyclables = j => {
+  const fin = ETAPES.indexOf(etapeDuJalon(j));
+  return fin >= 0 ? ETAPES.slice(0, fin + 1) : ETAPES.slice(0, -1);
+};
+function blocJalons(etape, jalons) {
+  const rattaches = jalons.filter(j => etapeDuJalon(j.jalon) === etape);
+  if (!rattaches.length) return "";
+  const html = rattaches.map(j => {
+    const decise = !!j.decision;
+    const criteres = (j.criteres || []).map(c =>
+      `<li><span class="crit ${CRIT_CLS[c.etat] || "crit-mes"}">${esc(ETAT_CRITERE[c.etat] || c.etat || "?")}</span><span>${esc(c.nom || "")}</span>${c.cible ? `<span class="cap">cible ${esc(c.cible)}${c.mesure ? " · " + esc(c.mesure) : ""}</span>` : ""}</li>`).join("");
+    const risques = (j.risques || []).length ? (j.risques.map(esc).join(" · ")) : "";
+    const boutons = decise ? "" :
+      `<div class="jb">` +
+      `<span class="lbl">Ta décision</span>` +
+      (j.recommandation ? `<p class="cap" style="margin:0">claude recommande : <b>${esc(JALON_DECISIONS[j.recommandation] || j.recommandation)}</b>${j.raison ? " : " + esc(j.raison) : ""}</p>` : "") +
+      `<div class="jb-btns">` +
+      Object.entries(JALON_DECISIONS).map(([v, l]) =>
+        `<button class="btn dec${v === "go" ? " pri" : v === "kill" ? " stop" : ""}" type="button" data-dec="${esc(j.id)}" data-val="${v}">${esc(l)}</button>`).join("") +
+      `</div>` +
+      `<label class="lbl" for="recy-${esc(j.id)}">Pour recycler : vers quelle étape</label><select id="recy-${esc(j.id)}" data-recy="${esc(j.id)}"><option value="">—</option>${recyclables(j.jalon).map(e2 => `<option value="${esc(e2)}">${esc(nomEtape(e2))}</option>`).join("")}</select>` +
+      `<label class="lbl" for="not-${esc(j.id)}">Note (facultatif)</label><input id="not-${esc(j.id)}" data-not="${esc(j.id)}" placeholder="Ex. : on recycle sur la masse">` +
+      `</div>`;
+    return `<div class="jalon${decise ? " decide" : ""}">
+      <div class="jalon-hd"><b>${esc(JALON_NOM[j.jalon] || j.jalon)}</b><span class="pill ${JALON_CLS[decise ? j.decision : ""] || "s-attente"}">${decise ? esc(JALON_DECISIONS[j.decision] || j.decision) : "t'attend"}</span>${j.decision_date ? `<span class="cap">${esc(heure(j.decision_date))}</span>` : ""}</div>
+      ${criteres ? `<ul class="crits">${criteres}</ul>` : ""}
+      ${risques ? `<p class="cap">Risques : ${risques}</p>` : ""}
+      ${j.resultats ? `<div class="fc"><span class="lbl">Résultats</span><p class="prose">${avecLiens(j.resultats)}</p></div>` : ""}
+      ${j.reste ? `<div class="fc"><span class="lbl">Reste à faire</span><p class="prose">${esc(j.reste)}</p></div>` : ""}
+      ${j.decision_note ? `<div class="fc"><span class="lbl">Note de la décision</span><p class="prose">${esc(j.decision_note)}</p></div>` : ""}
+      ${boutons}
+    </div>`;
+  }).join("");
+  return `<div class="fc"><span class="lbl">Jalon de cette étape</span>${html}</div>`;
+}
+function ouvrirEtape(e, pid) {
+  const projet = pid || state.sel;
+  const d = state.par[projet] || {taches: [], jalons: []};
+  const i = ETAPES.indexOf(e);
+  if (i < 0) return;
+  const de = d.taches.filter(t => t.etape === e);
+  const fait = de.filter(t => normEtat(t.etat) === "fait").length;
+  const liste = de.length
+    ? `<ul class="flist">${de.map(t => { const st = normEtat(t.etat); return `<li><button type="button" data-fiche="${esc(t.id)}" data-p="${esc(projet)}"><span class="pill ${ETAT_CLS[st] || "s-afaire"}">${esc(ETAT_TACHE[st] || t.etat)}</span><span style="font-weight:600">${esc(t.titre)}</span>${t.resultat ? `<span class="cap" style="margin:0">${esc(court(t.resultat, 160))}</span>` : ""}</button></li>`; }).join("")}</ul>`
+    : `<p class="cap" style="margin:0">Aucune tâche à cette étape pour l'instant.</p>`;
+  const mE = (state.methodes && state.methodes[e]) || "";
+  const p = state.projets[projet] || {};
+  ouvrirFiche(enteteFiche(`${p.nom || projet} · Étape ${i + 1} sur ${ETAPES.length}`, nomEtape(e)) +
+    `<div class="fc" style="border-top:0"><span class="lbl">Ce que couvre l'étape</span><p class="prose">${esc(DEF_ETAPES[e] || "")}</p></div>` +
+    blocJalons(e, d.jalons) +
+    `<div class="fc"><span class="lbl">Tâches (${fait}/${de.length} faites)</span>${liste}</div>` +
+    (mE ? `<div class="fc"><span class="lbl">Méthode de l'étape</span><p class="prose" style="font-size:15px">${mdCourt(mE)}</p></div>` : ""));
+}
+async function deciderJalon(jalonId, val) {
+  let j = null;
+  for (const p of Object.keys(state.par)) { j = (state.par[p].jalons || []).find(x => String(x.id) === String(jalonId)); if (j) break; }
+  if (!j) return;
+  if (val === "kill" && !confirm(`Arrêter le projet ? (${JALON_NOM[j.jalon] || j.jalon})`)) return;
+  const recy = val === "recycle" ? (($("#recy-" + CSS.escape(String(j.id)))?.value) || "") : "";
+  if (val === "recycle" && !recy) { toast("Choisis l'étape vers laquelle recycler."); return; }
+  const note = (($("#not-" + CSS.escape(String(j.id)))?.value) || "").trim();
+  const r = await postJSON(`/api/v2/jalons/${encodeURIComponent(j.id)}/decision`,
+    {par: "user", decision: val, note, ...(val === "recycle" ? {recycle_etape: recy} : {})});
+  if (r.ok) { toast(`${JALON_NOM[j.jalon] || j.jalon} : ${JALON_DECISIONS[val] || val}.`); fermerFiche(); await rafraichir(); }
+  else toast(r.msg || "Décision refusée (déjà décidée, ou route non branchée).");
+}
+
+// ---------- fiche projet (P2) ----------
+function ouvrirFicheProjet() {
+  const id = state.sel; if (!id) return;
+  const p = state.projets[id] || {};
+  const f = state.fiche || {};
+  const meta = `<div class="fm"><span class="pill ${STATUT_CLS[p.statut] || "s-attente"}">${esc(STATUTS[p.statut] || p.statut || "?")}</span>`
+    + (f.niveau ? `<span>Niveau : <b>${esc(f.niveau)}</b></span>` : "")
+    + (f.trl ? `<span>TRL : <b>${esc(f.trl)}</b></span>` : "")
+    + (f.horizon ? `<span>Horizon : <b>${esc(f.horizon)}</b></span>` : "")
+    + (f.code ? `<span>Code : <b>${esc(f.code)}</b></span>` : "")
+    + (f.type ? `<span>Type : <b>${esc(f.type)}</b></span>` : "")
+    + `</div>`;
+  const hypo = (f.hypotheses || []).map(h =>
+    `<li><span class="pill ${h.etat === "confirmee" ? "s-fait" : h.etat === "infirmee" ? "s-bloque" : "s-attente"}" style="align-self:flex-start">${esc(h.etat || "à vérifier")}</span><span>${esc(h.texte || "")}</span><span class="cap" style="margin:0">source : ${esc(h.source || "?")}</span></li>`).join("");
+  const risques = (f.risques || []).map(r =>
+    `<li><span class="cap" style="margin:0">${esc(r.type || "")}${r.etape ? " · " + esc(nomEtape(r.etape)) : ""}</span><span>${esc(r.texte || "")}</span></li>`).join("");
+  const questions = (f.questions || []).map(q =>
+    `<li><span>${esc(q.texte || "")}</span>${q.reponse ? `<span class="cap" style="margin:0">réponse : ${esc(q.reponse)}</span>` : `<span class="pill s-silence">sans réponse</span>`}</li>`).join("");
+  const c = f.criteres || [];
+  const blocs = [];
+  if (f.objectif || p.objectif) blocs.push(`<div class="fc"><span class="lbl">Objectif</span><p class="prose">${esc(f.objectif || p.objectif)}</p></div>`);
+  if (f.livrable_attendu || p.livrable_attendu) blocs.push(`<div class="fc"><span class="lbl">Livrable attendu</span><p class="prose">${esc(f.livrable_attendu || p.livrable_attendu)}</p></div>`);
+  if (c.length) blocs.push(`<div class="fc"><span class="lbl">Critères</span><ul class="flist">${c.map(x => `<li><span>${esc(x.nom || "")}</span>${x.cible ? `<span class="cap" style="margin:0">cible : ${esc(x.cible)}</span>` : ""}</li>`).join("")}</ul></div>`);
+  if (hypo) blocs.push(`<div class="fc"><span class="lbl">Hypothèses</span><ul class="flist hypo">${hypo}</ul></div>`);
+  if (risques) blocs.push(`<div class="fc"><span class="lbl">Risques</span><ul class="flist">${risques}</ul></div>`);
+  if (questions) blocs.push(`<div class="fc"><span class="lbl">Questions posées par claude</span><ul class="flist">${questions}</ul></div>`);
+  const contenu = blocs.join("") || `<div class="fc"><p class="cap" style="margin:0">La fiche projet n'est pas encore remplie. claude la remplit au lancement guidé (objectif, niveau, hypothèses, risques, questions).</p></div>`;
+  ouvrirFiche(enteteFiche("Fiche projet", p.nom || id) + meta + contenu);
+}
+
+// ---------- visualiseur de livrables : rendu markdown sûr + fiche par type ----------
+// Rendu autonome, minimal et SÛR : tout contenu est échappé AVANT d'être balisé — jamais d'innerHTML de HTML brut.
 function livInline(raw) {
   const codes = [];
   let s = String(raw ?? "").replace(/`([^`]+)`/g, (m, c) => { codes.push(c); return "\x00c" + (codes.length - 1) + "\x00"; });
-  s = esc(s); // échappe &<>" — les marqueurs *, _, [, ], (, ) survivent
+  s = esc(s);
   s = s.replace(/!\[([^\]]*)\]\([^)\s]+\)/g, (m, alt) => `<em>[image : ${alt}]</em>`); // pas de chargement externe
   s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, txt, url) =>
     /^(https?:\/\/|mailto:)/i.test(url) ? `<a href="${url}" target="_blank" rel="noopener noreferrer">${txt}</a>` : txt);
@@ -823,13 +1217,12 @@ function livInline(raw) {
   s = s.replace(/\x00c(\d+)\x00/g, (m, i) => `<code>${esc(codes[+i])}</code>`);
   return s;
 }
-// Listes imbriquées (indentation = 2 espaces par niveau), ordonnées ou non.
 function livListe(lignes) {
   const items = [];
   lignes.forEach(l => {
     const m = l.match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/);
     if (m) items.push({ lvl: Math.floor(m[1].replace(/\t/g, "  ").length / 2), ol: /\d/.test(m[2]), txt: m[3] });
-    else if (items.length) items[items.length - 1].txt += "\n" + l.trim(); // continuation d'item
+    else if (items.length) items[items.length - 1].txt += "\n" + l.trim();
   });
   let html = ""; const open = [];
   items.forEach(it => {
@@ -844,7 +1237,6 @@ function livListe(lignes) {
   while (open.length) html += `</li></${open.pop().tag}>`;
   return html;
 }
-// Rendu markdown par blocs : code clôturé, titres, filets, tableaux, citations, listes, paragraphes.
 function livMarkdown(src) {
   const lines = String(src || "").replace(/\r\n?/g, "\n").split("\n");
   const out = []; let i = 0;
@@ -885,9 +1277,7 @@ function livMarkdown(src) {
   }
   return out.join("\n");
 }
-
-// URL de l'endpoint de contenu. Le jeton va en query : un <img>/<a download> ne peut pas poser
-// l'en-tête x-session-token, et le serveur accepte ?token= comme équivalent (middleware de sécurité).
+// Le jeton va en query : un <img>/<a download> ne peut pas poser l'en-tête x-session-token.
 const urlLivrable = chemin => {
   const t = window.__SESSION_TOKEN__;
   return `/api/v2/livrable?chemin=${encodeURIComponent(chemin)}` + (t ? `&token=${encodeURIComponent(t)}` : "");
@@ -895,21 +1285,16 @@ const urlLivrable = chemin => {
 const LIV_IMG = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
 const LIV_TXT = new Set(["md", "markdown", "txt", "csv", "json"]);
 const extLivrable = chemin => { const m = String(chemin || "").toLowerCase().match(/\.([a-z0-9]+)$/); return m ? m[1] : ""; };
-
-// Ouvre le visualiseur sur un livrable (chemin relatif à la racine). Rendu selon le type ;
-// un type non rendu propose Télécharger. Point d'extension CAO marqué ci-dessous.
 async function ouvrirLivrable(chemin) {
   const nom = String(chemin || "").split("/").pop() || chemin;
   const ext = extLivrable(chemin);
   const tete = enteteFiche("Livrable", nom);
-  const tele = `<div class="fc"><a class="btn pri" href="${esc(urlLivrable(chemin))}" download="${esc(nom)}">Télécharger</a> <span class="cap"><code>${esc(chemin)}</code></span></div>`;
-  ouvrirFiche(tete + `<div class="fc"><div class="lbl">Chargement…</div></div>`);
-  // Image : affichée directement (servie inline, CSP stricte côté serveur).
+  const tele = `<div class="fc"><a class="btn pri" href="${esc(urlLivrable(chemin))}" download="${esc(nom)}">Télécharger</a> <p class="cap"><code>${esc(chemin)}</code></p></div>`;
+  ouvrirFiche(tete + `<div class="fc"><p class="cap">Chargement…</p></div>`);
   if (LIV_IMG.has(ext)) {
     $("#fiche-c").innerHTML = tete + `<div class="fc liv-vue"><img class="liv-img" src="${esc(urlLivrable(chemin))}" alt="${esc(nom)}"></div>` + tele;
     return;
   }
-  // Markdown / texte / csv / json : on récupère le contenu (JSON) et on le rend échappé.
   if (LIV_TXT.has(ext)) {
     const r = await getJSON(urlLivrable(chemin));
     if (!$("#fiche-c")) return;
@@ -917,7 +1302,7 @@ async function ouvrirLivrable(chemin) {
       const msg = r.err === 404 ? "Ce livrable n'existe plus sur la tour."
         : r.err === 403 ? "Chemin refusé (hors de la racine des livrables)."
         : "Impossible de charger ce livrable" + (r.err ? ` (erreur ${r.err})` : " (erreur réseau)") + ".";
-      $("#fiche-c").innerHTML = tete + `<div class="fc"><p class="cap" style="color:var(--bad)">${esc(msg)}</p></div>` + tele;
+      $("#fiche-c").innerHTML = tete + `<div class="fc"><p class="cap" style="color:var(--v-danger)">${esc(msg)}</p></div>` + tele;
       return;
     }
     const d = r.data || {};
@@ -928,268 +1313,297 @@ async function ouvrirLivrable(chemin) {
     const corps = (ext === "md" || ext === "markdown")
       ? `<div class="liv-md">${livMarkdown(d.contenu || "")}</div>`
       : `<pre class="liv-code"><code>${esc(d.contenu || "")}</code></pre>`;
-    $("#fiche-c").innerHTML = tete + `<div class="fc liv-vue">${corps}</div>` + tele;
+    $("#fiche-c").innerHTML = tete + `<div class="fc liv-vue" style="border-top:0">${corps}</div>` + tele;
     return;
   }
-  // Tout autre type (PDF, STEP/STL/DXF/FCStd, binaire) : pas de rendu, bouton Télécharger.
-  // ── POINT D'EXTENSION CAO ──────────────────────────────────────────────────────────────
-  // Pour brancher un aperçu 3D ou « Ouvrir dans FreeCAD », ajouter ici une branche par `ext`
-  // (ex. if (ext === "step" || ext === "stl" || ext === "fcstd") { … visionneuse 3D … }).
-  // ───────────────────────────────────────────────────────────────────────────────────────
+  // ── POINT D'EXTENSION CAO ── : ajouter ici une branche par `ext` (step, stl, fcstd…) pour un aperçu 3D.
   $("#fiche-c").innerHTML = tete +
-    `<div class="fc"><p>Type <code>${esc(ext || "?")}</code> non rendu ici.</p><p class="cap">Ce document n'a pas d'aperçu dans l'atelier pour l'instant — télécharge-le pour l'ouvrir.</p></div>` + tele;
+    `<div class="fc" style="border-top:0"><p>Type <code>${esc(ext || "?")}</code> sans aperçu dans l'atelier.</p><p class="cap">Télécharge-le pour l'ouvrir.</p></div>` + tele;
 }
-
-// Rend cliquable chaque chemin de fichier d'une preuve de tâche (best-effort : rien ne casse si aucun).
-// Applique d'abord l'échappement + liens « PR #n », puis repère les chemins par leur extension.
+// Rend cliquable chaque chemin de fichier d'une preuve de tâche.
 const RE_LIVR = /([\w./-]+\.(?:md|markdown|txt|csv|json|png|jpe?g|gif|webp|svg|pdf|fcstd|step|stp|stl|dxf|3mf|obj|glb|iges?|igs))\b/gi;
 const avecLivrables = txt => avecLiens(txt).replace(RE_LIVR, m =>
-  // m est déjà échappé (esc n'altère pas [\w./-]) ; sûr en attribut et en texte.
   `<a href="#" class="liv-lien" data-voir="${m}" title="Ouvrir ${m}">${m}</a>`);
 
-function ouvrirFiche(html) {
-  $("#fiche-c").innerHTML = html;
-  const d = $("#fiche");
-  if (!d.open) { if (d.showModal) d.showModal(); else d.setAttribute("open", ""); }
-  d.scrollTop = 0;
+// =====================================================================================
+// Actions
+// =====================================================================================
+async function changerStatut(id, statut) {
+  const r = await postJSON(`/api/v2/projects/${encodeURIComponent(id)}/status`, {status: statut});
+  toast(r.ok ? `${(state.projets[id] || {}).nom || id} : ${STATUTS[statut] || statut}` : "Changement refusé (route non branchée ou statut inconnu).");
+  if (r.ok) await rafraichir();
 }
-function fermerFiche() { const d = $("#fiche"); if (d.close) d.close(); else d.removeAttribute("open"); }
-const enteteFiche = (sur, titre) => `<div class="fh"><div><div class="lbl">${esc(sur)}</div><h2 id="fiche-t">${esc(titre)}</h2></div><button class="btn" type="button" data-act="fermer" aria-label="Fermer">Fermer</button></div>`;
-
-let REQUETE_FICHE = 0; // garde : une réponse n'affiche que si c'est encore la bonne tâche (pas d'historique croisé)
-async function ouvrirTache(id) {
-  const t = state.taches.find(x => String(x.id) === String(id));
-  if (!t) return;
-  const n = ++REQUETE_FICHE; // ce tirage est le seul autorisé à écrire dans la fiche
-  const st = normEtat(t.etat);
-  const equipe = (t.equipe || []).map(m => `${esc(m.agent)} <span class="cap">(${esc(m.role)})</span>`).join(", ") || esc(t.responsable || "—");
-  const champs = CHAMPS_FICHE.filter(([c]) => String(t[c] || "").trim())
-    // La preuve nomme souvent un livrable (chemin de fichier) : on le rend cliquable vers le visualiseur.
-    .map(([c, l]) => `<div class="fc"><div class="lbl">${l}</div><p>${c === "preuve" ? avecLivrables(t[c]) : avecLiens(t[c])}</p></div>`).join("")
-    || `<p class="cap">Rien d'écrit encore sur cette tâche.</p>`;
-  const tete = enteteFiche(`Tâche ${t.id} · ${NOM_ETAPES[t.etape] || t.etape || ""}`, t.titre);
-  const meta = `<div class="fm"><span class="pill ${ETAT_CLS[st] || "s-afaire"}">${esc(ETAT_TACHE[st] || t.etat)}</span><span>Responsable : <b>${esc(t.responsable || "—")}</b></span><span>Équipe : ${equipe}</span></div>`;
-  const pied = `<div class="ff"><button class="btn pri" type="button" data-disc="${esc(t.id)}">Discuter de cette tâche</button></div>`;
-  ouvrirFiche(tete + meta + champs + `<div class="fc"><div class="lbl">Historique</div><ul class="fhist" id="fiche-h"><li class="cap">Chargement…</li></ul></div>` + pied);
-
-  const [m, e] = await Promise.all([
-    getJSON(`/api/v2/messages?tache_id=${encodeURIComponent(t.id)}&limit=100`),
-    getJSON(`/api/v2/executions?tache_id=${encodeURIComponent(t.id)}`),
-  ]);
-  if (n !== REQUETE_FICHE) return; // une tâche plus récente a été ouverte : on jette cette réponse (pas d'historique croisé)
-  const el = $("#fiche-h");
-  if (!el) return;
-  // Distinguer une erreur réseau d'un historique vraiment vide (404 = pas branché, pas une erreur).
-  const reussi = (m.ok || m.err === 404) && (e.ok || e.err === 404);
-  const lignes = [];
-  ((m.ok && m.data && m.data.messages) || []).forEach(x => lignes.push({h: x.timestamp, html: `<b>${esc(x.sender)}</b> — ${esc(court(x.text, 400))}`}));
-  ((e.ok && e.data && e.data.executions) || []).forEach(x => lignes.push({h: x.fin || x.debut,
-    html: `<span class="type">exécution</span><b>${esc(x.agent)}</b>${x.role ? ` (${esc(x.role)})` : ""} — ${esc(court(x.consigne, 200))}${x.issue ? ` · ${esc(x.issue)}` : x.fin ? "" : " · en cours"}`}));
-  lignes.sort((a, b) => (b.h || 0) - (a.h || 0));
-  el.innerHTML = !reussi
-    ? `<li class="cap" style="color:var(--bad)">Chargement de l'historique impossible (erreur réseau). Referme puis rouvre la tâche pour réessayer.</li>`
-    : (lignes.length
-      ? lignes.map(l => `<li><time>${esc(heure(l.h))}</time><span>${l.html}</span></li>`).join("")
-      : `<li class="cap">Aucun message ni exécution rattaché à cette tâche pour l'instant. « Discuter » ouvre sa conversation : tout ce qui s'y dit s'inscrit ici.</li>`);
+// Dépôt d'un fichier vers POST /api/upload (rend {name, url}) — photos et documents joints au lancement.
+async function uploadFichier(f) {
+  try {
+    const fd = new FormData();
+    fd.append("file", f);
+    const r = await fetch("/api/upload", {method: "POST", headers: headers(), body: fd});
+    if (!r.ok) return null;
+    const d = await r.json().catch(() => null);
+    return (d && d.name && d.url) ? {name: d.name, url: d.url} : null;
+  } catch (_) { return null; }
 }
-
-// ---------- jalons (P1) : les décisions de Charles ----------
-const JALON_NOM = {J1: "Jalon J1", J2: "Jalon J2", revue: "Revue"};
-const JALON_DECISIONS = {go: "Continuer", recycle: "Recycler", hold: "Mettre en veille", kill: "Arrêter"};
-const JALON_CLS = {go: "s-fait", recycle: "s-cours", hold: "s-veille", kill: "s-bloque", "": "s-attente"};
-const ETAT_CRITERE = {atteint: "atteint", partiel: "partiel", rate: "manqué", a_mesurer: "à mesurer"};
-const CRIT_CLS = {atteint: "crit-ok", partiel: "crit-part", rate: "crit-rate", a_mesurer: "crit-mes"};
-
-// Les étapes antérieures à un jalon (recycle_etape doit être antérieure au jalon).
-// J1 : probleme, etat_art ou concepts ; J2 : jusqu'à essais.
-const JALON_RECYCLE = {J1: ["probleme", "etat_art", "concepts"], J2: ["probleme", "etat_art", "concepts", "conception", "prototype", "essais"], revue: ETAPES.slice(0, 7)};
-
-// Rend le bloc « Jalon » d'une étape : les jalons rattachés à cette étape, avec leurs boutons de décision.
-function blocJalons(etape) {
-  // Un jalon J1 vit à la fin de l'étape concepts (1-3), un J2 à la fin de essais, une revue avant lancement.
-  const rattaches = state.jalons.filter(j =>
-    (j.jalon === "J1" && etape === "concepts") ||
-    (j.jalon === "J2" && etape === "essais") ||
-    (j.jalon === "revue" && etape === "lancement"));
-  if (!rattaches.length) return "";
-  const html = rattaches.map(j => {
-    const decise = !!j.decision;
-    const criteres = (j.criteres || []).map(c =>
-      `<li><span class="crit ${CRIT_CLS[c.etat] || "crit-mes"}">${esc(ETAT_CRITERE[c.etat] || c.etat || "?")}</span><span>${esc(c.nom || "")}</span>${c.cible ? `<span class="cap">cible ${esc(c.cible)}${c.mesure ? " · " + esc(c.mesure) : ""}</span>` : ""}</li>`).join("");
-    const risques = (j.risques || []).length ? (j.risques.map(esc).join(" · ")) : "";
-    const boutons = decise ? "" :
-      `<div class="jb">` +
-      `<div class="lbl">Ta décision</div>` +
-      (j.recommandation ? `<div class="cap">recommandation de claude : <b>${esc(j.recommandation)}</b>${j.raison ? " — " + esc(j.raison) : ""}</div>` : "") +
-      `<div class="jb-btns">` +
-      Object.entries(JALON_DECISIONS).map(([v, l]) =>
-        `<button class="btn dec${v === "go" ? " pri" : v === "kill" ? " stop" : ""}" type="button" data-dec="${esc(j.id)}" data-val="${v}">${esc(l)}</button>`).join("") +
-      `</div>` +
-      `<label class="lbl" for="recy-${esc(j.id)}">ou recycler vers</label><select id="recy-${esc(j.id)}" data-recy="${esc(j.id)}"><option value="">—</option>${(JALON_RECYCLE[j.jalon] || []).map(e2 => `<option value="${e2}">${NOM_ETAPES[e2]}</option>`).join("")}</select>` +
-      `<label class="lbl" for="not-${esc(j.id)}">note (facultatif)</label><input id="not-${esc(j.id)}" data-not="${esc(j.id)}" placeholder="ex. : on recycle sur la masse">` +
-      `</div>`;
-    return `<div class="jalon">
-      <div class="jalon-hd"><b>${esc(JALON_NOM[j.jalon] || j.jalon)}</b><span class="pill ${JALON_CLS[decise ? j.decision : ""] || "s-attente"}">${decise ? j.decision : "en attente de Charles"}</span>${j.decision_date ? `<span class="cap">${esc(heure(j.decision_date))}</span>` : ""}</div>
-      ${criteres ? `<ul class="crits">${criteres}</ul>` : ""}
-      ${risques ? `<div class="cap">Risques : ${risques}</div>` : ""}
-      ${j.resultats ? `<div class="fc"><div class="lbl">Résultats</div><p>${avecLiens(j.resultats)}</p></div>` : ""}
-      ${j.reste ? `<div class="fc"><div class="lbl">Reste à faire</div><p>${esc(j.reste)}</p></div>` : ""}
-      ${j.decision_note ? `<div class="fc"><div class="lbl">Note de la décision</div><p>${esc(j.decision_note)}</p></div>` : ""}
-      ${boutons}
-    </div>`;
-  }).join("");
-  return `<div class="fc"><div class="lbl">Jalon(s) de cette étape</div>${html}</div>`;
+async function nouveauProjet(e) {
+  e.preventDefault();
+  const nom = $("#np-nom").value.trim();
+  if (!nom) { toast("Donne un nom au projet."); $("#np-nom").focus(); return; }
+  const objectif = $("#np-but").value.trim();
+  // P4 : POST /api/v2/projects {nom, objectif, pieces_jointes} crée le projet ET appelle @claude.
+  const fichiers = Array.from($("#np-fich").files || []);
+  let pieces = [];
+  if (fichiers.length) {
+    toast(`Dépôt de ${pluriel(fichiers.length, "fichier", "fichiers")}…`);
+    pieces = (await Promise.all(fichiers.map(uploadFichier))).filter(Boolean);
+    if (pieces.length < fichiers.length) toast(`${pluriel(fichiers.length - pieces.length, "fichier refusé", "fichiers refusés")} (type ou taille).`);
+  }
+  const b = e.target.querySelector("[type=submit]"); b.disabled = true;
+  const r = await postJSON("/api/v2/projects", {nom, objectif, pieces_jointes: pieces});
+  b.disabled = false;
+  toast(r.ok ? `Projet « ${nom} » lancé. claude démarre le cadrage.` : (r.msg || "Création refusée (route non branchée ou nom déjà pris)."));
+  if (r.ok) { e.target.reset(); e.target.hidden = true; await rafraichir(); }
+}
+async function nouvelleTache(e) {
+  e.preventDefault();
+  const titre = $("#tk-t").value.trim();
+  if (!titre || !state.sel) { toast("Donne un titre à la tâche."); $("#tk-t").focus(); return; }
+  // Rôles du contrat S2 : producteur, verificateur, relecteur, proposant.
+  const r = await postJSON(`/api/v2/taches`, {projet_id: state.sel, titre, etape: $("#tk-c").value, responsable: $("#tk-r").value, equipe: [{agent: $("#tk-r").value, role: "producteur"}]});
+  toast(r.ok ? "Tâche ajoutée." : "Ajout refusé (route POST /api/v2/taches non branchée pour l'instant).");
+  if (r.ok) { e.target.reset(); e.target.hidden = true; await rafraichir(); }
+}
+// =====================================================================================
+// Direct : GET /api/v2/flux (SSE). Sans lui (ancienne salle, réseau coupé), le suivi à 60 s reste en place.
+// =====================================================================================
+let FLUX = null, FLUX_MINUTERIE = 0;
+const fluxOuvert = () => !!(FLUX && FLUX.readyState === 1);
+const bientot = () => { clearTimeout(FLUX_MINUTERIE); FLUX_MINUTERIE = setTimeout(() => { if (!document.hidden) rafraichir(); }, 1500); };
+function majIndicateur() {
+  const el = $("#maj"); if (!el) return;
+  el.classList.toggle("direct-on", fluxOuvert());
+  el.textContent = fluxOuvert() ? "En direct" : (state.maj ? `À jour à ${new Date(state.maj).toLocaleTimeString("fr-CA", {hour: "2-digit", minute: "2-digit"})}` : "");
+}
+function brancherFlux() {
+  if (!window.EventSource || FLUX) return;
+  const t = window.__SESSION_TOKEN__;
+  FLUX = new EventSource("/api/v2/flux" + (t ? "?token=" + encodeURIComponent(t) : ""));
+  FLUX.onopen = majIndicateur;
+  FLUX.onerror = () => { majIndicateur(); if (FLUX && FLUX.readyState === 2) FLUX = null; };  // 2 = fermé (route absente)
+  FLUX.onmessage = ev => {
+    let d; try { d = JSON.parse(ev.data); } catch (_) { return; }
+    if (d.type === "message" && d.data) {
+      if (CONV.canal && d.data.channel === CONV.canal && d.data.type !== "join" && d.data.type !== "leave") ajouterMessages([d.data], false);
+      if (d.data.tache_id != null || d.data.type === "decision") bientot();
+    } else if (d.type === "message_update" && d.message) {
+      const el = $(`.cm[data-msg="${CSS.escape(String(d.message.id))}"]`);
+      if (el) el.outerHTML = msgHtml(d.message);
+      bientot();
+    } else if (d.type === "status" && d.data) {
+      state.agents = d.data; majReflechit();
+      if (state.route.page === "jour" && !document.hidden) renderJour();
+    } else if (d.type === "job") bientot();
+  };
 }
 
-function ouvrirEtape(e) {
-  const i = ETAPES.indexOf(e);
-  if (i < 0) return;
-  const de = state.taches.filter(t => t.etape === e);
-  const fait = de.filter(t => normEtat(t.etat) === "fait").length;
-  const liste = de.length
-    ? `<ul class="flist">${de.map(t => { const st = normEtat(t.etat); return `<li><button type="button" data-fiche="${esc(t.id)}"><span class="pill ${ETAT_CLS[st] || "s-afaire"}">${esc(ETAT_TACHE[st] || t.etat)}</span><span>${esc(t.titre)}</span>${t.resultat ? `<span class="cap">${esc(court(t.resultat, 160))}</span>` : ""}</button></li>`; }).join("")}</ul>`
-    : `<p class="cap">Aucune tâche à cette étape pour l'instant.</p>`;
-  // Ce que couvre l'étape (une ligne) + la méthode détaillée (P3, docs/PILOTE.md) si la route la sert.
-  const mE = (state.methodes && state.methodes[e]) || "";
-  const methode = (mE
-    ? `<div class="fc"><div class="lbl">Méthode de l'étape</div><p>${mdCourt(mE)}</p></div>`
-    : `<div class="fc"><div class="lbl">Ce que couvre l'étape</div><p>${esc(DEF_ETAPES[e])}</p></div>`);
-  ouvrirFiche(enteteFiche(`Étape ${i + 1} sur ${ETAPES.length}`, NOM_ETAPES[e]) +
-    `<div class="fc"><div class="lbl">Ce que couvre l'étape</div><p>${esc(DEF_ETAPES[e])}</p></div>` +
-    methode +
-    blocJalons(e) +
-    `<div class="fc"><div class="lbl">Tâches (${fait}/${de.length} faites)</div>${liste}</div>`);
+// =====================================================================================
+// Piste 7 : notifications sur le cell (Web Push). Exige https (la salle par Tailscale) ou localhost.
+// =====================================================================================
+const SW_URL = "/static/sw-atelier.js?v=1";
+const cleOctets = b64 => { const s = atob((b64 + "=".repeat((4 - b64.length % 4) % 4)).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(s, c => c.charCodeAt(0)); };
+async function enregistrementSW() {
+  const reg = await navigator.serviceWorker.register(SW_URL);
+  if (reg.active) return reg;
+  await new Promise(ok => { const w = reg.installing || reg.waiting; if (!w) return ok(); w.addEventListener("statechange", () => { if (w.state === "activated") ok(); }); });
+  return reg;
+}
+async function etatNotifs() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return "indisponible";
+  if (!window.isSecureContext) return "non-securise";
+  if (Notification.permission === "denied") return "refusees";
+  try {
+    const reg = await navigator.serviceWorker.getRegistration(SW_URL);
+    return reg && await reg.pushManager.getSubscription() ? "actives" : "inactives";
+  } catch (_) { return "inactives"; }
+}
+const LIB_NOTIFS = {
+  actives: "Notifications activées", inactives: "Activer les notifications",
+  refusees: "Notifications bloquées dans le navigateur", "non-securise": "Notifications : ouvre l'atelier en https",
+};
+async function renderNotifs() {
+  const b = $("#notifs"); if (!b) return;
+  const e = await etatNotifs();
+  b.hidden = e === "indisponible";
+  b.dataset.etat = e;
+  b.querySelector("span").textContent = LIB_NOTIFS[e] || "";
+  b.setAttribute("aria-pressed", String(e === "actives"));
+}
+async function basculerNotifs() {
+  const e = await etatNotifs();
+  if (e === "non-securise") { toast("Les notifications demandent l'adresse https de la salle (Tailscale)."); return; }
+  if (e === "refusees") { toast("Le navigateur les bloque : réglages du site → Notifications → Autoriser."); return; }
+  try {
+    if (e === "actives") {
+      if (!confirm("Couper les notifications sur cet appareil ?")) return;
+      const reg = await navigator.serviceWorker.getRegistration(SW_URL);
+      const sub = reg && await reg.pushManager.getSubscription();
+      if (sub) { await postJSON("/api/v2/push/desabonner", {endpoint: sub.endpoint}); await sub.unsubscribe(); }
+      toast("Notifications coupées sur cet appareil.");
+    } else {
+      if (await Notification.requestPermission() !== "granted") { toast("Notifications non autorisées."); return renderNotifs(); }
+      const k = await getJSON("/api/v2/push/cle");
+      if (!k.ok || !k.data || !k.data.cle) { toast(k.err === 404 ? "La salle en service n'a pas encore les notifications (elles arrivent avec la mise en service)." : "Clé de notification indisponible."); return; }
+      const reg = await enregistrementSW();
+      const sub = await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: cleOctets(k.data.cle)});
+      const r = await postJSON("/api/v2/push/abonner", sub.toJSON());
+      if (!r.ok) { await sub.unsubscribe(); toast(r.msg || "Abonnement refusé par la salle."); return renderNotifs(); }
+      const essai = await postJSON("/api/v2/push/essai", {});
+      toast(essai.ok && essai.data && essai.data.envoyees ? "Notifications activées : une notification d'essai arrive." : "Notifications activées.");
+    }
+  } catch (err) { toast("Notifications : " + (err && err.message ? err.message : "échec")); }
+  renderNotifs();
+}
+// Un toucher sur une notification alors que l'atelier est déjà ouvert : le service worker nous dit où aller.
+navigator.serviceWorker?.addEventListener("message", e => {
+  const url = e.data && e.data.aller;
+  if (url) { const h = new URL(url).hash; if (h) location.hash = h; }
+});
+
+// =====================================================================================
+// Navigation (routes dans l'ancre : le bouton Retour du téléphone fonctionne)
+// =====================================================================================
+function lireRoute() {
+  const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(s => { try { return decodeURIComponent(s); } catch (_) { return s; } });
+  if (parts[0] === "p" && parts[1]) return {page: "projet", id: parts[1], onglet: ONGLETS.includes(parts[2]) ? parts[2] : "taches",
+    tache: parts[2] === "taches" && /^\d+$/.test(parts[3] || "") ? parts[3] : null};
+  return {page: "jour"};
+}
+function rendre() {
+  renderRail(); renderAlertes();
+  const r = state.route;
+  $("#page-jour").hidden = r.page !== "jour";
+  $("#page-projet").hidden = r.page !== "projet";
+  if (r.page === "jour") { renderJour(); $("#tb-titre").textContent = "Aujourd'hui"; document.title = "Aujourd'hui · Atelier · Vaultia"; }
+  else { renderProjet(); const n = (state.projets[state.sel] || {}).nom || state.sel; $("#tb-titre").textContent = n; document.title = `${n} · Atelier · Vaultia`; }
+}
+async function appliquerRoute() {
+  const avant = state.route;
+  const r = lireRoute();
+  if (r.page === "projet" && !state.projets[r.id]) { if (Object.keys(state.projets).length) { location.replace("#/"); return; } }
+  state.route = r;
+  fermerRail();
+  const autreProjet = r.page === "projet" && r.id !== state.sel;
+  if (autreProjet) {
+    state.sel = r.id; state.filtre = null; state.faitOuvert = false; state.pcTout = false; state.v3dSig = "";
+    state.executions = []; state.hist = null; state.liv = null; state.pieces = null; state.achats = null; state.cout = null;
+    $("#taskform").hidden = true;
+  }
+  if (avant.page !== r.page || autreProjet) window.scrollTo(0, 0);
+  rendre();
+  // On recharge les données du projet à chaque entrée sur sa page (autre projet, ou retour depuis l'accueil) :
+  // sans ça, un retour au même projet montrait pièces, historique et livrables d'avant (revue codex-2, msg 4321).
+  // La vue 3D garde son garde v3dSig : elle n'est recréée que si les pièces ont changé.
+  const entre = r.page === "projet" && (autreProjet || avant.page !== "projet");
+  if (entre) { await chargerProjet(); if (state.route.page === "projet" && state.sel === r.id) rendre(); }
+  // Lien d'une notification : on ouvre la conversation de la tâche, puis l'ancre redevient celle du tableau
+  // (fermer la fiche ne la rouvre pas, et le bouton Retour revient où on était).
+  if (r.page === "projet" && r.tache) {
+    history.replaceState(null, "", `#/p/${encodeURIComponent(r.id)}/taches`);
+    state.route = {...r, tache: null};
+    ouvrirTache(r.tache, r.id, "conv");
+  }
+}
+const allerOnglet = o => { if (state.sel) location.hash = `#/p/${encodeURIComponent(state.sel)}/${o}`; };
+
+// Rafraîchit tout ce qui est affiché, sans fermer une fiche ni un formulaire ouvert.
+let RAFRAICHIT = false;
+async function rafraichir() {
+  if (RAFRAICHIT) return;
+  RAFRAICHIT = true;
+  try {
+    await Promise.all([chargerGlobal(), state.route.page === "projet" ? chargerProjet() : Promise.resolve()]);
+    rendre();
+  } finally { RAFRAICHIT = false; }
 }
 
-// ---------- décision sur un jalon (Charles) ----------
-async function deciderJalon(jalonId, val) {
-  const j = state.jalons.find(x => String(x.id) === String(jalonId));
-  if (!j) return;
-  const recy = val === "recycle" ? (($("#recy-" + CSS.escape(String(j.id)))?.value) || "") : "";
-  if (val === "recycle" && !recy) { toast("Choisis une étape vers laquelle recycler."); return; }
-  const note = (($("#not-" + CSS.escape(String(j.id)))?.value) || "").trim();
-  const r = await postJSON(`/api/v2/jalons/${encodeURIComponent(j.id)}/decision`,
-    {par: "user", decision: val, note, ...(val === "recycle" ? {recycle_etape: recy} : {})});
-  if (r.ok) { toast(`Jalon ${j.jalon} → ${val}.`); await loadProjet(); }
-  else toast(r.msg || `Décision refusée (déjà décidé, ou route non branchée).`);
-}
-
-// ---------- fiche projet (P2) : l'objectif, le niveau, les hypothèses, les risques, les questions ----------
-function ouvrirFicheProjet() {
-  const id = state.sel; if (!id) return;
-  const p = state.projets[id] || {};
-  const f = state.fiche || {};
-  const meta = `<div class="fm"><span class="pill ${STATUT_CLS[p.statut] || "s-attente"}">${esc(STATUTS[p.statut] || p.statut || "?")}</span>`
-    + (f.niveau ? `<span>Niveau : <b>${esc(f.niveau)}</b></span>` : "")
-    + (f.trl ? `<span>TRL : <b>${esc(f.trl)}</b></span>` : "")
-    + (f.horizon ? `<span>Horizon : <b>${esc(f.horizon)}</b></span>` : "")
-    + (f.code ? `<span>Code : <b>${esc(f.code)}</b></span>` : "")
-    + (f.type ? `<span>Type : <b>${esc(f.type)}</b></span>` : "")
-    + `</div>`;
-  const hypo = (f.hypotheses || []).map(h =>
-    `<li><span class="pill ${h.etat === "confirmee" ? "s-fait" : h.etat === "infirmee" ? "s-bloque" : "s-attente"}">${esc(h.etat || "à vérifier")}</span><span>${esc(h.texte || "")}</span><span class="cap">source : ${esc(h.source || "?")}</span></li>`).join("");
-  const risques = (f.risques || []).map(r =>
-    `<li><span class="cap">${esc(r.type || "")}${r.etape ? " · " + esc(NOM_ETAPES[r.etape] || r.etape) : ""}</span><span>${esc(r.texte || "")}</span></li>`).join("");
-  const questions = (f.questions || []).map(q =>
-    `<li><span>${esc(q.texte || "")}</span>${q.reponse ? `<span class="cap">réponse : ${esc(q.reponse)}</span>` : `<span class="cap" style="color:var(--warn)">sans réponse</span>`}</li>`).join("");
-  const c = f.criteres || [];
-  // Un tableau de blocs puis join("") — la concaténation avec ?: en chaîne avalait tout après le premier bloc vide.
-  const blocs = [];
-  if (f.objectif || p.objectif) blocs.push(`<div class="fc"><div class="lbl">Objectif</div><p>${esc(f.objectif || p.objectif)}</p></div>`);
-  if (f.livrable_attendu || p.livrable_attendu) blocs.push(`<div class="fc"><div class="lbl">Livrable attendu</div><p>${esc(f.livrable_attendu || p.livrable_attendu)}</p></div>`);
-  if (c.length) blocs.push(`<div class="fc"><div class="lbl">Critères</div><ul class="flist">${c.map(x => `<li><span>${esc(x.nom || "")}</span>${x.cible ? `<span class="cap">cible : ${esc(x.cible)}</span>` : ""}</li>`).join("")}</ul></div>`);
-  if (hypo) blocs.push(`<div class="fc"><div class="lbl">Hypothèses</div><ul class="flist hypo">${hypo}</ul></div>`);
-  if (risques) blocs.push(`<div class="fc"><div class="lbl">Risques</div><ul class="flist">${risques}</ul></div>`);
-  if (questions) blocs.push(`<div class="fc"><div class="lbl">Questions posées par claude</div><ul class="flist">${questions}</ul></div>`);
-  const contenu = blocs.join("") || `<p class="cap">La fiche projet n'est pas encore remplie. claude la remplit pendant le lancement guidé (objectif, niveau, hypothèses, risques, questions).</p>`;
-  ouvrirFiche(enteteFiche("Fiche projet", p.nom || id) + meta + contenu);
-}
+// ---------- tiroir (téléphone) ----------
+function ouvrirRail() { $("#rail").classList.add("ouvert"); $("#voile").hidden = false; $("#menu").setAttribute("aria-expanded", "true"); }
+function fermerRail() { $("#rail").classList.remove("ouvert"); $("#voile").hidden = true; $("#menu").setAttribute("aria-expanded", "false"); }
 
 // ---------- câblage ----------
-// Bouton « Discuter » : ouvre la conversation de la tâche dans la salle.
-// La route crée le canal tache-<id> (rangé sous le projet) une seule fois et rend {channel}.
-// On mémorise le canal pour la salle, puis on y va — sans toucher à chat.js.
-async function discuter(tacheId) {
-  const r = await postJSON(`/api/v2/taches/${encodeURIComponent(tacheId)}/conversation`, {});
-  if (!r.ok || !r.data || !r.data.channel) { toast(r.msg || "Impossible d'ouvrir la conversation de cette tâche."); return; }
-  try { localStorage.setItem("agentchattr-channel", r.data.channel); } catch (_) {}
-  window.location.href = "/";
-}
-
 document.addEventListener("click", e => {
   const t = e.target;
-  // Visualiseur de livrable : bouton « voir » (table des livrables) ou chemin cliquable (preuve d'une tâche).
   const lv = t.closest("[data-voir]"); if (lv) { e.preventDefault(); e.stopPropagation(); return ouvrirLivrable(lv.dataset.voir); }
-  const tab = t.closest("#tabs [role=tab]"); if (tab) return go(tab.dataset.v);
-  const g = t.closest("[data-go]"); if (g) return go(g.dataset.go);
-  // Un clic sur un projet ouvre sa carte de tâches (avant : il ne faisait que le surligner).
-  // Les boutons de la ligne (« En veille ») passent au gestionnaire [data-status] plus bas.
-  const row = t.closest(".prow[data-proj]"); if (row && !t.closest("button")) { state.sel = row.dataset.proj; loadProjet(); go("carte"); return; }
-  const rp = t.closest("[data-proj]");
-  const st = t.closest("[data-status]");
-  if (st) { e.stopPropagation(); return changerStatut(st.dataset.proj, st.dataset.status); }
-  if (rp && (rp.classList.contains("proj") || rp.classList.contains("prow"))) { state.sel = rp.dataset.proj; loadProjet(); go(rp.classList.contains("proj") ? "carte" : state.view); return; }
-  // Bouton « Discuter » sur un nœud de tâche : on ouvre la salle, pas de sélection de nœud.
-  const d = t.closest("[data-disc]"); if (d) { e.stopPropagation(); return discuter(d.dataset.disc); }
-  // Bouton de décision sur un jalon (Charles) : go / recycle / hold / kill.
+  const d = t.closest("[data-disc]"); if (d) { e.preventDefault(); e.stopPropagation(); return ouvrirTache(d.dataset.disc, d.dataset.p, "conv"); }
+  const md = t.closest("[data-mode]"); if (md) { e.stopPropagation(); return ouvrirTache(md.dataset.tache, md.dataset.p, md.dataset.mode); }
+  const sa = t.closest("[data-salle]"); if (sa) { e.preventDefault(); return allerSalle(sa.dataset.salle); }
+  const mt = t.closest("[data-mention]"); if (mt) { const a = mt.dataset.mention; CONV.mentions.has(a) ? CONV.mentions.delete(a) : CONV.mentions.add(a); return majMentions(); }
+  const cx = t.closest("[data-choix]"); if (cx) { e.stopPropagation(); return choisir(cx.dataset.choix, cx.dataset.val); }
+  const rp = t.closest("[data-retirer-pj]"); if (rp) { CONV.pj.splice(+rp.dataset.retirerPj, 1); return majPJ(); }
+  const st = t.closest("[data-status]"); if (st && st.dataset.status) { e.stopPropagation(); return changerStatut(st.dataset.proj, st.dataset.status); }
   const dj = t.closest("[data-dec]"); if (dj) { e.stopPropagation(); return deciderJalon(dj.dataset.dec, dj.dataset.val); }
-  const fe = t.closest("[data-fiche]"); if (fe) return ouvrirTache(fe.dataset.fiche);
-  const sp = t.closest("[data-step]"); if (sp) return ouvrirEtape(sp.dataset.step);
-  const nd = t.closest("[data-node]"); if (nd) return ouvrirTache(nd.dataset.node);
-  // N3 : ligne de pièce du tableau → fiche pièce ; nœud d'arbre → replier/déplier (ou ouvrir si clic sur la réf).
-  const pr = t.closest(".pc-row[data-piece]"); if (pr && !t.closest("button")) return ouvrirPiece(pr.dataset.piece);
+  const oe = t.closest("[data-ouvrir-etape]"); if (oe) { e.stopPropagation(); return ouvrirEtape(oe.dataset.ouvrirEtape, oe.dataset.p); }
+  const fi = t.closest("[data-filtre]"); if (fi) { state.filtre = fi.dataset.filtre && fi.dataset.filtre !== state.filtre ? fi.dataset.filtre : null; renderEtapes(state.etape ?? etapeDuProjet(state.taches)); renderTableau(); if ((state.route.onglet || "taches") !== "taches") allerOnglet("taches"); return; }
+  const fe = t.closest("[data-fiche]"); if (fe) return ouvrirTache(fe.dataset.fiche, fe.dataset.p);
+  const og = t.closest("#onglets [data-onglet]"); if (og) return allerOnglet(og.dataset.onglet);
+  const pr = t.closest(".pc-row[data-piece], .eclatee-bloc[data-piece]"); if (pr) return ouvrirPiece(pr.dataset.piece);
   const pn = t.closest(".pc-toggle"); if (pn) { const kids = pn.parentNode.querySelector(":scope > .pc-kids"); if (kids) { kids.hidden = !kids.hidden; pn.setAttribute("aria-expanded", String(!kids.hidden)); } return; }
+  const er = t.closest(".ev-r"); if (er) { er.classList.toggle("ouvert"); return; }
   if (t.id === "fiche") return fermerFiche();  // clic sur le fond du dialogue
+  if (t.id === "voile") return fermerRail();
+  if (t.closest("#menu")) return $("#rail").classList.contains("ouvert") ? fermerRail() : ouvrirRail();
+  if (t.closest(".rail a")) return fermerRail();
   const act = t.closest("[data-act]"); if (!act) return;
-  if (act.dataset.act === "fermer") return fermerFiche();
-  if (act.dataset.act === "fiche-projet") return ouvrirFicheProjet();
-  if (act.dataset.act === "newtask") { const f = $("#taskform"); f.hidden = !f.hidden; if (!f.hidden) $("#tk-t").focus(); }
-  if (act.dataset.act === "canceltask") { $("#taskform").hidden = true; }
+  const a = act.dataset.act;
+  if (a === "fermer") return fermerFiche();
+  if (a === "rafraichir") { act.disabled = true; rafraichir().then(() => { act.disabled = false; toast("Atelier à jour."); }); return; }
+  if (a === "fiche-projet") return ouvrirFicheProjet();
+  if (a === "notifs") return basculerNotifs();
+  if (a === "conv-plus") { CONV.limite += 100; return chargerConv(false); }
+  if (a === "pc-tout") { state.pcTout = true; return renderPieces(); }
+  if (a === "fait-tout") { state.faitOuvert = !state.faitOuvert; return renderTableau(); }
+  if (a === "nouveau-projet") {
+    fermerRail();
+    if (state.route.page !== "jour") location.hash = "#/";
+    const f = $("#newproj"); f.hidden = false;
+    setTimeout(() => { f.scrollIntoView({block: "center", behavior: "smooth"}); $("#np-nom").focus({preventScroll: true}); }, 60);
+    return;
+  }
+  if (a === "annuler-projet") { $("#newproj").reset(); $("#newproj").hidden = true; return; }
+  if (a === "newtask") { if (state.route.onglet !== "taches") allerOnglet("taches"); const f = $("#taskform"); f.hidden = !f.hidden; if (!f.hidden) $("#tk-t").focus(); return; }
+  if (a === "canceltask") { $("#taskform").reset(); $("#taskform").hidden = true; }
 });
-$("#msel").addEventListener("change", e => go(e.target.value));
+// Clavier : Entrée ou Espace ouvre une ligne ou une carte (role=button), Échap ferme le tiroir.
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && $("#rail").classList.contains("ouvert")) { fermerRail(); return; }
+  if (e.target.id === "conv-texte" && e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("#conv-form").requestSubmit(); return; }
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches('[role="button"][tabindex], .pc-row[tabindex]')) {
+    e.preventDefault(); e.target.click();
+  }
+});
+$("#btn-approuver").addEventListener("click", approuver);
 $("#newproj").addEventListener("submit", nouveauProjet);
 $("#taskform").addEventListener("submit", nouvelleTache);
-// N3 : filtres du tableau des pièces (re-rendu à la volée, sans re-fetch).
 $("#pc-q").addEventListener("input", renderPieces);
 $("#pc-f").addEventListener("change", renderPieces);
-window.addEventListener("resize", () => {});
-
-// U4 : les alertes (sauvegarde, copie hors tour) sont globales, pas propres à un projet.
-// Rechargées au démarrage, au retour sur l'onglet et toutes les 5 min : la boucle de
-// sauvegarde réessaie chaque heure, une page ouverte doit donc suivre (alerte levée ou nouvelle).
-// Règle P2 : on ne vide jamais le bandeau sur une erreur transitoire (5xx, réseau).
-// Vider uniquement sur 404 (route absente) ou sur une réponse valide dont la liste est vide.
-async function loadAlertes() {
-  const r = await getJSON("/api/v2/ronde");
-  if (r.err === 404) {
-    // Route absente → vider
-    state.alertes = [];
-  } else if (r.ok && r.data && Array.isArray(r.data.alertes)) {
-    state.alertes = r.data.alertes;
-  }
-  // sinon : garder le dernier état connu (erreur transitoire 5xx, réseau)
-  renderAlertes();
-}
+document.addEventListener("input", e => {
+  if (e.target.id === "v3d-eclate" && state.v3d) state.v3d.setEclate(parseInt(e.target.value, 10) / 100);
+  if (e.target.id === "conv-texte") { const ta = e.target; ta.style.height = ""; ta.style.height = Math.min(ta.scrollHeight, 200) + "px"; majEnvoyer(); }
+});
+document.addEventListener("submit", e => { if (e.target.id === "conv-form") envoyerConv(e); });
+document.addEventListener("change", e => { if (e.target.id === "conv-fich") { joindre(Array.from(e.target.files || [])); e.target.value = ""; } });
+// L'événement « close » arrive en tâche différée : si la fiche a été rouverte entre-temps (fermer puis rouvrir vite),
+// il ne doit pas arrêter la conversation qui vient de s'ouvrir (elle resterait sur « Ouverture… »).
+$("#fiche").addEventListener("close", () => { if (!$("#fiche").open) arreterConv(); });
+window.addEventListener("hashchange", appliquerRoute);
 
 // ---------- démarrage ----------
-// G5 : curseur d'éclaté
-document.addEventListener("input", e => {
-  if (e.target.id === "v3d-eclate" && state.v3d) {
-    state.v3d.setEclate(parseInt(e.target.value, 10) / 100);
-  }
-});
-
 (async function init() {
-  try { const v = localStorage.getItem("rd-view"); if (v) state.view = v; } catch (_) {}
-  await loadAlertes();
-  await loadProjets();
-  await loadProjet();
-  go(state.view || "projets");
-  // U4 : suivre les alertes tant que la page est ouverte (5 min, en phase avec la boucle de sauvegarde).
-  setInterval(loadAlertes, 5 * 60 * 1000);
-  // Les nouvelles tâches (créées par l'API ou un autre client) n'arrivent PAS en direct (l'atelier n'a pas de
-  // WebSocket). On rafraîchit le projet sélectionné au retour sur l'onglet + périodiquement, pour ne plus avoir
-  // à recharger la page à la main.
-  setInterval(() => { if (!document.hidden && state.sel) loadProjet(); }, 60 * 1000);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) { loadAlertes(); if (state.sel) loadProjet(); } });
+  await chargerGlobal();
+  // Ancien signet sans ancre : on garde l'accueil « Aujourd'hui ».
+  await appliquerRoute();
+  brancherFlux();
+  renderNotifs();
+  // Pas de WebSocket ici : on suit la salle toutes les 60 s et au retour sur l'onglet.
+  setInterval(() => { if (!document.hidden) rafraichir(); }, 60 * 1000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) rafraichir(); });
 })();
