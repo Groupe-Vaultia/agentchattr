@@ -675,8 +675,15 @@ def _report_rule_sync(server_port: int, agent_name: str, epoch: int, token: str 
 
 def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = False, trigger_flag=None,
                    server_port: int = 8300, agent_name: str = "", get_token_fn=None,
-                   refresh_interval: int = 10, clear_fn=None, clear_every: int = 0):
+                   refresh_interval: int = 10, clear_fn=None, clear_every: int = 0,
+                   trigger_prompt: str = "", inject_rules: bool = True):
     """Poll queue file and inject an MCP read task when triggered.
+
+    ``trigger_prompt`` (agents.<x>.trigger_prompt) replaces the default English
+    one-liner for models that ignore it (Bolt, 2-bit local: answered in its
+    terminal, never called chat_read/chat_send). Placeholders : {name} (current
+    identity), {cible} (``channel='x'`` or ``job_id=N``). ``inject_rules`` False
+    drops the long RULES block; the template then carries the key rules.
 
     ``clear_every`` > 0 : every N triggers, reset the CLI's conversation via
     ``clear_fn`` BEFORE injecting the next task. The room (MCP) is the shared
@@ -738,15 +745,18 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
                         except json.JSONDecodeError:
                             pass
 
+                    # Use current identity (may have changed via rename)
+                    current_name, _ = get_identity_fn()
                     if custom_prompt:
                         prompt = custom_prompt
+                    elif trigger_prompt:
+                        cible = f"job_id={job_id}" if job_id else f"channel='{channel}'"
+                        prompt = trigger_prompt.replace("{name}", current_name).replace("{cible}", cible)
                     elif job_id:
                         prompt = f"use mcp to read job_id={job_id} - you're mentioned in a job thread, take appropriate action and respond"
                     else:
                         prompt = f"use mcp to read #{channel} - you're mentioned, take appropriate action and respond"
 
-                    # Use current identity (may have changed via rename)
-                    current_name, _ = get_identity_fn()
                     # Append role if set — check both current name and base name
                     role = _fetch_role(server_port, current_name)
                     if not role and current_name != agent_name:
@@ -771,7 +781,7 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
                             last_rules_epoch = 0
                             first_mention = True
                             print(f"  AUTO-CLEAR: contexte réinitialisé après {trigger_count} déclenchements")
-                    if rules_data:
+                    if rules_data and inject_rules:
                         # Use server-side refresh_interval (live from settings UI)
                         ri = rules_data.get("refresh_interval", refresh_interval)
                         need_inject = (
@@ -1039,7 +1049,9 @@ def main():
         return {"is_multi_instance": _is_multi_instance, "trigger_flag": _trigger_flag,
                 "server_port": server_port, "agent_name": assigned_name,
                 "get_token_fn": get_token, "refresh_interval": _refresh_interval,
-                "clear_fn": _watcher_clear_fn, "clear_every": _clear_every}
+                "clear_fn": _watcher_clear_fn, "clear_every": _clear_every,
+                "trigger_prompt": agent_cfg.get("trigger_prompt", ""),
+                "inject_rules": agent_cfg.get("inject_rules", True)}
 
     def start_watcher(inject_fn, clear_fn=None):
         nonlocal _watcher_inject_fn, _watcher_clear_fn, _watcher_thread
