@@ -18,6 +18,10 @@ how many reads the OS chose to make.
 Skipped when tmux is not installed. What they do NOT prove: that every CLI
 handles a bracketed paste; that is the CLI's contract, verified separately
 against Claude Code by transcript.
+
+Isolation : ce module isole lui-même tmux (setUpModule, tests/_tmux_isole.py).
+Même lancé depuis le panneau d'un agent (TMUX hérité), il démarre son propre
+serveur jetable et ne touche jamais le serveur réel ni le panneau de l'agent.
 """
 import os
 import shutil
@@ -29,11 +33,23 @@ import time
 import unittest
 from unittest import mock
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+TESTS = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(TESTS)
+for _chemin in (ROOT, TESTS):
+    if _chemin not in sys.path:
+        sys.path.insert(0, _chemin)
 
+import _tmux_isole  # noqa: E402
 import wrapper_unix  # noqa: E402
+
+
+def setUpModule():
+    # Isolation tmux au niveau du module, quelle que soit la commande de lancement.
+    _tmux_isole.isoler()
+
+
+def tearDownModule():
+    _tmux_isole.restaurer()
 
 OPEN = b"\x1b[200~"
 CLOSE = b"\x1b[201~"
@@ -104,6 +120,10 @@ def _wait_for(path: str, marker: bytes, timeout: float) -> bool:
 @unittest.skipUnless(HAVE_TMUX, "tmux not installed")
 class InjectTransportTests(unittest.TestCase):
     """Real tmux, real pty, raw-mode reader pane."""
+
+    def setUp(self):
+        # Garde-fou : aucune commande tmux réelle hors du serveur isolé.
+        _tmux_isole.exiger_isolement()
 
     def _run(self, mode: str, payload: str, delay: float = 1.0):
         session = f"agentchattr-test-inject-{os.getpid()}-{mode}"
