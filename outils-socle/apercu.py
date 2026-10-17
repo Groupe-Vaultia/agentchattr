@@ -23,7 +23,7 @@ Seules les origines de l'aperçu lui-même sont traduites vers celle de la salle
 par le contrôle d'origine du serveur, et le jeton de session reste exigé.
 
 Exemples :
-  .venv/bin/python outils-socle/apercu.py bac-a-sable --worktree ~/atelier/wt-claude-atelier --ecoute 100.115.165.87:8321
+  .venv/bin/python outils-socle/apercu.py bac-a-sable --worktree ~/atelier/wt-claude-atelier --ecoute 100.x.y.z:8321
   .venv/bin/python outils-socle/apercu.py relais --worktree ~/atelier/wt-claude-atelier --ecoute 127.0.0.1:8310
   .venv/bin/python outils-socle/apercu.py arreter
 """
