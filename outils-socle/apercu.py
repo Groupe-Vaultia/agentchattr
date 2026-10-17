@@ -2,6 +2,10 @@
 """apercu.py — voir un changement de la salle AVANT sa mise en service, sans toucher la salle en service.
 
 v1.0 (2026-10-16, claude) : première version (piste 4 acceptée par Charles).
+v1.1 (2026-10-16, claude) : revue codex-2 (msg 4328). Le journal du bac à sable contient le jeton de session que run.py
+affiche au démarrage : il est créé en 0600, vidé à chaque lancement, dans un dossier en 0700. La copie des données
+exclut les secrets et ce qui agit hors de la tour : jeton de la salle, jetons des agents (registry.json), configuration
+des fournisseurs, clé VAPID et abonnements aux notifications (sinon le bac à sable notifierait le vrai cell).
 
 Deux modes :
 
@@ -38,7 +42,15 @@ from pathlib import Path
 
 SALLE = Path(__file__).resolve().parents[1]           # le dépôt (clone principal ou worktree) qui porte l'outil
 CACHE = Path.home() / ".cache" / "agentchattr-apercu"  # hors du dépôt : la copie des données n'est jamais commitée
-EXCLUS = ("*.log", "sauvegardes", "*_queue.jsonl", "*.sauv-*")
+EXCLUS = ("*.log", "sauvegardes", "*_queue.jsonl", "*.sauv-*",
+          # secrets et effets hors de la tour : jamais copiés dans le bac à sable
+          "session_token", "registry.json", "provider-config", "extra-mcp", ".config.local.toml*",
+          "vapid.json", "push_abonnements.json")
+
+
+def _dossier_prive(d: Path) -> None:
+    d.mkdir(parents=True, exist_ok=True)
+    os.chmod(d, 0o700)
 
 
 def _attendre(url: str, delai: float = 60) -> bool:
@@ -54,7 +66,7 @@ def _attendre(url: str, delai: float = 60) -> bool:
 
 
 def _pid_ecrit(nom: str, pid: int) -> None:
-    CACHE.mkdir(parents=True, exist_ok=True)
+    _dossier_prive(CACHE)
     (CACHE / f"{nom}.pid").write_text(str(pid))
 
 
@@ -64,12 +76,17 @@ def bac_a_sable(a) -> int:
         print(f"ERREUR : {worktree} n'est pas un dépôt agentchattr (run.py absent).", file=sys.stderr)
         return 1
     source = Path(a.donnees).expanduser().resolve()
+    _dossier_prive(CACHE)
     copie = CACHE / "data"
     if copie.exists():
         shutil.rmtree(copie)
     shutil.copytree(source, copie, ignore=shutil.ignore_patterns(*EXCLUS))
+    os.chmod(copie, 0o700)
     port = int(a.port)
-    journal = open(CACHE / "bac-a-sable.log", "ab")
+    # run.py affiche le jeton de session du bac à sable : journal privé (0600), vidé à chaque lancement.
+    chemin_journal = CACHE / "bac-a-sable.log"
+    journal = os.fdopen(os.open(chemin_journal, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "wb")
+    os.chmod(chemin_journal, 0o600)
     # Ports MCP distincts de la salle (8200/8201) : aucun agent ne s'y branche.
     proc = subprocess.Popen(
         [a.python, "run.py", "--data-dir", str(copie), "--port", str(port),

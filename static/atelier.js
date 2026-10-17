@@ -1072,14 +1072,19 @@ async function envoyerConv(e) {
   // Les agents choisis sont mentionnés en tête du message, sauf s'ils le sont déjà dans le texte.
   const absents = [...CONV.mentions].filter(a => !new RegExp(`@${a.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`, "i").test(texte));
   if (absents.length) texte = absents.map(a => "@" + a).join(" ") + (texte ? " " + texte : "");
+  // On fige la tâche, le canal et les pièces jointes AVANT l'envoi : si Charles ferme la fiche ou ouvre une autre tâche
+  // pendant l'attente, la réponse ne doit ni s'afficher dans l'autre conversation ni vider ses pièces jointes (revue codex-2, msg 4325).
+  const envoi = {tache: CONV.tache, canal: CONV.canal, pj: CONV.pj.slice()};
   CONV.envoi = true; majEnvoyer();
-  const r = await postJSON("/api/v2/messages", {channel: CONV.canal, text: texte, attachments: CONV.pj, tache_id: CONV.tache});
-  CONV.envoi = false;
+  const r = await postJSON("/api/v2/messages", {channel: envoi.canal, text: texte, attachments: envoi.pj, tache_id: envoi.tache});
+  const memeFiche = CONV.tache === envoi.tache && CONV.canal === envoi.canal && $("#fiche").open;
+  if (memeFiche) CONV.envoi = false;
   if (!r.ok) {
-    majEnvoyer();
-    toast(r.err === 405 ? "La salle en service n'a pas encore la route d'envoi de l'atelier (elle arrive avec la fusion)." : (r.msg || "Message non envoyé. Réessaie."));
+    if (memeFiche) majEnvoyer();
+    toast(r.err === 405 ? "La salle en service n'a pas encore la route d'envoi de l'atelier (elle arrive avec la fusion)." : (r.msg || `Message non envoyé (tâche ${envoi.tache}). Réessaie.`));
     return;
   }
+  if (!memeFiche) { toast(`Message envoyé dans la tâche ${envoi.tache}.`); return; }
   ta.value = ""; ta.style.height = ""; CONV.pj = []; majPJ();
   if (r.data && r.data.id != null) ajouterMessages([r.data], true);
 }
