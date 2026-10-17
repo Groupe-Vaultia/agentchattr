@@ -16,6 +16,9 @@
 # part, ils peuvent tomber alors que :8300/ répond 200, et le gardien ne sonde
 # que :8300 (les agents resteraient coupés sans reprise). Le journal du serveur
 # est remis en 0600 avant chaque ajout (umask ne corrige pas un fichier existant).
+# v1.2 (2026-10-16, claude-1) : revue codex-2 (msg 4332). MCP HTTP doit rendre SA réponse (406 sur un GET /mcp
+# sans en-tête SSE), et les trois ports doivent appartenir au nouveau serveur (ss -ltnp) : un autre programme qui
+# occuperait :8200 en rendant 404 ne passe plus pour le MCP de la salle.
 #
 # Usage, depuis le clone principal (le dossier courant fait foi) :
 #   outils-socle/mise-en-service.sh [--essai] [--redemarrer]
@@ -73,6 +76,20 @@ sans_redemarrage() {
 # PID des serveurs de CE clone : le motif ne suffit pas (un autre clone peut
 # tourner avec la même ligne de commande), le dossier courant du processus doit
 # être la racine du clone.
+# PID qui écoute sur un port TCP local (ss -ltnp ; même utilisateur que le serveur).
+pid_du_port() {
+  ss -ltnpH "sport = :$1" 2>/dev/null | grep -o 'pid=[0-9]*' | cut -d= -f2 | sort -u
+}
+
+# Vrai si le port est tenu par l'un des PID du serveur de ce clone.
+port_au_serveur() {
+  local port=$1 p s
+  for p in $(pid_du_port "$port"); do
+    for s in $(pids_serveur); do [ "$p" = "$s" ] && return 0; done
+  done
+  return 1
+}
+
 pids_serveur() {
   local p
   for p in $(pgrep -f "$MOTIF_SERVEUR" || true); do
@@ -132,8 +149,9 @@ Séquence sûre (dans $RACINE) :
   3. setsid nohup .venv/bin/python run.py >> data/server.log 2>&1 < /dev/null &
   4. attendre jusqu'à 60 s que les trois répondent :
        salle     curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT/               → 200
-       MCP HTTP  curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT_MCP_HTTP/mcp       → un code HTTP (406 attendu)
+       MCP HTTP  curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT_MCP_HTTP/mcp       → 406 (réponse propre au MCP)
        MCP SSE   curl -s -o /dev/null -w '%{http_code}' -m 2 http://127.0.0.1:$PORT_MCP_SSE/sse   → 200 (flux ouvert)
+     et les trois ports tenus par le nouveau serveur : ss -ltnp "sport = :<port>" → son PID
   5. [ -n "\$W" ] && kill -CONT \$W
 FIN
 }
@@ -204,7 +222,7 @@ executer_redemarrage() {
     http=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://127.0.0.1:$PORT_MCP_HTTP/mcp" || true)
     # Le flux SSE reste ouvert : curl s'arrête au délai (code 28) mais a déjà reçu son 200.
     sse=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://127.0.0.1:$PORT_MCP_SSE/sse" || true)
-    [ "$code" = 200 ] && [ "${http:-000}" != 000 ] && [ "$sse" = 200 ] && break
+    [ "$code" = 200 ] && [ "$http" = 406 ] && [ "$sse" = 200 ] && break
     sleep 1
   done
 
@@ -212,7 +230,13 @@ executer_redemarrage() {
   reprendre_gardien
   trap - EXIT INT TERM HUP
   [ "$code" = 200 ] || arret "la salle ne répond pas 200 en 60 s (dernier code $code) : voir data/server.log ; le gardien, repris, relancera la salle complète"
-  { [ "${http:-000}" != 000 ] && [ "$sse" = 200 ]; } || arret "la salle répond, mais pas les transports MCP des agents (HTTP :$PORT_MCP_HTTP → $http, SSE :$PORT_MCP_SSE → $sse) : les agents restent coupés et le gardien, qui ne sonde que :$PORT, ne relancera pas. Voir data/server.log, puis relancer à la main (vaultia-start.sh)"
+  { [ "$http" = 406 ] && [ "$sse" = 200 ]; } || arret "la salle répond, mais pas les transports MCP des agents (HTTP :$PORT_MCP_HTTP → $http, SSE :$PORT_MCP_SSE → $sse) : les agents restent coupés et le gardien, qui ne sonde que :$PORT, ne relancera pas. Voir data/server.log, puis relancer à la main (vaultia-start.sh)"
+  # Les trois ports doivent être tenus par CE serveur (et non par un autre programme qui répondrait à sa place).
+  local port_hors=""
+  for p in "$PORT" "$PORT_MCP_HTTP" "$PORT_MCP_SSE"; do
+    port_au_serveur "$p" || port_hors="$port_hors :$p(pid $(pid_du_port "$p" | tr '\n' ' ')) "
+  done
+  [ -z "$port_hors" ] || arret "port(s) tenu(s) par un autre programme que le serveur relancé :$port_hors— les agents ne sont pas reconnectés au bon serveur. Voir data/server.log, puis relancer à la main (vaultia-start.sh)"
   dire "En service : serveur PID $(pids_serveur | tr '\n' ' ')· salle 200 · MCP HTTP $http · MCP SSE $sse."
 }
 
