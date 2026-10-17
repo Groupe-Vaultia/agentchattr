@@ -356,7 +356,14 @@ class WrapperUnixLifecycleTests(unittest.TestCase):
     def test_detach_keeps_wrapper_alive_until_tmux_session_ends(self):
         commands = []
         sleep_calls = []
+        watcher_args = []
         has_session_states = iter([0, 0, 1])
+
+        # Même signature que wrapper.start_watcher(inject_fn, clear_fn=None) :
+        # depuis l'auto-vidage du contexte (0026daa), run_agent lui passe aussi
+        # clear_fn. Une simulation à un seul argument casse sur TypeError.
+        def fake_start_watcher(inject_fn, clear_fn=None):
+            watcher_args.append((inject_fn, clear_fn))
 
         def fake_run(args, **kwargs):
             commands.append(args)
@@ -381,7 +388,7 @@ class WrapperUnixLifecycleTests(unittest.TestCase):
                 queue_file=Path("queue.jsonl"),
                 agent="claude",
                 no_restart=False,
-                start_watcher=lambda inject_fn: None,
+                start_watcher=fake_start_watcher,
                 session_name="agentchattr-claude-1",
             )
 
@@ -390,6 +397,11 @@ class WrapperUnixLifecycleTests(unittest.TestCase):
         ]
         self.assertEqual(len(has_session_checks), 3)
         self.assertEqual(sleep_calls, [1])
+        # Le veilleur reçoit l'injection ET le vidage de contexte.
+        self.assertEqual(len(watcher_args), 1)
+        inject_fn, clear_fn = watcher_args[0]
+        self.assertTrue(callable(inject_fn))
+        self.assertTrue(callable(clear_fn))
 
 
 @unittest.skipUnless(sys.platform == "win32", "Windows-only wrapper compatibility test")
