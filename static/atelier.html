@@ -11,7 +11,7 @@
 <link rel="icon" type="image/svg+xml" href="/static/icons/icone.svg">
 <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
 <link rel="preload" href="/static/fonts/source-serif-4-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/static/atelier.css?v=3">
+<link rel="stylesheet" href="/static/atelier.css?v=4">
 </head>
 <body>
 <!-- Atelier v3 : accueil « Aujourd'hui » (ce qui t'attend, qui travaille, projets), page projet avec frise
@@ -36,6 +36,7 @@
       <div class="rail-h"><span>Projets</span><button class="ibtn petit" type="button" data-act="nouveau-projet" aria-label="Nouveau projet"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5.5v13M5.5 12h13"/></svg></button></div>
       <div id="rail-proj"></div>
     </div>
+    <button class="it rail-notifs" id="notifs" type="button" data-act="notifs" aria-pressed="false" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 16.5V11a5.5 5.5 0 0 1 11 0v5.5l1.5 2h-14Z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></svg><span>Activer les notifications</span></button>
     <a class="it rail-salle" href="/"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 12a7.5 7.5 0 0 1-10.9 6.7L4.5 19.5l.9-3.8A7.5 7.5 0 1 1 19.5 12Z"/></svg><span>Retour à la salle</span></a>
   </aside>
 
@@ -162,6 +163,6 @@
 <dialog class="fiche" id="fiche" aria-labelledby="fiche-t"><div id="fiche-c" tabindex="-1"></div></dialog>
 <div class="toast" id="toast" role="status" hidden></div>
 <script type="module" src="/static/three-viewer.js?v=2"></script>
-<script type="module" src="/static/atelier.js?v=9"></script>
+<script type="module" src="/static/atelier.js?v=10"></script>
 </body>
 </html>

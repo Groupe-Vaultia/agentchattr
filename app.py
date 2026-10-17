@@ -12,7 +12,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.requests import Request
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from store import MessageStore
@@ -55,6 +55,7 @@ agents: AgentTrigger | None = None
 registry: RuntimeRegistry | None = None
 session_store: SessionStore | None = None
 session_engine: SessionEngine | None = None
+notifs = None  # Atelier v3 : notifications poussées (notifications.Notifications)
 config: dict = {}
 ws_clients: set[WebSocket] = set()
 
@@ -282,7 +283,7 @@ def _install_security_middleware(token: str, cfg: dict):
 
 
 def configure(cfg: dict, session_token: str = ""):
-    global store, rules, summaries, jobs, executions, revisions, jalons, pieces, schedules, router, agents, registry, session_store, session_engine, config
+    global store, rules, summaries, jobs, executions, revisions, jalons, pieces, schedules, router, agents, registry, session_store, session_engine, config, notifs
     config = cfg
     # --- Security: store the session token and install middleware ---
     _install_security_middleware(session_token, cfg)
@@ -319,6 +320,11 @@ def configure(cfg: dict, session_token: str = ""):
 
     jobs = JobStore(str(jobs_path))
     jobs.on_change(_on_job_change)
+    # Atelier v3 : notifications poussées. Les tâches qui attendent déjà Charles au démarrage ne sont pas renotifiées.
+    from notifications import Notifications
+    notifs = Notifications(data_dir)
+    _attente_notifiee.clear()
+    _attente_notifiee.update(t["id"] for t in jobs.list_all() if t.get("type") == "tache" and t.get("etat") == "attend_charles")
     executions = ExecutionStore(str(Path(data_dir) / "executions.json"))
     # Les livrables vivent dans les worktrees de l'atelier ; un chemin hors de cette racine est refuse.
     racine = cfg.get("socle", {}).get("racine_livrables", str(Path.home() / "atelier"))
@@ -636,8 +642,32 @@ def _on_rule_change(action: str, rule: dict):
     asyncio.run_coroutine_threadsafe(broadcast_rule(action, rule), _event_loop)
 
 
+# Atelier v3 : tâches pour lesquelles Charles a déjà été prévenu qu'elles l'attendent (une seule fois par attente).
+_attente_notifiee: set[int] = set()
+
+
+def _notifier_attente(tache: dict) -> None:
+    """Prévient Charles quand une tâche PASSE à « attend_charles » ; oublie l'attente quand elle en sort."""
+    if not isinstance(tache, dict) or tache.get("type") != "tache" or tache.get("id") is None:
+        return
+    if tache.get("etat") != "attend_charles":
+        _attente_notifiee.discard(tache["id"])
+        return
+    if tache["id"] in _attente_notifiee:
+        return
+    _attente_notifiee.add(tache["id"])
+    if notifs is not None:
+        projet = tache.get("projet_id") or ""
+        notifs.envoyer_en_fond("Une décision t'attend", f"{tache.get('titre') or 'Tâche ' + str(tache['id'])}",
+                               url=f"/atelier#/p/{projet}/taches/{tache['id']}", etiquette=f"tache-{tache['id']}")
+
+
 def _on_job_change(action: str, data: dict):
     """Called from any thread when a job changes."""
+    try:
+        _notifier_attente(data)
+    except Exception:
+        log.exception("notification d'attente")
     if _event_loop is None:
         return
     try:
@@ -790,6 +820,13 @@ async def _handle_new_message(msg: dict):
     if msg_type == "decision":
         for ancienne in _remplacer_decisions(msg):
             await _broadcast(json.dumps({"type": "message_update", "message": ancienne}))
+        # Atelier v3 : une carte de décision d'un agent attend Charles → notification sur son cell.
+        if notifs is not None and sender not in ("system", room_settings.get("username", "user")):
+            premiere = next((l.strip(" #*|") for l in text.splitlines() if l.strip(" #*|-")), "")
+            cible = (f"/atelier#/p/{msg['projet_id']}/taches/{msg['tache_id']}"
+                     if msg.get("projet_id") and msg.get("tache_id") else "/atelier#/")
+            notifs.envoyer_en_fond(f"{sender} te demande de choisir", premiere[:200] or "Une carte de décision t'attend.",
+                                   url=cible, etiquette=f"decision-{channel}")
 
     # Track last active channel for leave/join messages (skip system messages)
     global _last_active_channel
@@ -1005,8 +1042,32 @@ async def _handle_new_message(msg: dict):
 
 # --- broadcasting ---
 
+# Atelier v3 : flux en direct (SSE) pour l'atelier. Le WebSocket /ws renvoie tout l'historique à chaque connexion
+# (~4 Mo) ; l'atelier n'a besoin que de savoir qu'un message, une carte, un état d'agent ou une tâche a bougé.
+_flux_abonnes: set[asyncio.Queue] = set()
+_FLUX_TYPES = ("message", "message_update", "status", "job")
+
+
+def _diffuser_flux(raw_json: str, type_: str = "") -> None:
+    if not _flux_abonnes:
+        return
+    if not type_:
+        try:
+            type_ = json.loads(raw_json).get("type", "")
+        except (ValueError, AttributeError):
+            return
+    if type_ not in _FLUX_TYPES:
+        return
+    for q in list(_flux_abonnes):
+        try:
+            q.put_nowait(raw_json)
+        except asyncio.QueueFull:
+            pass  # abonné trop lent : il se remet à jour à son rafraîchissement suivant
+
+
 async def _broadcast(raw_json: str):
     """Send a pre-serialized JSON string to all WebSocket clients."""
+    _diffuser_flux(raw_json)
     dead = set()
     for client in list(ws_clients):
         try:
@@ -1018,6 +1079,7 @@ async def _broadcast(raw_json: str):
 
 async def broadcast(msg: dict):
     data = json.dumps({"type": "message", "data": msg})
+    _diffuser_flux(data, "message")
     dead = set()
     for client in list(ws_clients):
         try:
@@ -1031,6 +1093,7 @@ async def broadcast_status():
     status = agents.get_status()
     status["paused"] = any(router.is_paused(ch) for ch in room_settings.get("channels", ["general"]))
     data = json.dumps({"type": "status", "data": status})
+    _diffuser_flux(data, "status")
     dead = set()
     for client in list(ws_clients):
         try:
@@ -1100,6 +1163,7 @@ async def broadcast_rule(action: str, rule: dict):
 
 async def broadcast_job(action: str, data: dict):
     payload = json.dumps({"type": "job", "action": action, "data": data})
+    _diffuser_flux(payload, "job")
     dead = set()
     for client in list(ws_clients):
         try:
@@ -2507,6 +2571,73 @@ async def filtrer_messages(projet_id: str = "", tache_id: int = 0, since_id: int
                                                    max(1, min(limit, 500)))})
 
 
+# Atelier v3 : flux en direct. Le jeton passe en ?token= (EventSource ne pose pas d'en-tête) ; un battement toutes
+# les 20 s garde la connexion ouverte à travers les relais (Tailscale) et détecte un client parti.
+@app.get("/api/v2/flux")
+async def flux_atelier(request: Request):
+    q: asyncio.Queue = asyncio.Queue(maxsize=200)
+    _flux_abonnes.add(q)
+
+    async def evenements():
+        try:
+            yield "retry: 3000\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    donnee = await asyncio.wait_for(q.get(), timeout=20)
+                    yield f"data: {donnee}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": battement\n\n"
+        finally:
+            _flux_abonnes.discard(q)
+
+    return StreamingResponse(evenements(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+
+# Atelier v3 : notifications poussées. La clé publique VAPID sert à l'abonnement du navigateur ; l'abonnement
+# (adresse du service de push + clés du navigateur) reste dans data/push_abonnements.json.
+@app.get("/api/v2/push/cle")
+async def push_cle():
+    if notifs is None:
+        return JSONResponse({"error": "notifications indisponibles"}, status_code=503)
+    return JSONResponse({"cle": notifs.cle_publique()})
+
+
+@app.post("/api/v2/push/abonner")
+async def push_abonner(request: Request):
+    if notifs is None:
+        return JSONResponse({"error": "notifications indisponibles"}, status_code=503)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    err = notifs.abonner(body)
+    return JSONResponse({"error": err}, status_code=400) if err else JSONResponse({"ok": True})
+
+
+@app.post("/api/v2/push/desabonner")
+async def push_desabonner(request: Request):
+    if notifs is None:
+        return JSONResponse({"error": "notifications indisponibles"}, status_code=503)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid json"}, status_code=400)
+    notifs.desabonner(str((body or {}).get("endpoint") or ""))
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/v2/push/essai")
+async def push_essai():
+    if notifs is None:
+        return JSONResponse({"error": "notifications indisponibles"}, status_code=503)
+    n = await asyncio.to_thread(notifs.envoyer, "Notifications de l'atelier", "C'est branché : tu seras prévenu quand une décision t'attend.",
+                                "/atelier#/", "essai", 0)
+    return JSONResponse({"envoyees": n, "appareils": len(notifs.abonnements())})
+
+
 # Atelier v3 : Charles écrit dans la conversation d'une tâche sans quitter l'atelier. Même circuit que la
 # salle (store.add → diffusion + réveil des @agent), sans la connexion WebSocket qui renvoie tout l'historique.
 # L'expéditeur est toujours l'utilisateur de la salle : il n'est jamais lu du corps (pas d'usurpation d'agent).
@@ -2781,6 +2912,10 @@ async def create_jalon(projet_id: str, request: Request):
         return JSONResponse({"error": err}, status_code=409 if err.startswith("en attente") else 400)
     # Progres reel : un jalon prepare fait avancer la ronde du projet.
     _note_round_progress(_canal_orchestration())
+    if notifs is not None:
+        notifs.envoyer_en_fond(f"Jalon {jalon.get('jalon', '')} : décide de la suite",
+                               (_projets.lister()["v2"]["projets"].get(projet_id) or {}).get("nom", projet_id),
+                               url="/atelier#/", etiquette=f"jalon-{jalon.get('id', '')}")
     return JSONResponse(jalon)
 
 

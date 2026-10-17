@@ -69,6 +69,7 @@ const state = {
   alertes: [],       // ronde.alertes (sauvegarde, copie hors tour)
   agents: {},        // GET /api/status : {nom: {busy, color, label, role}}
   methodes: null,    // {etape: texte} (docs/PILOTE.md)
+  cartes: {},        // tache_id -> dernière carte de décision encore ouverte (pour trancher depuis l'accueil)
   maj: 0,            // heure de la dernière mise à jour globale (ms)
   // projet ouvert
   sel: null, taches: [], jalons: [], etape: null, fiche: null,
@@ -205,6 +206,15 @@ async function chargerGlobal() {
     par[id] = d;
   });
   state.par = par;
+  // Piste 6 : pour chaque tâche qui t'attend, sa dernière carte de décision encore ouverte (trancher en un toucher).
+  const attente = ids.flatMap(id => par[id].taches.filter(t => normEtat(t.etat) === "attend_charles").map(t => t.id));
+  const cartes = await Promise.all(attente.map(tid => getJSON(`/api/v2/messages?tache_id=${encodeURIComponent(tid)}&limit=60`)));
+  state.cartes = {};
+  attente.forEach((tid, i) => {
+    const msgs = (cartes[i].ok && cartes[i].data && cartes[i].data.messages) || [];
+    const c = msgs.filter(m => m.type === "decision" && !(m.metadata || {}).resolved).pop();
+    if (c && Array.isArray((c.metadata || {}).choices) && c.metadata.choices.length) state.cartes[tid] = c;
+  });
   state.maj = Date.now();
 }
 // Étape courante calculée localement si le serveur ne la donne pas.
@@ -315,8 +325,9 @@ function renderJour() {
   travail.sort((a, b) => (b.st === "bloque") - (a.st === "bloque") || (b.silence > 0) - (a.silence > 0) || (b.t.updated_at || 0) - (a.t.updated_at || 0));
 
   $("#jour-date").textContent = jourLong(new Date()).replace(/^./, c => c.toUpperCase());
-  $("#maj").textContent = state.maj ? `À jour à ${new Date(state.maj).toLocaleTimeString("fr-CA", {hour: "2-digit", minute: "2-digit"})}` : "";
+  majIndicateur();
   const muettes = travail.filter(x => x.silence >= SILENCE_S).length;
+  const horsLigne = [...new Set(travail.map(x => x.t.responsable).filter(a => { const i = agentInfo(a); return i && i.available === false; }))];
   const bloquees = travail.filter(x => x.st === "bloque").length;
   const morceaux = [
     attend.length ? `<b>${pluriel(attend.length, "décision t'attend", "décisions t'attendent")}</b>` : "Rien ne t'attend",
@@ -324,6 +335,7 @@ function renderJour() {
   ];
   if (bloquees) morceaux.push(`<b>${pluriel(bloquees, "bloquée", "bloquées")}</b>`);
   if (muettes) morceaux.push(`${pluriel(muettes, "sans nouvelles depuis plus de 2 h", "sans nouvelles depuis plus de 2 h")}`);
+  if (horsLigne.length) morceaux.push(`<b>hors ligne avec du travail : ${horsLigne.map(esc).join(", ")}</b>`);
   $("#jour-resume").innerHTML = morceaux.join(" · ") + ".";
 
   // T'attend
@@ -337,13 +349,16 @@ function renderJour() {
           return `<div class="ligne" role="button" tabindex="0" data-ouvrir-etape="${esc(etapeDuJalon(j.jalon))}" data-p="${esc(x.id)}">
             <div><div class="ligne-t"><span class="tag-jalon">${ico("jalon")}${esc(JALON_NOM[j.jalon] || j.jalon)}</span> · décider de la suite</div>
             <div class="ligne-m"><span>${esc(p.nom || x.id)}</span><span class="sep">·</span><span>${esc(fin)}</span>${j.recommandation ? `<span class="sep">·</span><span>claude recommande : ${esc(JALON_DECISIONS[j.recommandation] || j.recommandation)}</span>` : ""}${x.h ? `<span class="sep">·</span><span>depuis ${esc(ilya(x.h).replace(/^il y a /, ""))}</span>` : ""}</div></div>
+            ${j.recommandation && JALON_DECISIONS[j.recommandation] && j.recommandation !== "recycle" ? `<div class="ligne-choix"><button class="btn${j.recommandation === "kill" ? " stop" : " pri"}" type="button" data-dec="${esc(j.id)}" data-val="${esc(j.recommandation)}">${esc(JALON_DECISIONS[j.recommandation])} (reco)</button><span class="cap">ou ouvre le jalon pour une autre décision</span></div>` : ""}
             <div class="ligne-a">${ico("chev", "chev")}</div></div>`;
         }
         const t = x.t;
+        const carte = state.cartes[t.id];
         return `<div class="ligne" role="button" tabindex="0" data-fiche="${esc(t.id)}" data-p="${esc(x.id)}">
           <div><div class="ligne-t">${esc(t.titre)}</div>
           <div class="ligne-m"><span>${esc(p.nom || x.id)}</span><span class="sep">·</span><span>${esc(nomEtape(t.etape))}</span><span class="sep">·</span>${agent(t.responsable, true)}${x.h ? `<span class="sep">·</span><span>depuis ${esc(ilya(x.h).replace(/^il y a /, ""))}</span>` : ""}</div></div>
-          <div class="ligne-a"><button class="btn mini" type="button" data-disc="${esc(t.id)}" data-p="${esc(x.id)}">${ico("chat")}Discuter</button>${ico("chev", "chev")}</div></div>`;
+          <div class="ligne-a"><button class="btn mini" type="button" data-disc="${esc(t.id)}" data-p="${esc(x.id)}">${ico("chat")}Discuter</button>${ico("chev", "chev")}</div>
+          ${carte ? `<div class="ligne-choix" data-carte="${esc(carte.id)}"><span class="ligne-q">${agent(carte.sender, true)} : ${esc(court(premiereLigne(carte.text), 140))}</span>${carte.metadata.choices.map(c => `<button class="btn" type="button" data-choix="${esc(carte.id)}" data-val="${esc(c)}">${esc(c)}</button>`).join("")}</div>` : ""}</div>`;
       }).join("")}</div>`
     : `<div class="vide"><b>Rien ne t'attend.</b> Quand un agent a besoin de ta décision, elle arrive ici en premier.</div>`;
 
@@ -353,7 +368,9 @@ function renderJour() {
     ? `<div class="liste travail">${travail.map(x => {
         const p = state.projets[x.id] || {};
         const t = x.t;
-        const etat = x.st === "bloque" ? `<span class="pill s-bloque">bloqué</span>`
+        const info = agentInfo(t.responsable);
+        const etat = info && info.available === false ? `<span class="pill s-bloque" title="L'agent n'est pas connecté à la salle : sa tâche n'avance pas">hors ligne</span>`
+          : x.st === "bloque" ? `<span class="pill s-bloque">bloqué</span>`
           : x.silence >= SILENCE_S ? `<span class="pill s-silence" title="Aucun message dans la conversation de la tâche">rien depuis ${esc(duree(x.silence))}</span>`
           : `<span class="quand">${esc(ilya(t.updated_at))}</span>`;
         return `<div class="ligne" role="button" tabindex="0" data-fiche="${esc(t.id)}" data-p="${esc(x.id)}">
@@ -393,6 +410,8 @@ function renderJour() {
       (dormants.length ? `<div class="sous-titre">En veille ou terminés</div><div class="liste projets">${dormants.map(ligneProjet).join("")}</div>` : "")
     : `<div class="vide"><b>Aucun projet pour l'instant.</b> Lance le premier : claude découpe le travail et assigne les agents.</div>`;
 }
+// Première ligne lisible d'un message (sans les marques markdown) : la question d'une carte de décision.
+const premiereLigne = txt => (String(txt || "").split("\n").map(l => l.replace(/[#*|`>_]/g, "").replace(/^(\s*@[\w-]+)+\s*/, "").trim()).find(Boolean) || "");
 // Petite frise : une case par étape, pleine si passée, demi-teinte pour l'étape en cours.
 function frise(i, n) {
   return `<div class="frise" style="--n:${ETAPES.length}" aria-hidden="true">${ETAPES.map((_, k) => `<i class="${!n ? "" : k < i ? "fait" : k === i ? "now" : ""}"></i>`).join("")}</div>`;
@@ -949,8 +968,11 @@ async function chargerConv(bas) {
     + (liste.length ? "" : `<div class="conv-vide"><b>Pas encore de message sur cette tâche.</b> Écris ci-dessous : ton message part aux agents choisis, et leurs réponses s'affichent ici.</div>`);
   ajouterMessages(liste, bas);
 }
-async function suivreConv() {
+async function suivreConv(force) {
   if (!CONV.tache || !CONV.canal || document.hidden || !$("#fiche").open) return;
+  // Avec le flux en direct, les messages arrivent seuls : on ne relit que toutes les 20 s, par sécurité.
+  if (force !== true && fluxOuvert() && Date.now() - (CONV.relu || 0) < 20000) return;
+  CONV.relu = Date.now();
   const tache = CONV.tache;
   const [m, s] = await Promise.all([
     getJSON(`/api/messages?channel=${encodeURIComponent(CONV.canal)}&since_id=${CONV.dernier}`),
@@ -1002,12 +1024,14 @@ function decisionHtml(m) {
   return ch.length ? `<div class="cm-choix">${ch.map(c => `<button class="btn" type="button" data-choix="${esc(m.id)}" data-val="${esc(c)}">${esc(c)}</button>`).join("")}</div>` : "";
 }
 async function choisir(msgId, val) {
-  const bloc = $(`.cm[data-msg="${CSS.escape(String(msgId))}"] .cm-choix`);
-  bloc?.querySelectorAll("button").forEach(b => { b.disabled = true; });
+  const blocs = $$(`.cm[data-msg="${CSS.escape(String(msgId))}"] .cm-choix, .ligne-choix[data-carte="${CSS.escape(String(msgId))}"]`);
+  blocs.forEach(b => b.querySelectorAll("button").forEach(x => { x.disabled = true; }));
   const r = await postJSON(`/api/messages/${encodeURIComponent(msgId)}/resolve_decision`, {choice: val});
-  if (!r.ok) { bloc?.querySelectorAll("button").forEach(b => { b.disabled = false; }); toast(r.msg || "Choix refusé (carte déjà résolue ?)."); return; }
-  if (bloc) bloc.outerHTML = `<div class="cm-resolu">Ton choix : <b>${esc(val)}</b></div>`;
-  suivreConv();
+  if (!r.ok) { blocs.forEach(b => b.querySelectorAll("button").forEach(x => { x.disabled = false; })); toast(r.msg || "Choix refusé (carte déjà résolue ?)."); return; }
+  blocs.forEach(b => { b.outerHTML = b.classList.contains("cm-choix") ? `<div class="cm-resolu">Ton choix : <b>${esc(val)}</b></div>` : `<div class="ligne-choix"><span class="pill s-fait">${ico("check")}Ton choix : ${esc(val)}</span></div>`; });
+  toast(`Choix envoyé : ${val}`);
+  if (CONV.canal) suivreConv(true);
+  setTimeout(rafraichir, 1200);
 }
 function majMentions() {
   $$(".conv-mentions [data-mention]").forEach(b => b.setAttribute("aria-pressed", String(CONV.mentions.has(b.dataset.mention))));
@@ -1131,6 +1155,7 @@ async function deciderJalon(jalonId, val) {
   let j = null;
   for (const p of Object.keys(state.par)) { j = (state.par[p].jalons || []).find(x => String(x.id) === String(jalonId)); if (j) break; }
   if (!j) return;
+  if (val === "kill" && !confirm(`Arrêter le projet ? (${JALON_NOM[j.jalon] || j.jalon})`)) return;
   const recy = val === "recycle" ? (($("#recy-" + CSS.escape(String(j.id)))?.value) || "") : "";
   if (val === "recycle" && !recy) { toast("Choisis l'étape vers laquelle recycler."); return; }
   const note = (($("#not-" + CSS.escape(String(j.id)))?.value) || "").trim();
@@ -1340,11 +1365,108 @@ async function nouvelleTache(e) {
   if (r.ok) { e.target.reset(); e.target.hidden = true; await rafraichir(); }
 }
 // =====================================================================================
+// Direct : GET /api/v2/flux (SSE). Sans lui (ancienne salle, réseau coupé), le suivi à 60 s reste en place.
+// =====================================================================================
+let FLUX = null, FLUX_MINUTERIE = 0;
+const fluxOuvert = () => !!(FLUX && FLUX.readyState === 1);
+const bientot = () => { clearTimeout(FLUX_MINUTERIE); FLUX_MINUTERIE = setTimeout(() => { if (!document.hidden) rafraichir(); }, 1500); };
+function majIndicateur() {
+  const el = $("#maj"); if (!el) return;
+  el.classList.toggle("direct-on", fluxOuvert());
+  el.textContent = fluxOuvert() ? "En direct" : (state.maj ? `À jour à ${new Date(state.maj).toLocaleTimeString("fr-CA", {hour: "2-digit", minute: "2-digit"})}` : "");
+}
+function brancherFlux() {
+  if (!window.EventSource || FLUX) return;
+  const t = window.__SESSION_TOKEN__;
+  FLUX = new EventSource("/api/v2/flux" + (t ? "?token=" + encodeURIComponent(t) : ""));
+  FLUX.onopen = majIndicateur;
+  FLUX.onerror = () => { majIndicateur(); if (FLUX && FLUX.readyState === 2) FLUX = null; };  // 2 = fermé (route absente)
+  FLUX.onmessage = ev => {
+    let d; try { d = JSON.parse(ev.data); } catch (_) { return; }
+    if (d.type === "message" && d.data) {
+      if (CONV.canal && d.data.channel === CONV.canal && d.data.type !== "join" && d.data.type !== "leave") ajouterMessages([d.data], false);
+      if (d.data.tache_id != null || d.data.type === "decision") bientot();
+    } else if (d.type === "message_update" && d.message) {
+      const el = $(`.cm[data-msg="${CSS.escape(String(d.message.id))}"]`);
+      if (el) el.outerHTML = msgHtml(d.message);
+      bientot();
+    } else if (d.type === "status" && d.data) {
+      state.agents = d.data; majReflechit();
+      if (state.route.page === "jour" && !document.hidden) renderJour();
+    } else if (d.type === "job") bientot();
+  };
+}
+
+// =====================================================================================
+// Piste 7 : notifications sur le cell (Web Push). Exige https (la salle par Tailscale) ou localhost.
+// =====================================================================================
+const SW_URL = "/static/sw-atelier.js?v=1";
+const cleOctets = b64 => { const s = atob((b64 + "=".repeat((4 - b64.length % 4) % 4)).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from(s, c => c.charCodeAt(0)); };
+async function enregistrementSW() {
+  const reg = await navigator.serviceWorker.register(SW_URL);
+  if (reg.active) return reg;
+  await new Promise(ok => { const w = reg.installing || reg.waiting; if (!w) return ok(); w.addEventListener("statechange", () => { if (w.state === "activated") ok(); }); });
+  return reg;
+}
+async function etatNotifs() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return "indisponible";
+  if (!window.isSecureContext) return "non-securise";
+  if (Notification.permission === "denied") return "refusees";
+  try {
+    const reg = await navigator.serviceWorker.getRegistration(SW_URL);
+    return reg && await reg.pushManager.getSubscription() ? "actives" : "inactives";
+  } catch (_) { return "inactives"; }
+}
+const LIB_NOTIFS = {
+  actives: "Notifications activées", inactives: "Activer les notifications",
+  refusees: "Notifications bloquées dans le navigateur", "non-securise": "Notifications : ouvre l'atelier en https",
+};
+async function renderNotifs() {
+  const b = $("#notifs"); if (!b) return;
+  const e = await etatNotifs();
+  b.hidden = e === "indisponible";
+  b.dataset.etat = e;
+  b.querySelector("span").textContent = LIB_NOTIFS[e] || "";
+  b.setAttribute("aria-pressed", String(e === "actives"));
+}
+async function basculerNotifs() {
+  const e = await etatNotifs();
+  if (e === "non-securise") { toast("Les notifications demandent l'adresse https de la salle (Tailscale)."); return; }
+  if (e === "refusees") { toast("Le navigateur les bloque : réglages du site → Notifications → Autoriser."); return; }
+  try {
+    if (e === "actives") {
+      if (!confirm("Couper les notifications sur cet appareil ?")) return;
+      const reg = await navigator.serviceWorker.getRegistration(SW_URL);
+      const sub = reg && await reg.pushManager.getSubscription();
+      if (sub) { await postJSON("/api/v2/push/desabonner", {endpoint: sub.endpoint}); await sub.unsubscribe(); }
+      toast("Notifications coupées sur cet appareil.");
+    } else {
+      if (await Notification.requestPermission() !== "granted") { toast("Notifications non autorisées."); return renderNotifs(); }
+      const k = await getJSON("/api/v2/push/cle");
+      if (!k.ok || !k.data || !k.data.cle) { toast(k.err === 404 ? "La salle en service n'a pas encore les notifications (elles arrivent avec la mise en service)." : "Clé de notification indisponible."); return; }
+      const reg = await enregistrementSW();
+      const sub = await reg.pushManager.subscribe({userVisibleOnly: true, applicationServerKey: cleOctets(k.data.cle)});
+      const r = await postJSON("/api/v2/push/abonner", sub.toJSON());
+      if (!r.ok) { await sub.unsubscribe(); toast(r.msg || "Abonnement refusé par la salle."); return renderNotifs(); }
+      const essai = await postJSON("/api/v2/push/essai", {});
+      toast(essai.ok && essai.data && essai.data.envoyees ? "Notifications activées : une notification d'essai arrive." : "Notifications activées.");
+    }
+  } catch (err) { toast("Notifications : " + (err && err.message ? err.message : "échec")); }
+  renderNotifs();
+}
+// Un toucher sur une notification alors que l'atelier est déjà ouvert : le service worker nous dit où aller.
+navigator.serviceWorker?.addEventListener("message", e => {
+  const url = e.data && e.data.aller;
+  if (url) { const h = new URL(url).hash; if (h) location.hash = h; }
+});
+
+// =====================================================================================
 // Navigation (routes dans l'ancre : le bouton Retour du téléphone fonctionne)
 // =====================================================================================
 function lireRoute() {
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean).map(s => { try { return decodeURIComponent(s); } catch (_) { return s; } });
-  if (parts[0] === "p" && parts[1]) return {page: "projet", id: parts[1], onglet: ONGLETS.includes(parts[2]) ? parts[2] : "taches"};
+  if (parts[0] === "p" && parts[1]) return {page: "projet", id: parts[1], onglet: ONGLETS.includes(parts[2]) ? parts[2] : "taches",
+    tache: parts[2] === "taches" && /^\d+$/.test(parts[3] || "") ? parts[3] : null};
   return {page: "jour"};
 }
 function rendre() {
@@ -1374,6 +1496,13 @@ async function appliquerRoute() {
   // La vue 3D garde son garde v3dSig : elle n'est recréée que si les pièces ont changé.
   const entre = r.page === "projet" && (autreProjet || avant.page !== "projet");
   if (entre) { await chargerProjet(); if (state.route.page === "projet" && state.sel === r.id) rendre(); }
+  // Lien d'une notification : on ouvre la conversation de la tâche, puis l'ancre redevient celle du tableau
+  // (fermer la fiche ne la rouvre pas, et le bouton Retour revient où on était).
+  if (r.page === "projet" && r.tache) {
+    history.replaceState(null, "", `#/p/${encodeURIComponent(r.id)}/taches`);
+    state.route = {...r, tache: null};
+    ouvrirTache(r.tache, r.id, "conv");
+  }
 }
 const allerOnglet = o => { if (state.sel) location.hash = `#/p/${encodeURIComponent(state.sel)}/${o}`; };
 
@@ -1420,6 +1549,7 @@ document.addEventListener("click", e => {
   if (a === "fermer") return fermerFiche();
   if (a === "rafraichir") { act.disabled = true; rafraichir().then(() => { act.disabled = false; toast("Atelier à jour."); }); return; }
   if (a === "fiche-projet") return ouvrirFicheProjet();
+  if (a === "notifs") return basculerNotifs();
   if (a === "conv-plus") { CONV.limite += 100; return chargerConv(false); }
   if (a === "pc-tout") { state.pcTout = true; return renderPieces(); }
   if (a === "fait-tout") { state.faitOuvert = !state.faitOuvert; return renderTableau(); }
@@ -1461,6 +1591,8 @@ window.addEventListener("hashchange", appliquerRoute);
   await chargerGlobal();
   // Ancien signet sans ancre : on garde l'accueil « Aujourd'hui ».
   await appliquerRoute();
+  brancherFlux();
+  renderNotifs();
   // Pas de WebSocket ici : on suit la salle toutes les 60 s et au retour sur l'onglet.
   setInterval(() => { if (!document.hidden) rafraichir(); }, 60 * 1000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) rafraichir(); });
