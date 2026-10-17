@@ -602,19 +602,20 @@ def _notify_recovery(data_dir: Path, agent_name: str):
 _RULE_ID_RE = re.compile(r"\bR(\d+)\b")
 
 
-def _compact_rules(rules: list[str], width: int = 150) -> list[str]:
-    """Latest version of each numbered rule (R1, R2...), cut to ``width``.
+def _compact_rules(rules: list[str]) -> list[str]:
+    """Latest version of each numbered rule (R1, R2...), kept whole.
 
     The room keeps every version (v1.1 R1, v1.2 R1, v1.5 R1...) as separate
     active rules; a small local model drowns in them. Later entries win; rules
-    without an R-number are kept as they are (cut too).
+    without an R-number are kept. Never cut a rule: a cut changes its meaning
+    (revue codex 4418, R4 lost « agent cloud »).
     """
     latest: dict[str, str] = {}
     for rule in rules:
         m = _RULE_ID_RE.search(rule)
         key = f"R{m.group(1)}" if m else f"#{len(latest)}:{rule}"
         latest.pop(key, None)
-        latest[key] = rule if len(rule) <= width else rule[:width - 1].rstrip() + "…"
+        latest[key] = rule
     return list(latest.values())
 
 
@@ -703,7 +704,7 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
     one-liner for models that ignore it (Bolt, 2-bit local: answered in its
     terminal, never called chat_read/chat_send). Placeholders : {name} (current
     identity), {cible} (``channel='x'`` or ``job_id=N``). ``rules_format``
-    "court" sends the live rules compacted (_compact_rules) instead of the full
+    "court" sends the latest version of each rule (_compact_rules) instead of the full
     block, still at the current epoch, so the sync report stays truthful.
 
     ``clear_every`` > 0 : every N triggers, reset the CLI's conversation via

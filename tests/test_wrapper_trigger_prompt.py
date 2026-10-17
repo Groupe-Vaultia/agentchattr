@@ -4,6 +4,7 @@ v0.1 (2026-10-17, claude-1): Bolt (2-bit local) ignored the default English
 prompt and answered in its terminal; a template naming the tools fixes it.
 v0.2 (2026-10-17, claude-1): rules stay delivered in short form (revue codex
 msg 4416), the sync report must still fire.
+v0.3 (2026-10-17, claude-1): no truncation (revue codex 4418); real R4/R9/R11.
 """
 
 import json
@@ -26,7 +27,20 @@ class _StopWatcher(Exception):
 
 RULES = {"epoch": 3, "refresh_interval": 10, "rules": [
     "[v1.1 — R1 Rôles] ANCIEN R1", "[v1.1 — R2 Push] ANCIEN R2",
-    "v1.5 R1 Rôles — NOUVEAU R1", "R9 v2 Format " + "x" * 300, "Sans numéro",
+    "v1.5 R1 Rôles — NOUVEAU R1", "Sans numéro",
+    # Texte réel des règles actives au 17 oct. 2026 (fins vérifiées).
+    "v1.2 R4 Données — agentchattr est public: travail cloud permis. Vaultia-client"
+    " (données, prod, Authentik, logs) = local seulement, jamais lu par un agent cloud.",
+    "v1.5 R4 Données — agentchattr est public: travail cloud permis. Vaultia-client"
+    " (données, prod, Authentik, logs) = local seulement, jamais lu par un agent cloud.",
+    "R9 v2 Format envers Charles — Tableau ou schéma d'abord, puis quelques lignes de"
+    " texte au maximum. Jamais de paragraphe long, jamais de récapitulatif. Une décision"
+    " attendue de lui = une ligne en fin de message. Le détail et les preuves vont dans"
+    " le dépôt et entre agents. (Remplace R9 v1, qui interdisait les tableaux à tort.)",
+    "R11 v1 Mémoire commune — Si tu as l'outil ecc-memoire : memory_search sur le sujet"
+    " avant de commencer; memory_save quand tu décides, termines un lot ou passes le"
+    " relais (kind decision/note/handoff, titre clair, faits vérifiés, jamais de secret)."
+    " Un souvenir est un indice, pas une preuve : revérifie avant d'agir.",
 ]}
 
 
@@ -76,7 +90,11 @@ class TriggerPromptTests(unittest.TestCase):
         self.assertNotIn("ANCIEN R1", prompt)
         self.assertIn("ANCIEN R2", prompt)  # only version of R2: kept
         self.assertIn("Sans numéro", prompt)
-        self.assertNotIn("x" * 200, prompt)
+        self.assertEqual(prompt.count("R4 Données"), 1)
+        for end in ("jamais lu par un agent cloud.",
+                    "qui interdisait les tableaux à tort.)",
+                    "revérifie avant d'agir."):
+            self.assertIn(end, prompt)
         self.assertEqual(self.synced, [3])
 
     def test_template_targets_job(self):
