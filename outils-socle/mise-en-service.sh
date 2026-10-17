@@ -8,7 +8,14 @@
 # docs/, tests/ ou des *.md est en service dès le fast-forward. Tout le reste
 # (Python, config…) demande un redémarrage : le script ne l'exécute que si on
 # passe --redemarrer, et toujours par la séquence sûre (gardien figé, serveur
-# tué par PID, relance, attente du 200, gardien repris).
+# tué par PID, relance, attente de la salle ET des deux transports MCP des
+# agents, gardien repris).
+#
+# v1.1 (2026-10-16, claude-1) : revue codex-2 (msg 4330). « En service » exige
+# aussi MCP HTTP (:8200) et MCP SSE (:8201) : run.py les démarre dans des fils à
+# part, ils peuvent tomber alors que :8300/ répond 200, et le gardien ne sonde
+# que :8300 (les agents resteraient coupés sans reprise). Le journal du serveur
+# est remis en 0600 avant chaque ajout (umask ne corrige pas un fichier existant).
 #
 # Usage, depuis le clone principal (le dossier courant fait foi) :
 #   outils-socle/mise-en-service.sh [--essai] [--redemarrer]
@@ -21,6 +28,12 @@
 set -euo pipefail
 
 PORT=8300
+# Ports MCP lus de config.toml ([mcp] http_port / sse_port), 8200/8201 sinon.
+port_mcp() {
+  local v
+  v=$(awk -F'=' -v cle="$1" '/^\[/{sec=$0} sec=="[mcp]" && $1 ~ "^"cle"[ \t]*$" {gsub(/[ \t"]/,"",$2); print $2; exit}' config.toml 2>/dev/null || true)
+  printf '%s' "${v:-$2}"
+}
 # Ancré en fin de ligne : n'attrape ni l'aperçu (« run.py --port 8320 … ») ni
 # cette commande. Jamais « pkill -f » avec un motif contenant run.py : la
 # commande qui le lance le contient aussi et se tuerait elle-même.
@@ -117,7 +130,10 @@ Séquence sûre (dans $RACINE) :
   2. kill $pid    # serveur de ce clone : pgrep -f '$MOTIF_SERVEUR', dossier = ce clone
      jamais « pkill -f » avec run.py : la commande se tuerait elle-même
   3. setsid nohup .venv/bin/python run.py >> data/server.log 2>&1 < /dev/null &
-  4. attendre jusqu'à 60 s un 200 : curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT/
+  4. attendre jusqu'à 60 s que les trois répondent :
+       salle     curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT/               → 200
+       MCP HTTP  curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:$PORT_MCP_HTTP/mcp       → un code HTTP (406 attendu)
+       MCP SSE   curl -s -o /dev/null -w '%{http_code}' -m 2 http://127.0.0.1:$PORT_MCP_SSE/sse   → 200 (flux ouvert)
   5. [ -n "\$W" ] && kill -CONT \$W
 FIN
 }
@@ -176,23 +192,28 @@ executer_redemarrage() {
 
   # (c) relancer ; le journal affiche le jeton de session : fichier privé
   (umask 077; : >> data/server.log)
+  chmod 600 data/server.log
   setsid nohup .venv/bin/python run.py >> data/server.log 2>&1 < /dev/null &
-  dire "Serveur relancé, attente d'un 200 sur http://127.0.0.1:$PORT/ (60 s max)…"
+  dire "Serveur relancé, attente de la salle (:$PORT) et des transports MCP (:$PORT_MCP_HTTP, :$PORT_MCP_SSE), 60 s max…"
 
-  # (d) attendre le 200
-  code=000
+  # (d) attendre que la salle ET les deux transports MCP des agents répondent
+  local code=000 http=000 sse=000
   fin=$((SECONDS + 60))
   while [ "$SECONDS" -lt "$fin" ]; do
     code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://127.0.0.1:$PORT/" || true)
-    [ "$code" = 200 ] && break
+    http=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://127.0.0.1:$PORT_MCP_HTTP/mcp" || true)
+    # Le flux SSE reste ouvert : curl s'arrête au délai (code 28) mais a déjà reçu son 200.
+    sse=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://127.0.0.1:$PORT_MCP_SSE/sse" || true)
+    [ "$code" = 200 ] && [ "${http:-000}" != 000 ] && [ "$sse" = 200 ] && break
     sleep 1
   done
 
   # (e) reprendre le gardien, quoi qu'il arrive
   reprendre_gardien
   trap - EXIT INT TERM HUP
-  [ "$code" = 200 ] || arret "pas de 200 en 60 s (dernier code $code) : voir data/server.log ; le gardien, repris, relancera la salle complète"
-  dire "En service : serveur PID $(pids_serveur | tr '\n' ' ')répond 200."
+  [ "$code" = 200 ] || arret "la salle ne répond pas 200 en 60 s (dernier code $code) : voir data/server.log ; le gardien, repris, relancera la salle complète"
+  { [ "${http:-000}" != 000 ] && [ "$sse" = 200 ]; } || arret "la salle répond, mais pas les transports MCP des agents (HTTP :$PORT_MCP_HTTP → $http, SSE :$PORT_MCP_SSE → $sse) : les agents restent coupés et le gardien, qui ne sonde que :$PORT, ne relancera pas. Voir data/server.log, puis relancer à la main (vaultia-start.sh)"
+  dire "En service : serveur PID $(pids_serveur | tr '\n' ' ')· salle 200 · MCP HTTP $http · MCP SSE $sse."
 }
 
 principal() {
@@ -210,6 +231,8 @@ principal() {
   RACINE=$(git rev-parse --show-toplevel 2>/dev/null) || arret "pas dans un dépôt git"
   cd "$RACINE"
   RACINE=$(pwd -P)
+  PORT_MCP_HTTP=$(port_mcp http_port 8200)
+  PORT_MCP_SSE=$(port_mcp sse_port 8201)
   if [ "$ESSAI" = 1 ]; then
     dire "== Mise en service : $RACINE   [ESSAI : ni merge ni redémarrage]"
   else
