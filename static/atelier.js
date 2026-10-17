@@ -918,7 +918,7 @@ async function ouvrirTache(id, pid, mode = "details") {
 // Lecture : GET /api/messages?channel=tache-<id> (puis since_id toutes les 3 s tant que la fiche est ouverte).
 // Écriture : POST /api/v2/messages (même circuit que la salle : les @agent mentionnés sont réveillés).
 const UTILISATEUR = "user";
-const CONV = {tache: null, projet: null, canal: "", vus: new Set(), dernier: -1, limite: 60, minuterie: 0, mentions: new Set(), pj: [], envoi: false, equipe: []};
+const CONV = {gen: 0, tache: null, projet: null, canal: "", vus: new Set(), dernier: -1, limite: 60, minuterie: 0, mentions: new Set(), pj: [], envoi: false, equipe: []};
 function arreterConv() { clearInterval(CONV.minuterie); CONV.minuterie = 0; CONV.tache = null; CONV.canal = ""; }
 const equipeDe = t => [...new Set([t.responsable, ...(t.equipe || []).map(m => m.agent)].filter(a => a && !/^(charles|user)$/i.test(a)))];
 function piedConversation(t) {
@@ -939,7 +939,8 @@ function piedConversation(t) {
 }
 async function ouvrirConversation(t, projet) {
   arreterConv();
-  Object.assign(CONV, {tache: t.id, projet, canal: "", vus: new Set(), dernier: -1, limite: 60, pj: [], envoi: false, equipe: equipeDe(t)});
+  // Une génération par ouverture : fermer puis rouvrir la même tâche n'est plus « la même fiche » pour un envoi en vol.
+  Object.assign(CONV, {gen: CONV.gen + 1, tache: t.id, projet, canal: "", vus: new Set(), dernier: -1, limite: 60, pj: [], envoi: false, equipe: equipeDe(t)});
   // Par défaut, le message va au responsable de la tâche ; Charles ajoute ou retire d'un toucher.
   CONV.mentions = new Set(t.responsable && CONV.equipe.includes(t.responsable) ? [t.responsable] : CONV.equipe.slice(0, 1));
   majMentions();
@@ -1074,10 +1075,10 @@ async function envoyerConv(e) {
   if (absents.length) texte = absents.map(a => "@" + a).join(" ") + (texte ? " " + texte : "");
   // On fige la tâche, le canal et les pièces jointes AVANT l'envoi : si Charles ferme la fiche ou ouvre une autre tâche
   // pendant l'attente, la réponse ne doit ni s'afficher dans l'autre conversation ni vider ses pièces jointes (revue codex-2, msg 4325).
-  const envoi = {tache: CONV.tache, canal: CONV.canal, pj: CONV.pj.slice()};
+  const envoi = {gen: CONV.gen, tache: CONV.tache, canal: CONV.canal, pj: CONV.pj.slice(), brouillon: ta.value};
   CONV.envoi = true; majEnvoyer();
   const r = await postJSON("/api/v2/messages", {channel: envoi.canal, text: texte, attachments: envoi.pj, tache_id: envoi.tache});
-  const memeFiche = CONV.tache === envoi.tache && CONV.canal === envoi.canal && $("#fiche").open;
+  const memeFiche = CONV.gen === envoi.gen && CONV.tache === envoi.tache && $("#fiche").open;
   if (memeFiche) CONV.envoi = false;
   if (!r.ok) {
     if (memeFiche) majEnvoyer();
@@ -1085,7 +1086,9 @@ async function envoyerConv(e) {
     return;
   }
   if (!memeFiche) { toast(`Message envoyé dans la tâche ${envoi.tache}.`); return; }
-  ta.value = ""; ta.style.height = ""; CONV.pj = []; majPJ();
+  // On ne retire que ce qui est parti : un texte retouché ou une photo ajoutée pendant l'envoi reste en brouillon (revue codex-2, msg 4351).
+  if (ta.value === envoi.brouillon) { ta.value = ""; ta.style.height = ""; }
+  CONV.pj = CONV.pj.filter(a => !envoi.pj.includes(a)); majPJ();
   if (r.data && r.data.id != null) ajouterMessages([r.data], true);
 }
 // Ancien comportement de « Discuter » : ouvrir la conversation dans la salle (lien en bas de la conversation).
@@ -1588,7 +1591,9 @@ document.addEventListener("input", e => {
 });
 document.addEventListener("submit", e => { if (e.target.id === "conv-form") envoyerConv(e); });
 document.addEventListener("change", e => { if (e.target.id === "conv-fich") { joindre(Array.from(e.target.files || [])); e.target.value = ""; } });
-$("#fiche").addEventListener("close", arreterConv);
+// L'événement « close » arrive en tâche différée : si la fiche a été rouverte entre-temps (fermer puis rouvrir vite),
+// il ne doit pas arrêter la conversation qui vient de s'ouvrir (elle resterait sur « Ouverture… »).
+$("#fiche").addEventListener("close", () => { if (!$("#fiche").open) arreterConv(); });
 window.addEventListener("hashchange", appliquerRoute);
 
 // ---------- démarrage ----------
