@@ -127,6 +127,17 @@ def _read_agent_extra_mcp_servers(data_dir: Path, instance_name: str) -> dict:
         return {}
 
 
+def _instance_cwd(agent_cfg: dict, instance_name: str) -> str:
+    """Working dir for ONE instance: agents.<x>.cwd_instances["<name>"], else cwd.
+
+    settings_file injection writes the MCP token into <cwd>/.qwen/settings.json :
+    two instances in the same cwd overwrite each other's token, and the room
+    signs both as the last one started (bolt-2 replies came out as bolt-1,
+    msg 4427). A worktree per instance also keeps « 1 fichier, 1 agent » (R7).
+    """
+    return agent_cfg.get("cwd_instances", {}).get(instance_name, agent_cfg.get("cwd", "."))
+
+
 def _codex_flags_for_servers(servers: dict) -> list[str]:
     """Traduit des serveurs MCP (format .mcp.json) en options `-c mcp_servers.<nom>.*` pour codex.
     Chaque valeur est du TOML : json.dumps donne des chaines/tableaux TOML valides pour des chemins."""
@@ -886,6 +897,7 @@ def main():
     assigned_name = registration["name"]
     assigned_token = registration["token"]
     print(f"  Registered as: {assigned_name} (slot {registration.get('slot', '?')})")
+    cwd = _instance_cwd(agent_cfg, assigned_name)
 
     proxy = None
     proxy_url = None
