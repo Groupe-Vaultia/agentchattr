@@ -23,6 +23,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -148,6 +149,33 @@ def _instance_cwd(agent_cfg: dict, instance_name: str, base_name: str) -> str | 
     if instance_name in (base_name, f"{base_name}-1"):
         return cwd
     return None
+
+
+def _refuse_instance(server_port: int, agent: str, name: str, token: str) -> None:
+    """Deregister ``name`` : it has no own dir and would share another instance's token."""
+    import urllib.request
+    print(f"  {name} has no own dir in agents.{agent}.cwd_instances : refusing to share")
+    print("  another instance's MCP token. Map it, or wait for old names to expire.")
+    try:
+        urllib.request.urlopen(urllib.request.Request(
+            f"http://127.0.0.1:{server_port}/api/deregister/{name}", method="POST",
+            data=b"", headers=_auth_headers(token)), timeout=5)
+    except Exception:
+        pass
+
+
+def _guard_rename(agent_cfg: dict, agent: str, cwd: str, new_name: str,
+                  server_port: int, token: str, session: str) -> None:
+    """Stop the wrapper (and its CLI session) if ``new_name`` belongs in another dir."""
+    if _instance_cwd(agent_cfg, new_name, agent) == cwd:
+        return
+    _refuse_instance(server_port, agent, new_name, token)
+    if sys.platform != "win32":
+        try:
+            subprocess.run(["tmux", "kill-session", "-t", session], capture_output=True, timeout=5)
+        except Exception:
+            pass
+    os._exit(1)
 
 
 def _codex_flags_for_servers(servers: dict) -> list[str]:
@@ -911,14 +939,7 @@ def main():
     print(f"  Registered as: {assigned_name} (slot {registration.get('slot', '?')})")
     cwd = _instance_cwd(agent_cfg, assigned_name, agent)
     if cwd is None:
-        print(f"  {assigned_name} has no own dir in agents.{agent}.cwd_instances : refusing to share")
-        print(f"  another instance's MCP token. Map it, or wait for old names to expire.")
-        try:
-            urllib.request.urlopen(urllib.request.Request(
-                f"http://127.0.0.1:{server_port}/api/deregister/{assigned_name}", method="POST",
-                data=b"", headers=_auth_headers(assigned_token)), timeout=5)
-        except Exception:
-            pass
+        _refuse_instance(server_port, agent, assigned_name, assigned_token)
         sys.exit(1)
 
     proxy = None
@@ -987,6 +1008,12 @@ def main():
             pass
 
     def set_runtime_identity(new_name: str | None = None, new_token: str | None = None):
+        # Same guard as at start-up, for a rename mid-session (heartbeat name
+        # change or 409 re-register) : a new name whose dir is not this cwd
+        # would rewrite the MCP token in another instance's dir (revue codex 4431).
+        if new_name and new_name != _identity["name"]:
+            _guard_rename(agent_cfg, agent, cwd, new_name, server_port,
+                          new_token or _identity["token"], f"agentchattr-{assigned_name}")
         with _identity_lock:
             old_name = _identity["name"]
             old_token = _identity["token"]
