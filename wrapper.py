@@ -172,7 +172,7 @@ def _guard_rename(agent_cfg: dict, agent: str, cwd: str, new_name: str,
     _refuse_instance(server_port, agent, new_name, token)
     if sys.platform != "win32":
         try:
-            subprocess.run(["tmux", "kill-session", "-t", session], capture_output=True, timeout=5)
+            subprocess.run(["tmux", "kill-session", "-t", f"={session}"], capture_output=True, timeout=5)
         except Exception:
             pass
     os._exit(1)
