@@ -21,7 +21,9 @@ How it works:
 import hashlib
 import json
 import os
+import re
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -124,6 +126,56 @@ def _read_agent_extra_mcp_servers(data_dir: Path, instance_name: str) -> dict:
         return servers
     except Exception:
         return {}
+
+
+def _instance_cwd(agent_cfg: dict, instance_name: str, base_name: str) -> str | None:
+    """Working dir for ONE instance: agents.<x>.cwd_instances["<name>"], else cwd.
+
+    settings_file injection writes the MCP token into <cwd>/.qwen/settings.json :
+    two instances in the same cwd overwrite each other's token, and the room
+    signs both as the last one started (bolt-2 replies came out as bolt-1,
+    msg 4427). A worktree per instance also keeps « 1 fichier, 1 agent » (R7).
+
+    With cwd_instances set, only the base instance (``bolt`` / ``bolt-1``) may
+    fall back to cwd; any other unmapped name (``bolt-3``, left over when old
+    names linger) returns None so the caller refuses to start (revue codex 4429).
+    """
+    cwd = agent_cfg.get("cwd", ".")
+    mapping = agent_cfg.get("cwd_instances", {})
+    if not mapping:
+        return cwd
+    if instance_name in mapping:
+        return mapping[instance_name]
+    if instance_name in (base_name, f"{base_name}-1"):
+        return cwd
+    return None
+
+
+def _refuse_instance(server_port: int, agent: str, name: str, token: str) -> None:
+    """Deregister ``name`` : it has no own dir and would share another instance's token."""
+    import urllib.request
+    print(f"  {name} has no own dir in agents.{agent}.cwd_instances : refusing to share")
+    print("  another instance's MCP token. Map it, or wait for old names to expire.")
+    try:
+        urllib.request.urlopen(urllib.request.Request(
+            f"http://127.0.0.1:{server_port}/api/deregister/{name}", method="POST",
+            data=b"", headers=_auth_headers(token)), timeout=5)
+    except Exception:
+        pass
+
+
+def _guard_rename(agent_cfg: dict, agent: str, cwd: str, new_name: str,
+                  server_port: int, token: str, session: str) -> None:
+    """Stop the wrapper (and its CLI session) if ``new_name`` belongs in another dir."""
+    if _instance_cwd(agent_cfg, new_name, agent) == cwd:
+        return
+    _refuse_instance(server_port, agent, new_name, token)
+    if sys.platform != "win32":
+        try:
+            subprocess.run(["tmux", "kill-session", "-t", session], capture_output=True, timeout=5)
+        except Exception:
+            pass
+    os._exit(1)
 
 
 def _codex_flags_for_servers(servers: dict) -> list[str]:
@@ -598,6 +650,26 @@ def _notify_recovery(data_dir: Path, agent_name: str):
         pass
 
 
+_RULE_ID_RE = re.compile(r"\bR(\d+)\b")
+
+
+def _compact_rules(rules: list[str]) -> list[str]:
+    """Latest version of each numbered rule (R1, R2...), kept whole.
+
+    The room keeps every version (v1.1 R1, v1.2 R1, v1.5 R1...) as separate
+    active rules; a small local model drowns in them. Later entries win; rules
+    without an R-number are kept. Never cut a rule: a cut changes its meaning
+    (revue codex 4418, R4 lost « agent cloud »).
+    """
+    latest: dict[str, str] = {}
+    for rule in rules:
+        m = _RULE_ID_RE.search(rule)
+        key = f"R{m.group(1)}" if m else f"#{len(latest)}:{rule}"
+        latest.pop(key, None)
+        latest[key] = rule
+    return list(latest.values())
+
+
 _IDENTITY_HINT = (
     " (If this is a multi-instance session, reclaim your previous identity from "
     "your context window, NOT from the chat history before responding. If you "
@@ -675,8 +747,16 @@ def _report_rule_sync(server_port: int, agent_name: str, epoch: int, token: str 
 
 def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = False, trigger_flag=None,
                    server_port: int = 8300, agent_name: str = "", get_token_fn=None,
-                   refresh_interval: int = 10, clear_fn=None, clear_every: int = 0):
+                   refresh_interval: int = 10, clear_fn=None, clear_every: int = 0,
+                   trigger_prompt: str = "", rules_format: str = "complet"):
     """Poll queue file and inject an MCP read task when triggered.
+
+    ``trigger_prompt`` (agents.<x>.trigger_prompt) replaces the default English
+    one-liner for models that ignore it (Bolt, 2-bit local: answered in its
+    terminal, never called chat_read/chat_send). Placeholders : {name} (current
+    identity), {cible} (``channel='x'`` or ``job_id=N``). ``rules_format``
+    "court" sends the latest version of each rule (_compact_rules) instead of the full
+    block, still at the current epoch, so the sync report stays truthful.
 
     ``clear_every`` > 0 : every N triggers, reset the CLI's conversation via
     ``clear_fn`` BEFORE injecting the next task. The room (MCP) is the shared
@@ -738,15 +818,18 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
                         except json.JSONDecodeError:
                             pass
 
+                    # Use current identity (may have changed via rename)
+                    current_name, _ = get_identity_fn()
                     if custom_prompt:
                         prompt = custom_prompt
+                    elif trigger_prompt:
+                        cible = f"job_id={job_id}" if job_id else f"channel='{channel}'"
+                        prompt = trigger_prompt.replace("{name}", current_name).replace("{cible}", cible)
                     elif job_id:
                         prompt = f"use mcp to read job_id={job_id} - you're mentioned in a job thread, take appropriate action and respond"
                     else:
                         prompt = f"use mcp to read #{channel} - you're mentioned, take appropriate action and respond"
 
-                    # Use current identity (may have changed via rename)
-                    current_name, _ = get_identity_fn()
                     # Append role if set — check both current name and base name
                     role = _fetch_role(server_port, current_name)
                     if not role and current_name != agent_name:
@@ -781,7 +864,10 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
                         )
                         if need_inject:
                             if rules_data["rules"]:
-                                rules_text = "; ".join(rules_data["rules"])
+                                rules = rules_data["rules"]
+                                if rules_format == "court":
+                                    rules = _compact_rules(rules)
+                                rules_text = "; ".join(rules)
                                 prompt += f"\n\nRULES:\n{rules_text}"
                             last_rules_epoch = rules_data["epoch"]
                             _report_rule_sync(server_port, current_name, rules_data["epoch"], _token)
@@ -851,6 +937,10 @@ def main():
     assigned_name = registration["name"]
     assigned_token = registration["token"]
     print(f"  Registered as: {assigned_name} (slot {registration.get('slot', '?')})")
+    cwd = _instance_cwd(agent_cfg, assigned_name, agent)
+    if cwd is None:
+        _refuse_instance(server_port, agent, assigned_name, assigned_token)
+        sys.exit(1)
 
     proxy = None
     proxy_url = None
@@ -918,6 +1008,12 @@ def main():
             pass
 
     def set_runtime_identity(new_name: str | None = None, new_token: str | None = None):
+        # Same guard as at start-up, for a rename mid-session (heartbeat name
+        # change or 409 re-register) : a new name whose dir is not this cwd
+        # would rewrite the MCP token in another instance's dir (revue codex 4431).
+        if new_name and new_name != _identity["name"]:
+            _guard_rename(agent_cfg, agent, cwd, new_name, server_port,
+                          new_token or _identity["token"], f"agentchattr-{assigned_name}")
         with _identity_lock:
             old_name = _identity["name"]
             old_token = _identity["token"]
@@ -1039,7 +1135,9 @@ def main():
         return {"is_multi_instance": _is_multi_instance, "trigger_flag": _trigger_flag,
                 "server_port": server_port, "agent_name": assigned_name,
                 "get_token_fn": get_token, "refresh_interval": _refresh_interval,
-                "clear_fn": _watcher_clear_fn, "clear_every": _clear_every}
+                "clear_fn": _watcher_clear_fn, "clear_every": _clear_every,
+                "trigger_prompt": agent_cfg.get("trigger_prompt", ""),
+                "rules_format": agent_cfg.get("rules_format", "complet")}
 
     def start_watcher(inject_fn, clear_fn=None):
         nonlocal _watcher_inject_fn, _watcher_clear_fn, _watcher_thread
