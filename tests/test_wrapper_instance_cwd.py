@@ -60,7 +60,7 @@ class GuardRenameTests(unittest.TestCase):
         self.assertTrue(exited)
         refuse.assert_called_once_with(8300, "bolt", "bolt-3", "tok")
         if sys.platform != "win32":
-            self.assertEqual(run.call_args[0][0], ["tmux", "kill-session", "-t", "agentchattr-bolt"])
+            self.assertEqual(run.call_args[0][0], ["tmux", "kill-session", "-t", "=agentchattr-bolt"])
 
     def test_rename_into_other_instance_dir_stops(self):
         # first instance (in cad-bolt) handed bolt-2, whose dir is cad-bolt-2

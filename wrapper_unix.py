@@ -23,10 +23,25 @@ import uuid
 TMUX_COMMAND_TIMEOUT = 5.0
 
 
+def _exact_session(session_name: str) -> str:
+    """tmux target that matches ONLY this session name.
+
+    A bare ``-t agentchattr-bolt`` falls back to a PREFIX match when that
+    session is gone : it hit agentchattr-bolt-2 (killed at start-up of
+    another instance, or seen « alive » after this CLI died). 18 oct. 2026.
+    """
+    return f"={session_name}"
+
+
+def _exact_pane(target: str) -> str:
+    """Same for pane/window targets; pane ids (%7) are already exact."""
+    return target if target.startswith("%") else f"={target}:"
+
+
 def _session_exists(session_name: str) -> bool:
     """Return True while the tmux session is still alive."""
     result = subprocess.run(
-        ["tmux", "has-session", "-t", session_name],
+        ["tmux", "has-session", "-t", _exact_session(session_name)],
         capture_output=True,
     )
     return result.returncode == 0
@@ -47,7 +62,7 @@ def _check_tmux():
 def _pane_id(tmux_session: str) -> str | None:
     """Resolve the session's active pane once, so paste and Enter hit the same pane."""
     result = subprocess.run(
-        ["tmux", "display-message", "-p", "-t", tmux_session, "#{pane_id}"],
+        ["tmux", "display-message", "-p", "-t", _exact_pane(tmux_session), "#{pane_id}"],
         capture_output=True, timeout=TMUX_COMMAND_TIMEOUT,
     )
     if result.returncode != 0:
@@ -215,7 +230,7 @@ def get_activity_checker(session_name, trigger_flag=None, *, provider=""):
             return True
         try:
             result = subprocess.run(
-                ["tmux", "capture-pane", "-t", session_name, "-p"],
+                ["tmux", "capture-pane", "-t", _exact_pane(session_name), "-p"],
                 capture_output=True, timeout=2,
             )
             output = result.stdout
@@ -287,7 +302,7 @@ def run_agent(
         try:
             # Clean up stale session from a previous crash
             subprocess.run(
-                ["tmux", "kill-session", "-t", session_name],
+                ["tmux", "kill-session", "-t", _exact_session(session_name)],
                 capture_output=True,
             )
 
@@ -302,7 +317,7 @@ def run_agent(
                 break
 
             # Attach — blocks until agent exits or user detaches (Ctrl+B, D)
-            subprocess.run(["tmux", "attach-session", "-t", session_name])
+            subprocess.run(["tmux", "attach-session", "-t", _exact_session(session_name)])
 
             # Check: did the agent exit, or did the user just detach?
             if _session_exists(session_name):
@@ -324,7 +339,7 @@ def run_agent(
         except KeyboardInterrupt:
             # Kill the tmux session on Ctrl+C
             subprocess.run(
-                ["tmux", "kill-session", "-t", session_name],
+                ["tmux", "kill-session", "-t", _exact_session(session_name)],
                 capture_output=True,
             )
             break
