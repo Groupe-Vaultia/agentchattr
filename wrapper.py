@@ -127,15 +127,27 @@ def _read_agent_extra_mcp_servers(data_dir: Path, instance_name: str) -> dict:
         return {}
 
 
-def _instance_cwd(agent_cfg: dict, instance_name: str) -> str:
+def _instance_cwd(agent_cfg: dict, instance_name: str, base_name: str) -> str | None:
     """Working dir for ONE instance: agents.<x>.cwd_instances["<name>"], else cwd.
 
     settings_file injection writes the MCP token into <cwd>/.qwen/settings.json :
     two instances in the same cwd overwrite each other's token, and the room
     signs both as the last one started (bolt-2 replies came out as bolt-1,
     msg 4427). A worktree per instance also keeps « 1 fichier, 1 agent » (R7).
+
+    With cwd_instances set, only the base instance (``bolt`` / ``bolt-1``) may
+    fall back to cwd; any other unmapped name (``bolt-3``, left over when old
+    names linger) returns None so the caller refuses to start (revue codex 4429).
     """
-    return agent_cfg.get("cwd_instances", {}).get(instance_name, agent_cfg.get("cwd", "."))
+    cwd = agent_cfg.get("cwd", ".")
+    mapping = agent_cfg.get("cwd_instances", {})
+    if not mapping:
+        return cwd
+    if instance_name in mapping:
+        return mapping[instance_name]
+    if instance_name in (base_name, f"{base_name}-1"):
+        return cwd
+    return None
 
 
 def _codex_flags_for_servers(servers: dict) -> list[str]:
@@ -897,7 +909,17 @@ def main():
     assigned_name = registration["name"]
     assigned_token = registration["token"]
     print(f"  Registered as: {assigned_name} (slot {registration.get('slot', '?')})")
-    cwd = _instance_cwd(agent_cfg, assigned_name)
+    cwd = _instance_cwd(agent_cfg, assigned_name, agent)
+    if cwd is None:
+        print(f"  {assigned_name} has no own dir in agents.{agent}.cwd_instances : refusing to share")
+        print(f"  another instance's MCP token. Map it, or wait for old names to expire.")
+        try:
+            urllib.request.urlopen(urllib.request.Request(
+                f"http://127.0.0.1:{server_port}/api/deregister/{assigned_name}", method="POST",
+                data=b"", headers=_auth_headers(assigned_token)), timeout=5)
+        except Exception:
+            pass
+        sys.exit(1)
 
     proxy = None
     proxy_url = None
