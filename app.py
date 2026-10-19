@@ -1,6 +1,7 @@
 """agentchattr — FastAPI web UI + agent auto-trigger."""
 
 import asyncio
+import hmac
 import json
 import re as _re
 import sys
@@ -61,6 +62,30 @@ ws_clients: set[WebSocket] = set()
 
 # --- Security: session token (set by configure()) ---
 session_token: str = ""
+# Vaultia (19 oct. 2026, lot « jeton hors URL », claude-1 msg 4867) : la page reçoit aussi le jeton dans un cookie
+# HttpOnly. EventSource et WebSocket ne posent pas d'en-tête : le navigateur n'a plus à mettre le jeton dans l'URL.
+# Le ?token= reste accepté (agents, scripts). Le nom porte le port : deux salles sur une même machine ne partagent
+# pas leurs cookies (un cookie ignore le port).
+cookie_session: str = "agentchattr_session_8300"
+origines_permises: set[str] = set()
+
+
+def nom_cookie_session(port) -> str:
+    return f"agentchattr_session_{int(port)}"
+
+
+def poser_cookie_session(reponse: Response) -> Response:
+    """Pose le cookie de session sur une page servie avec le jeton (/, /atelier)."""
+    reponse.set_cookie(cookie_session, session_token, httponly=True, secure=True, samesite="strict", path="/")
+    return reponse
+
+
+def jeton_valide(entetes, query, cookies) -> bool:
+    """Vrai si l'un des jetons présentés (en-tête, ?token=, cookie de session) est le jeton de session."""
+    if not session_token:
+        return False
+    return any(hmac.compare_digest(str(j).encode(), session_token.encode())
+               for j in (entetes.get("x-session-token"), query.get("token"), cookies.get(cookie_session)) if j)
 
 # Room settings (persisted to data/settings.json)
 room_settings: dict = {
@@ -214,11 +239,12 @@ def _resolve_authenticated_agent(request: Request) -> dict | None:
 _PUBLIC_PREFIXES = ("/", "/static/")
 
 
-def _install_security_middleware(token: str, cfg: dict):
-    """Add token validation and origin checking middleware to the app."""
+def _install_security_middleware(token: str, cfg: dict, cible: FastAPI | None = None):
+    """Add token validation and origin checking middleware to the app (`cible` : une autre app, pour les tests)."""
     import app as _self
     _self.session_token = token
     port = cfg.get("server", {}).get("port", 8300)
+    _self.cookie_session = nom_cookie_session(port)
     allowed_origins = {
         f"http://127.0.0.1:{port}",
         f"http://localhost:{port}",
@@ -229,6 +255,7 @@ def _install_security_middleware(token: str, cfg: dict):
     for _origine in cfg.get("server", {}).get("allowed_origins", []) or []:
         if isinstance(_origine, str) and _origine.strip():
             allowed_origins.add(_origine.strip().rstrip("/"))
+    _self.origines_permises = allowed_origins
 
     class SecurityMiddleware(BaseHTTPMiddleware):
         async def dispatch(self, request: Request, call_next):
@@ -267,11 +294,7 @@ def _install_security_middleware(token: str, cfg: dict):
                 if _self.registry and _self.registry.resolve_token(bearer):
                     return await call_next(request)
 
-            req_token = (
-                request.headers.get("x-session-token")
-                or request.query_params.get("token")
-            )
-            if req_token != _self.session_token:
+            if not jeton_valide(request.headers, request.query_params, request.cookies):
                 return JSONResponse(
                     {"error": "forbidden: invalid or missing session token"},
                     status_code=403,
@@ -279,7 +302,7 @@ def _install_security_middleware(token: str, cfg: dict):
 
             return await call_next(request)
 
-    app.add_middleware(SecurityMiddleware)
+    (cible or app).add_middleware(SecurityMiddleware)
 
 
 def configure(cfg: dict, session_token: str = ""):
@@ -1236,11 +1259,18 @@ def _on_registry_change():
 
 # --- WebSocket ---
 
+def _ws_autorise(websocket) -> bool:
+    """Jeton en ?token= ou dans le cookie de session ; une origine étrangère est refusée (le cookie part tout seul)."""
+    origine = websocket.headers.get("origin")
+    if origine and origine not in origines_permises:
+        return False
+    return jeton_valide({}, websocket.query_params, websocket.cookies)
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     # --- Security: validate session token on WebSocket connect ---
-    token = websocket.query_params.get("token", "")
-    if token != session_token:
+    if not _ws_autorise(websocket):
         # Must accept before closing so the browser receives the close frame.
         # Code 4003 triggers an auto-reload in the client to pick up the new token.
         await websocket.accept()

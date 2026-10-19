@@ -72,7 +72,7 @@ def main():
         session_token = _token_file.read_text(encoding="utf-8").strip() or secrets.token_hex(32)
 
     # Configure the FastAPI app (creates shared store)
-    from app import app, configure, set_event_loop, store as _store_ref
+    from app import app, configure, set_event_loop, poser_cookie_session, store as _store_ref
     configure(config, session_token=session_token)
 
     # Share stores with the MCP bridge
@@ -122,6 +122,7 @@ def main():
     async def index():
         # Read index.html fresh each request so changes take effect without restart.
         # Inject the session token into the HTML so the browser client can use it.
+        # Le cookie de session (HttpOnly) sert au WebSocket et a l'EventSource, sans jeton dans l'URL.
         # This is safe: same-origin policy prevents cross-origin pages from reading
         # the response body, so only the user's own browser tab gets the token.
         html = (static_dir / "index.html").read_text("utf-8")
@@ -129,7 +130,7 @@ def main():
             "</head>",
             f'<script>window.__SESSION_TOKEN__="{session_token}";</script>\n</head>',
         )
-        return HTMLResponse(injected, headers={"Cache-Control": "no-store"})
+        return poser_cookie_session(HTMLResponse(injected, headers={"Cache-Control": "no-store"}))
 
     @app.get("/atelier")
     async def atelier():
@@ -140,7 +141,7 @@ def main():
             "</head>",
             f'<script>window.__SESSION_TOKEN__="{session_token}";</script>\n</head>',
         )
-        return HTMLResponse(injected, headers={"Cache-Control": "no-store"})
+        return poser_cookie_session(HTMLResponse(injected, headers={"Cache-Control": "no-store"}))
 
     app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 

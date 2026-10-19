@@ -1,5 +1,5 @@
 import { choisirFantomes, BBOX_DEF } from './fantomes.js';
-import { visuels, visuelsHtml, retirerVignette, creerChargeur } from './visuels.js?v=1';
+import { visuels, visuelsHtml, retirerVignette, creerChargeur, urlLivrable, choisirPlans } from './visuels.js?v=3';
 /* Atelier R&D · Vaultia — logique de la page (v3, 2026-10-16).
    Deux pages :
    - « Aujourd'hui » (#/) : tous projets confondus, ce qui t'attend (tâches attend_charles + jalons sans
@@ -714,15 +714,17 @@ async function ouvrirPiece(id) {
   } else if (!fr.ok) {
     fel.innerHTML = `<p class="cap" style="color:var(--v-danger)">${fr.err ? "Erreur " + fr.err : "Erreur réseau"} : impossible de charger les plans.</p>`;
   } else if (fr.data && fr.data.fichiers && fr.data.fichiers.length) {
-    const tok = encodeURIComponent(window.__SESSION_TOKEN__ || "");
-    const url = f => `/api/v2/pieces/${encodeURIComponent(id)}/fichiers/${encodeURIComponent(f.revision || "P01")}/${encodeURIComponent(f.nom)}?token=${tok}`;
-    const svg = fr.data.fichiers.find(f => f.nom.endsWith(".svg"));
-    const liens = ["pdf", "step", "stp", "glb", "svg", "dxf"].map(ext => {
-      const f = fr.data.fichiers.find(x => x.nom.toLowerCase().endsWith("." + ext));
-      return f ? `<a href="${url(f)}" download="${esc(f.nom)}" class="btn mini" target="_blank" rel="noopener">${ext.toUpperCase()}</a>` : "";
-    }).filter(Boolean).join("");
-    const imgHtml = svg ? `<img class="plan-img" src="${url(svg)}" alt="Plan ${esc(svg.nom)}">` : `<p class="cap">Aucun plan SVG à afficher.</p>`;
+    // Sans jeton dans l'URL : l'image et les téléchargements passent par le chargeur (static/visuels.js).
+    const url = f => `/api/v2/pieces/${encodeURIComponent(id)}/fichiers/${encodeURIComponent(f.revision || "P01")}/${encodeURIComponent(f.nom)}`;
+    // Toutes les feuilles de la dernière révision, feuille 1 d'abord ; un format plus ancien porte sa révision.
+    const {revision, feuilles, total, formats} = choisirPlans(fr.data.fichiers);
+    const liens = formats.map(f => `<a href="#" data-telecharger="${esc(url(f))}" download="${esc(f.nom)}" class="btn mini">${esc(f.nom.split(".").pop().toUpperCase())}${f.revision !== revision ? ` · ${esc(f.revision)}` : ""}</a>`).join("");
+    const imgHtml = feuilles.length
+      ? `<p class="cap">Révision ${esc(revision)}${total > 1 ? ` · ${total} feuilles` : ""}</p>` + feuilles.map(f =>
+          `<figure class="plan-f">${total > 1 ? `<figcaption class="cap">Feuille ${f.feuille} de ${total}</figcaption>` : ""}<img class="plan-img" data-blob="${esc(url(f))}" alt="Plan ${esc(f.nom)}"></figure>`).join("")
+      : `<p class="cap">Aucun plan SVG à afficher.</p>`;
     fel.innerHTML = imgHtml + (liens ? `<div class="chips" style="margin-top:10px">${liens}</div>` : "");
+    chargerVisuels();
   } else {
     fel.innerHTML = `<p class="cap">Aucun plan pour l'instant.</p>`;
   }
@@ -795,13 +797,12 @@ async function renderVue3D() {
     const bbox = POS_PIECES[p.numero] || BBOX_DEF;
     const entry = { id: p.id, numero: p.numero, nom: p.nom, statut: p.statut, fichier_glb: null, bbox };
     if (p.fichier && p.fichier.endsWith(".glb")) {
-      // La révision du GLB vient du nom (…_P03.glb). Jeton en query : un fetch GLTF ne pose pas d'en-tête.
+      // La révision du GLB vient du nom (…_P03.glb). Pas de jeton dans l'URL : GLTFLoader pose l'en-tête x-session-token.
       const nomGlb = p.fichier.split("/").pop();
       const mRev = nomGlb.match(/_(P\d+)\.glb$/i);
       const revGlb = mRev ? mRev[1] : (p.revision || "P01");
       entry.fichier_glb = "/api/v2/pieces/" + encodeURIComponent(p.id) + "/fichiers/" +
-        encodeURIComponent(revGlb) + "/" + encodeURIComponent(nomGlb) +
-        "?token=" + encodeURIComponent(window.__SESSION_TOKEN__ || "");
+        encodeURIComponent(revGlb) + "/" + encodeURIComponent(nomGlb);
     }
     pieces3d.push(entry);
   }
@@ -1038,6 +1039,13 @@ function pieceJointe(a) {
 // x-session-token et montrées par URL blob, révoquées à la fermeture de la fiche.
 const VISUELS = creerChargeur({headers});
 const chargerVisuels = () => VISUELS.charger($("#fiche-c"));
+async function telecharger(a) {
+  if (a.dataset.encours) return;
+  a.dataset.encours = "1";
+  const ok = await VISUELS.telecharger(a.dataset.telecharger, a.getAttribute("download"));
+  delete a.dataset.encours;
+  if (!ok) toast("Téléchargement impossible (fichier absent ou session expirée).");
+}
 // Une pièce jointe introuvable (src direct, /uploads/) retire aussi sa vignette.
 document.addEventListener("error", e => {
   const img = e.target;
@@ -1320,11 +1328,6 @@ function livMarkdown(src) {
   }
   return out.join("\n");
 }
-// Le jeton va en query : un <img>/<a download> ne peut pas poser l'en-tête x-session-token.
-const urlLivrable = chemin => {
-  const t = window.__SESSION_TOKEN__;
-  return `/api/v2/livrable?chemin=${encodeURIComponent(chemin)}` + (t ? `&token=${encodeURIComponent(t)}` : "");
-};
 const LIV_IMG = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
 const LIV_TXT = new Set(["md", "markdown", "txt", "csv", "json"]);
 const extLivrable = chemin => { const m = String(chemin || "").toLowerCase().match(/\.([a-z0-9]+)$/); return m ? m[1] : ""; };
@@ -1332,10 +1335,11 @@ async function ouvrirLivrable(chemin) {
   const nom = String(chemin || "").split("/").pop() || chemin;
   const ext = extLivrable(chemin);
   const tete = enteteFiche("Livrable", nom);
-  const tele = `<div class="fc"><a class="btn pri" href="${esc(urlLivrable(chemin))}" download="${esc(nom)}">Télécharger</a> <p class="cap"><code>${esc(chemin)}</code></p></div>`;
+  const tele = `<div class="fc"><a class="btn pri" href="#" data-telecharger="${esc(urlLivrable(chemin))}" download="${esc(nom)}">Télécharger</a> <p class="cap"><code>${esc(chemin)}</code></p></div>`;
   ouvrirFiche(tete + `<div class="fc"><p class="cap">Chargement…</p></div>`);
   if (LIV_IMG.has(ext)) {
-    $("#fiche-c").innerHTML = tete + `<div class="fc liv-vue"><img class="liv-img" src="${esc(urlLivrable(chemin))}" alt="${esc(nom)}"></div>` + tele;
+    $("#fiche-c").innerHTML = tete + `<div class="fc liv-vue"><img class="liv-img" data-blob="${esc(urlLivrable(chemin))}" alt="${esc(nom)}"></div>` + tele;
+    chargerVisuels();
     return;
   }
   if (LIV_TXT.has(ext)) {
@@ -1428,8 +1432,8 @@ function majIndicateur() {
 }
 function brancherFlux() {
   if (!window.EventSource || FLUX) return;
-  const t = window.__SESSION_TOKEN__;
-  FLUX = new EventSource("/api/v2/flux" + (t ? "?token=" + encodeURIComponent(t) : ""));
+  // Le cookie de session (HttpOnly, posé avec la page) authentifie l'EventSource : pas de jeton dans l'URL.
+  FLUX = new EventSource("/api/v2/flux");
   FLUX.onopen = majIndicateur;
   FLUX.onerror = () => { majIndicateur(); if (FLUX && FLUX.readyState === 2) FLUX = null; };  // 2 = fermé (route absente)
   FLUX.onmessage = ev => {
@@ -1575,6 +1579,7 @@ function fermerRail() { $("#rail").classList.remove("ouvert"); $("#voile").hidde
 // ---------- câblage ----------
 document.addEventListener("click", e => {
   const t = e.target;
+  const tl = t.closest("[data-telecharger]"); if (tl) { e.preventDefault(); e.stopPropagation(); return telecharger(tl); }
   const lv = t.closest("[data-voir]"); if (lv) { e.preventDefault(); e.stopPropagation(); return ouvrirLivrable(lv.dataset.voir); }
   const d = t.closest("[data-disc]"); if (d) { e.preventDefault(); e.stopPropagation(); return ouvrirTache(d.dataset.disc, d.dataset.p, "conv"); }
   const md = t.closest("[data-mode]"); if (md) { e.stopPropagation(); return ouvrirTache(md.dataset.tache, md.dataset.p, md.dataset.mode); }

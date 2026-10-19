@@ -38,6 +38,8 @@ class HistoryDeliveryTests(unittest.TestCase):
         frames = []
         class Socket:
             query_params = {'token': 'test'}
+            headers = {}  # comme un vrai WebSocket : la garde lit l'origine et le cookie
+            cookies = {}
             interrupted = False
             async def accept(self): pass
             async def receive_text(self): raise WebSocketDisconnect()
