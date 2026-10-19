@@ -1,8 +1,10 @@
-/* Visuels de la fiche de tâche : aucun jeton dans une URL produite (revue codex-1, msg 4852).
+/* Fichiers protégés de l'atelier : aucun jeton dans une URL créée par le navigateur
+   (revue codex-1, msg 4852 ; lot claude-1, msg 4867).
    Importe le module de production (static/visuels.js) — pas une copie.
    Exécuter : node tests/test_visuels.mjs */
 
-import { visuels, visuelsHtml, creerChargeur } from "../static/visuels.js";
+import { readFileSync, readdirSync } from "fs";
+import { visuels, visuelsHtml, creerChargeur, urlLivrable } from "../static/visuels.js";
 
 let pass = 0, fail = 0;
 function check(desc, actual, expected) {
@@ -28,7 +30,8 @@ check("sans pièces jointes si pj:false", visuels(msg, {pj: false}).some(v => v.
 // --- 2. HTML : la vignette de livrable naît sans src ni href, et sans jeton ---
 const html = visuelsHtml(liste);
 check("aucun « token » dans le HTML", /token/i.test(html), false);
-check("vignette de livrable sans src", /<img class="vis-img" data-chemin="wt-claude5-t22[^>]*\ssrc=/.test(html), false);
+check("vignette de livrable sans src", /<img class="vis-img" data-blob="[^"]*wt-claude5-t22[^>]*\ssrc=/.test(html), false);
+check("vignette de livrable : data-blob = route livrable", html.includes(`data-blob="${urlLivrable("wt-claude5-t22/design/rendus/pistes_v13.png")}"`), true);
 check("pièce jointe en src direct", html.includes('src="/uploads/abc.png"'), true);
 check("liste vide = rien", visuelsHtml([]), "");
 
@@ -36,9 +39,17 @@ check("liste vide = rien", visuelsHtml([]), "");
 function vignette(chemin) {
     const cadre = {liens: 1, retire: false, querySelector: () => (cadre.liens ? {} : null), remove() { cadre.retire = true; }};
     const a = {href: undefined, retire: false, remove() { a.retire = true; cadre.liens--; }};
-    const img = {dataset: {chemin}, isConnected: true, src: undefined,
+    const img = {dataset: {blob: urlLivrable(chemin)}, isConnected: true, src: undefined,
+                 classList: {contains: c => c === "vis-img"},
                  closest: sel => (sel === ".vis-l" ? a : sel === ".vis" ? cadre : null)};
     return {img, a, cadre};
+}
+// Une image protégée hors vignette (plan de pièce, visualiseur).
+function imageSeule(src) {
+    const img = {dataset: {blob: src}, isConnected: true, src: undefined, apres: "", retiree: false,
+                 classList: {contains: () => false}, closest: () => null,
+                 insertAdjacentHTML(_, h) { img.apres = h; }, remove() { img.retiree = true; }};
+    return img;
 }
 const racine = imgs => ({querySelectorAll: () => imgs});
 function faux({ok = true, type = "image/png", attente = null} = {}) {
@@ -87,6 +98,38 @@ for (const [desc, opts] of [["404", {ok: false}], ["type texte", {type: "text/ht
     check(`${desc} : aucun src`, v.img.src, undefined);
 }
 
+// --- 4 bis. Plan de pièce : même chargeur, URL sans jeton ; introuvable = légende à la place de l'image ---
+{
+    const {appels, chargeur} = faux();
+    const plan = imageSeule("/api/v2/pieces/7/fichiers/P01/plan.svg");
+    await chargeur.charger(racine([plan]));
+    check("plan : URL de fetch telle quelle, sans jeton", appels[0].url, "/api/v2/pieces/7/fichiers/P01/plan.svg");
+    check("plan : src = blob", plan.src, "blob:http://127.0.0.1/1");
+    const absent = faux({ok: false});
+    const p2 = imageSeule("/api/v2/pieces/7/fichiers/P01/absent.svg");
+    await absent.chargeur.charger(racine([p2]));
+    check("plan absent : légende", p2.apres.includes("Image introuvable"), true);
+    check("plan absent : image retirée", p2.retiree, true);
+}
+
+// --- 4 ter. Téléchargement au clic : fetch avec l'en-tête, ancre blob temporaire, aucun jeton ---
+{
+    const {appels, chargeur} = faux({type: "application/step"});
+    const ancres = [];
+    const doc = {createElement: () => { const a = {click() { a.clique = true; }, remove() {}}; ancres.push(a); return a; },
+                 body: {appendChild() {}}};
+    const tele = creerChargeur({fetch: async (u, o) => { appels.push({url: u, opts: o}); return {ok: true, blob: async () => ({type: "application/step"})}; },
+                                headers: enTetes, url: {createObjectURL: () => "blob:http://127.0.0.1/t", revokeObjectURL() {}}, document: doc});
+    const ok = await tele.telecharger("/api/v2/pieces/7/fichiers/P01/piece.step", "piece.step");
+    check("téléchargement réussi", ok, true);
+    check("téléchargement : URL sans jeton", /token/i.test(appels[0].url), false);
+    check("téléchargement : jeton en en-tête", appels[0].opts.headers["x-session-token"], JETON);
+    check("téléchargement : ancre blob cliquée", ancres[0].href === "blob:http://127.0.0.1/t" && ancres[0].clique === true, true);
+    check("téléchargement : nom du fichier", ancres[0].download, "piece.step");
+    const refus = creerChargeur({fetch: async () => ({ok: false}), headers: enTetes, url: {}, document: doc});
+    check("téléchargement refusé = false", await refus.telecharger("/x", "x"), false);
+}
+
 // --- 5. Fiche fermée pendant la lecture : le blob créé est révoqué aussitôt, rien n'est posé ---
 {
     let lacher;
@@ -99,6 +142,14 @@ for (const [desc, opts] of [["404", {ok: false}], ["type texte", {type: "text/ht
     await enCours; await fin;
     check("course : blob révoqué", revoques.length, 1);
     check("course : aucun src posé", v.img.src, undefined);
+}
+
+// --- 6. Aucun fichier servi au navigateur ne fabrique d'URL avec le jeton ---
+const STATIC = new URL("../static/", import.meta.url);
+const VENDUS = new Set(["three.module.min.js", "OrbitControls.js"]); // bibliothèques tierces, sans jeton
+for (const f of readdirSync(STATIC).filter(f => /\.(js|html)$/.test(f) && !VENDUS.has(f))) {
+    const src = readFileSync(new URL(f, STATIC), "utf8");
+    check(`${f} : aucun « token= »`, /[?&]token=|token=\$\{|"token="|'token='/.test(src), false);
 }
 
 console.log(`${pass} passés, ${fail} échoués`);

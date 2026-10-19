@@ -694,7 +694,9 @@ function connectWebSocket() {
     pendingHistory = [];
     pendingLiveEvents = [];
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(SESSION_TOKEN)}`);
+    // Le cookie de session (HttpOnly, pose avec la page) authentifie le WebSocket : pas de jeton dans l'URL.
+    // Un 4003 relit « / », ce qui repose le cookie, puis reconnecte.
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
 
     ws.onopen = () => {
         console.log('WebSocket connected');
