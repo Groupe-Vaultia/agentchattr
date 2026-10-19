@@ -1,4 +1,5 @@
 import { choisirFantomes, BBOX_DEF } from './fantomes.js';
+import { visuels, visuelsHtml, retirerVignette, creerChargeur } from './visuels.js?v=1';
 /* Atelier R&D · Vaultia — logique de la page (v3, 2026-10-16).
    Deux pages :
    - « Aujourd'hui » (#/) : tous projets confondus, ce qui t'attend (tâches attend_charles + jalons sans
@@ -858,6 +859,7 @@ function ouvrirFiche(html) {
   const d = $("#fiche");
   if (!d.open) { if (d.showModal) d.showModal(); else d.setAttribute("open", ""); }
   d.scrollTop = 0;
+  chargerVisuels();
   // Le focus va à la fiche, pas au bouton Fermer : pas d'anneau à l'ouverture, pas de clavier qui surgit au téléphone.
   $("#fiche-c").focus({preventScroll: true});
 }
@@ -869,6 +871,24 @@ const trouverTache = (id, pid) => {
   for (const p of Object.keys(state.par)) { const t = dans(p); if (t) return [t, p]; }
   return [null, null];
 };
+
+// « Ce qu'on te demande », en tête de la fiche : la carte ouverte (question, visuels, choix) se tranche sans quitter
+// la fiche. Sans carte ouverte, une tâche « t'attend » le dit, avec la dernière décision et ses visuels.
+const carteOuverte = m => m.type === "decision" && !(m.metadata || {}).resolved && !CHOISIS.has(String(m.id))
+  && Array.isArray((m.metadata || {}).choices) && m.metadata.choices.length > 0;
+function demandeHtml(msgs, st) {
+  const cartes = msgs.filter(m => m.type === "decision");
+  const ouverte = cartes.filter(carteOuverte).pop();
+  if (ouverte) return `<div class="fc demande" data-carte="${esc(ouverte.id)}"><span class="lbl">Ce qu'on te demande</span>
+    <div class="cm-h">${agent(ouverte.sender, true)}<time>${esc(heure(ouverte.timestamp))}</time><span class="cm-id">#${esc(ouverte.id)}</span></div>
+    <div class="cm-prose liv-md">${avecMentions(livMarkdown(ouverte.text))}</div>${visuelsHtml(visuels(ouverte))}${decisionHtml(ouverte)}</div>`;
+  if (st !== "attend_charles") return "";
+  const tranchee = cartes.filter(m => !carteOuverte(m)).pop();
+  const choix = tranchee && ((tranchee.metadata || {}).chosen || CHOISIS.get(String(tranchee.id)));
+  return `<div class="fc demande vide"><span class="lbl">Ce qu'on te demande</span>
+    <p class="prose"><b>Aucune question ouverte.</b> La tâche est marquée « t'attend », mais aucune carte de décision n'attend ta réponse.</p>
+    ${tranchee ? `<div class="cm-resolu">Dernière décision, ${esc(heure(tranchee.timestamp))} : ${esc(court(premiereLigne(tranchee.text), 140))}${choix ? ` · ton choix : <b>${esc(choix)}</b>` : ""}</div>${visuelsHtml(visuels(tranchee))}` : ""}</div>`;
+}
 
 let REQUETE_FICHE = 0; // garde : une réponse n'affiche que si c'est encore la bonne tâche
 // La fiche d'une tâche a deux vues : « Conversation » (on discute du point sans quitter l'atelier) et « Détails ».
@@ -892,7 +912,10 @@ async function ouvrirTache(id, pid, mode = "details") {
     || `<div class="fc"><p class="cap" style="margin:0">Rien d'écrit encore sur cette tâche.</p></div>`;
   const meta = `<div class="fm"><span class="pill ${ETAT_CLS[st] || "s-afaire"}">${esc(ETAT_TACHE[st] || t.etat)}</span><span>Responsable : ${agent(t.responsable, true)}</span><span>Équipe : ${equipe}</span>${t.updated_at ? `<span class="cap" style="margin:0">Modifiée ${esc(ilya(t.updated_at))}</span>` : ""}</div>`;
   const pied = `<div class="ff"><button class="btn pri" type="button" data-mode="conv" data-tache="${esc(t.id)}" data-p="${esc(projet)}">${ico("chat")}Discuter de cette tâche</button></div>`;
-  ouvrirFiche(tete + meta + champs + `<div class="fc"><span class="lbl">Ce qui s'est passé</span><ul class="fhist" id="fiche-h"><li class="cap">Chargement…</li></ul></div>` + pied);
+  // La carte déjà connue de l'accueil s'affiche tout de suite ; la liste complète des messages la confirme ensuite.
+  const demande = state.cartes[t.id] ? demandeHtml([state.cartes[t.id]], st)
+    : st === "attend_charles" ? `<div class="fc demande vide"><span class="lbl">Ce qu'on te demande</span><p class="cap">Chargement…</p></div>` : "";
+  ouvrirFiche(tete + meta + `<div id="fiche-dem">${demande}</div>` + champs + `<div class="fc"><span class="lbl">Ce qui s'est passé</span><ul class="fhist" id="fiche-h"><li class="cap">Chargement…</li></ul></div>` + pied);
 
   const [m, e] = await Promise.all([
     getJSON(`/api/v2/messages?tache_id=${encodeURIComponent(t.id)}&limit=100`),
@@ -902,8 +925,12 @@ async function ouvrirTache(id, pid, mode = "details") {
   const el = $("#fiche-h");
   if (!el) return;
   const reussi = (m.ok || m.err === 404) && (e.ok || e.err === 404);
+  const msgs = (m.ok && m.data && m.data.messages) || [];
+  const dem = $("#fiche-dem");
+  if (dem && (m.ok || m.err === 404)) { dem.innerHTML = demandeHtml(msgs, st); chargerVisuels(); }
+  else if (dem && st === "attend_charles" && !state.cartes[t.id]) dem.innerHTML = `<div class="fc demande vide"><span class="lbl">Ce qu'on te demande</span><p class="cap" style="color:var(--v-danger)">Lecture de la question impossible (erreur réseau). Referme puis rouvre la tâche.</p></div>`;
   const lignes = [];
-  ((m.ok && m.data && m.data.messages) || []).forEach(x => lignes.push({h: x.timestamp, html: `${agent(x.sender, true)} <span>${livInline(court(aplatir(x.text), 400))}</span>`}));
+  msgs.forEach(x => lignes.push({h: x.timestamp, html: `${agent(x.sender, true)} <span>${livInline(court(aplatir(x.text), 400))}</span>${visuelsHtml(visuels(x), "petit")}`}));
   ((e.ok && e.data && e.data.executions) || []).forEach(x => lignes.push({h: x.fin || x.debut,
     html: `<span class="type">exécution</span>${agent(x.agent, true)}${x.role ? ` <span class="cap" style="margin:0">${esc(x.role)}</span>` : ""} : ${livInline(court(aplatir(x.consigne), 220))}${x.issue ? ` · ${esc(x.issue)}` : x.fin ? "" : " · en cours"}`}));
   lignes.sort((a, b) => (b.h || 0) - (a.h || 0));
@@ -912,6 +939,7 @@ async function ouvrirTache(id, pid, mode = "details") {
     : (lignes.length
       ? lignes.map(l => `<li><time>${esc(heure(l.h))}</time><span>${l.html}</span></li>`).join("")
       : `<li class="cap">Aucun message ni exécution rattaché à cette tâche pour l'instant.</li>`);
+  chargerVisuels();
 }
 
 // ---------- conversation d'une tâche, dans la fiche ----------
@@ -992,6 +1020,7 @@ function ajouterMessages(liste, bas) {
   zone.querySelector(".conv-vide")?.remove();
   neufs.forEach(x => { CONV.vus.add(x.id); CONV.dernier = Math.max(CONV.dernier, x.id); });
   zone.insertAdjacentHTML("beforeend", neufs.map(msgHtml).join(""));
+  chargerVisuels();
   if (bas || presDuBas) requestAnimationFrame(() => { d.scrollTop = d.scrollHeight; });
   majReflechit();
 }
@@ -1005,6 +1034,15 @@ function pieceJointe(a) {
     ? `<a class="cm-img-l" href="${esc(url)}" target="_blank" rel="noopener"><img class="cm-img" src="${esc(url)}" alt="${esc(a.name || "image")}" loading="lazy"></a>`
     : `<a class="btn mini" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(a.name || "fichier")}</a>`;
 }
+// Visuels cités dans les messages (module static/visuels.js) : les images de livrables sont lues avec l'en-tête
+// x-session-token et montrées par URL blob, révoquées à la fermeture de la fiche.
+const VISUELS = creerChargeur({headers});
+const chargerVisuels = () => VISUELS.charger($("#fiche-c"));
+// Une pièce jointe introuvable (src direct, /uploads/) retire aussi sa vignette.
+document.addEventListener("error", e => {
+  const img = e.target;
+  if (img instanceof HTMLImageElement && img.classList.contains("vis-img")) retirerVignette(img);
+}, true);
 function msgHtml(m) {
   if (m.type === "system") return `<div class="cm-sys">${esc(court(m.text, 300))}</div>`;
   const moi = m.sender === UTILISATEUR;
@@ -1015,20 +1053,25 @@ function msgHtml(m) {
   const pj = (m.attachments || []).map(pieceJointe).filter(Boolean).join("");
   return `<div class="cm${moi ? " moi" : ""}${m.type === "decision" ? " decision" : ""}" data-msg="${esc(m.id)}">
     <div class="cm-h">${moi ? "<span>Toi</span>" : agent(m.sender, true)}<time>${esc(m.time || hm(m.timestamp))}</time><span class="cm-id">#${esc(m.id)}</span>${rep}</div>
-    ${corps}${pj ? `<div class="cm-pj">${pj}</div>` : ""}${m.type === "decision" ? decisionHtml(m) : ""}</div>`;
+    ${corps}${pj ? `<div class="cm-pj">${pj}</div>` : ""}${visuelsHtml(visuels(m, {pj: false}))}${m.type === "decision" ? decisionHtml(m) : ""}</div>`;
 }
+// Choix envoyés depuis cette page : une liste relue avant que le serveur ait noté le choix ne rouvre pas la carte.
+const CHOISIS = new Map();
 // Carte de décision d'un agent : les choix se touchent du pouce, comme dans la salle.
 function decisionHtml(m) {
   const meta = m.metadata || {};
+  if (!meta.resolved && CHOISIS.has(String(m.id))) return `<div class="cm-resolu">Ton choix : <b>${esc(CHOISIS.get(String(m.id)))}</b></div>`;
   if (meta.resolved) return `<div class="cm-resolu">${meta.autrement ? "Répondu autrement" : `${meta.autre ? "Ta réponse" : "Ton choix"} : <b>${esc(meta.chosen)}</b>`}</div>`;
   const ch = Array.isArray(meta.choices) ? meta.choices : [];
   return ch.length ? `<div class="cm-choix">${ch.map(c => `<button class="btn" type="button" data-choix="${esc(m.id)}" data-val="${esc(c)}">${esc(c)}</button>`).join("")}</div>` : "";
 }
 async function choisir(msgId, val) {
-  const blocs = $$(`.cm[data-msg="${CSS.escape(String(msgId))}"] .cm-choix, .ligne-choix[data-carte="${CSS.escape(String(msgId))}"]`);
+  const id = CSS.escape(String(msgId));
+  const blocs = $$(`.cm[data-msg="${id}"] .cm-choix, .demande[data-carte="${id}"] .cm-choix, .ligne-choix[data-carte="${id}"]`);
   blocs.forEach(b => b.querySelectorAll("button").forEach(x => { x.disabled = true; }));
   const r = await postJSON(`/api/messages/${encodeURIComponent(msgId)}/resolve_decision`, {choice: val});
   if (!r.ok) { blocs.forEach(b => b.querySelectorAll("button").forEach(x => { x.disabled = false; })); toast(r.msg || "Choix refusé (carte déjà résolue ?)."); return; }
+  CHOISIS.set(String(msgId), val);
   blocs.forEach(b => { b.outerHTML = b.classList.contains("cm-choix") ? `<div class="cm-resolu">Ton choix : <b>${esc(val)}</b></div>` : `<div class="ligne-choix"><span class="pill s-fait">${ico("check")}Ton choix : ${esc(val)}</span></div>`; });
   toast(`Choix envoyé : ${val}`);
   if (CONV.canal) suivreConv(true);
@@ -1593,7 +1636,7 @@ document.addEventListener("submit", e => { if (e.target.id === "conv-form") envo
 document.addEventListener("change", e => { if (e.target.id === "conv-fich") { joindre(Array.from(e.target.files || [])); e.target.value = ""; } });
 // L'événement « close » arrive en tâche différée : si la fiche a été rouverte entre-temps (fermer puis rouvrir vite),
 // il ne doit pas arrêter la conversation qui vient de s'ouvrir (elle resterait sur « Ouverture… »).
-$("#fiche").addEventListener("close", () => { if (!$("#fiche").open) arreterConv(); });
+$("#fiche").addEventListener("close", () => { if (!$("#fiche").open) { arreterConv(); VISUELS.liberer(); } });
 window.addEventListener("hashchange", appliquerRoute);
 
 // ---------- démarrage ----------

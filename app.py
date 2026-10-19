@@ -1978,6 +1978,28 @@ async def demote_proposal(msg_id: int):
     return updated or {"ok": True}
 
 
+def _liberer_tache_attente(tache_id) -> None:
+    """Vaultia (19 oct. 2026) : une tâche « attend_charles » dont la dernière carte ouverte vient d'être tranchée
+    repasse « en_cours ». Sinon l'atelier affichait « t'attend » sans rien à trancher (t22, quatre jours)."""
+    if jobs is None or not tache_id:
+        return
+    try:
+        tid = int(tache_id)
+        tache = jobs.get(tid)
+        if not tache or tache.get("etat") != "attend_charles":
+            return
+        if any(m.get("type") == "decision" and not (m.get("metadata") or {}).get("resolved")
+               for m in store.filtrer(None, tid, -1, 0)):
+            return
+        _, err = jobs.update_tache(tid, {"etat": "en_cours"})
+        if err:
+            log.warning("tache %s : retour en_cours refuse (%s)", tid, err)
+            return
+        _note_round_progress(_jobs_mod.canal_tache(tid))
+    except Exception:
+        log.exception("tache %s : liberation apres decision", tache_id)
+
+
 @app.post("/api/messages/{msg_id}/resolve_decision")
 async def resolve_decision(msg_id: int, request: Request):
     """Resolve an inline decision card by recording the chosen option."""
@@ -1996,6 +2018,7 @@ async def resolve_decision(msg_id: int, request: Request):
     error = None
     channel = "general"
     sender = ""
+    tache_id = None
     with store._lock:
         msg = None
         for m in store._messages:
@@ -2024,6 +2047,7 @@ async def resolve_decision(msg_id: int, request: Request):
                     msg["metadata"] = meta
                     channel = msg.get("channel", "general")
                     sender = msg.get("sender", "")
+                    tache_id = msg.get("tache_id")
                     store._rewrite()
     if error:
         return JSONResponse({"error": error[0]}, status_code=error[1])
@@ -2035,6 +2059,7 @@ async def resolve_decision(msg_id: int, request: Request):
             store.add(username, reply_text, reply_to=msg_id, channel=channel)
         except Exception:
             import traceback; traceback.print_exc()
+    _liberer_tache_attente(tache_id)
     # Broadcast updated decision card so the UI swaps buttons to resolved state
     updated = store.get_by_id(msg_id)
     if updated:
