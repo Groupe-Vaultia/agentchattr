@@ -31,6 +31,23 @@ export const visuelsHtml = (liste, cls = "") => liste.length ? `<div class="vis$
   ? `<a class="vis-l" target="_blank" rel="noopener" title="${esc(v.nom)}"><img class="vis-img" data-blob="${esc(urlLivrable(v.chemin))}" alt="${esc(v.nom)}"></a>`
   : `<a class="vis-l" href="${esc(v.src)}" target="_blank" rel="noopener" title="${esc(v.nom)}"><img class="vis-img" src="${esc(v.src)}" alt="${esc(v.nom)}" loading="lazy"></a>`).join("")}</div>` : "";
 
+// Plans d'une pièce (Charles, 19 oct. 2026 : la fiche du cadre montrait la feuille de notes) : les feuilles SVG de la
+// dernière révision qui en a, feuille 1 d'abord (…_P05.svg, puis …_P05-F2.svg, -F3), et pour chaque format le
+// fichier de la révision la plus récente (le SVG téléchargeable est la feuille 1).
+export function choisirPlans(fichiers) {
+  const num = f => parseInt(String(f.revision || "").replace(/\D/g, ""), 10) || 0;
+  const feuille = f => { const m = String(f.nom).match(/-F(\d+)\.svg$/i); return m ? +m[1] : 1; };
+  const estSvg = f => /\.svg$/i.test(f.nom);
+  const tries = (fichiers || []).slice().sort((a, b) => num(b) - num(a)); // plus récente d'abord (tri stable)
+  const revision = (tries.find(estSvg) || tries[0] || {}).revision || "";
+  const feuilles = tries.filter(f => estSvg(f) && f.revision === revision)
+    .map(f => ({...f, feuille: feuille(f)})).sort((a, b) => a.feuille - b.feuille);
+  const formats = ["pdf", "step", "stp", "glb", "svg", "dxf"]
+    .map(ext => tries.find(f => f.nom.toLowerCase().endsWith("." + ext) && !(ext === "svg" && feuille(f) > 1)))
+    .filter(Boolean);
+  return {revision, feuilles, total: Math.max(0, ...feuilles.map(f => f.feuille)), formats};
+}
+
 // Retire une vignette, et son cadre s'il n'en reste aucune.
 export function retirerVignette(img) {
   const cadre = img.closest(".vis");

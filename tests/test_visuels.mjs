@@ -4,7 +4,7 @@
    Exécuter : node tests/test_visuels.mjs */
 
 import { readFileSync, readdirSync } from "fs";
-import { visuels, visuelsHtml, creerChargeur, urlLivrable } from "../static/visuels.js";
+import { visuels, visuelsHtml, creerChargeur, urlLivrable, choisirPlans } from "../static/visuels.js";
 
 let pass = 0, fail = 0;
 function check(desc, actual, expected) {
@@ -142,6 +142,29 @@ for (const [desc, opts] of [["404", {ok: false}], ["type texte", {type: "text/ht
     await enCours; await fin;
     check("course : blob révoqué", revoques.length, 1);
     check("course : aucun src posé", v.img.src, undefined);
+}
+
+// --- 5 bis. Plans d'une pièce : liste réelle du cadre VLT-10002 (ordre du serveur, F2 en premier) ---
+{
+    const f = (revision, nom) => ({revision, nom});
+    const cadre = [
+        f("P05", "VLT-10002_cadre-treillis_P05-F2.svg"), f("P05", "VLT-10002_cadre-treillis_P05-F3.svg"),
+        f("P05", "VLT-10002_cadre-treillis_P05.pdf"), f("P05", "VLT-10002_cadre-treillis_P05.step"),
+        f("P05", "VLT-10002_cadre-treillis_P05.svg"), f("P04", "VLT-10002_cadre-treillis_P04.svg"),
+        f("P03", "VLT-10002_cadre-treillis_P03.glb"), f("P03", "VLT-10002_cadre-treillis_P03.svg"),
+        f("P01", "VLT-10002_cadre-treillis_P01.svg"),
+    ];
+    const p = choisirPlans(cadre);
+    check("plans : dernière révision", p.revision, "P05");
+    check("plans : feuille 1 d'abord, puis 2 et 3", JSON.stringify(p.feuilles.map(x => x.nom)),
+          JSON.stringify(["VLT-10002_cadre-treillis_P05.svg", "VLT-10002_cadre-treillis_P05-F2.svg", "VLT-10002_cadre-treillis_P05-F3.svg"]));
+    check("plans : 3 feuilles", p.total, 3);
+    check("plans : formats de la plus récente révision", JSON.stringify(p.formats.map(x => x.nom)),
+          JSON.stringify(["VLT-10002_cadre-treillis_P05.pdf", "VLT-10002_cadre-treillis_P05.step",
+                          "VLT-10002_cadre-treillis_P03.glb", "VLT-10002_cadre-treillis_P05.svg"]));
+    const seule = choisirPlans([f("P02", "a_P02.svg"), f("P01", "a_P01.svg")]);
+    check("plans : une feuille, pas de total > 1", seule.total, 1);
+    check("plans : aucune liste = rien", choisirPlans([]).feuilles.length, 0);
 }
 
 // --- 6. Aucun fichier servi au navigateur ne fabrique d'URL avec le jeton ---

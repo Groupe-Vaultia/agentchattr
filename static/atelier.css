@@ -421,6 +421,8 @@ td.n,th.n{text-align:right;white-space:nowrap}
 .liv-tbl th{font-weight:600;color:var(--v-ink-2);white-space:nowrap}
 .liv-lien{cursor:pointer}
 .plan-img{display:block;max-width:100%;margin-top:6px;padding:8px;border:1px solid var(--v-line);border-radius:10px;background:#fff}
+.plan-f{margin:0 0 14px}
+.plan-f figcaption{margin:0}
 /* arbre de nomenclature (fiche pièce) */
 .pc-node .pc-node{margin-left:16px;border-left:1px solid var(--v-line);padding-left:8px}
 .pc-toggle{display:flex;flex-wrap:wrap;align-items:center;gap:8px;width:100%;padding:7px 9px;border:1px solid var(--v-line);border-radius:10px;background:none;text-align:left;color:var(--v-ink)}

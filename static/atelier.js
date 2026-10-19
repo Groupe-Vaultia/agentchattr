@@ -1,5 +1,5 @@
 import { choisirFantomes, BBOX_DEF } from './fantomes.js';
-import { visuels, visuelsHtml, retirerVignette, creerChargeur, urlLivrable } from './visuels.js?v=2';
+import { visuels, visuelsHtml, retirerVignette, creerChargeur, urlLivrable, choisirPlans } from './visuels.js?v=3';
 /* Atelier R&D · Vaultia — logique de la page (v3, 2026-10-16).
    Deux pages :
    - « Aujourd'hui » (#/) : tous projets confondus, ce qui t'attend (tâches attend_charles + jalons sans
@@ -716,12 +716,13 @@ async function ouvrirPiece(id) {
   } else if (fr.data && fr.data.fichiers && fr.data.fichiers.length) {
     // Sans jeton dans l'URL : l'image et les téléchargements passent par le chargeur (static/visuels.js).
     const url = f => `/api/v2/pieces/${encodeURIComponent(id)}/fichiers/${encodeURIComponent(f.revision || "P01")}/${encodeURIComponent(f.nom)}`;
-    const svg = fr.data.fichiers.find(f => f.nom.endsWith(".svg"));
-    const liens = ["pdf", "step", "stp", "glb", "svg", "dxf"].map(ext => {
-      const f = fr.data.fichiers.find(x => x.nom.toLowerCase().endsWith("." + ext));
-      return f ? `<a href="#" data-telecharger="${esc(url(f))}" download="${esc(f.nom)}" class="btn mini">${ext.toUpperCase()}</a>` : "";
-    }).filter(Boolean).join("");
-    const imgHtml = svg ? `<img class="plan-img" data-blob="${esc(url(svg))}" alt="Plan ${esc(svg.nom)}">` : `<p class="cap">Aucun plan SVG à afficher.</p>`;
+    // Toutes les feuilles de la dernière révision, feuille 1 d'abord ; un format plus ancien porte sa révision.
+    const {revision, feuilles, total, formats} = choisirPlans(fr.data.fichiers);
+    const liens = formats.map(f => `<a href="#" data-telecharger="${esc(url(f))}" download="${esc(f.nom)}" class="btn mini">${esc(f.nom.split(".").pop().toUpperCase())}${f.revision !== revision ? ` · ${esc(f.revision)}` : ""}</a>`).join("");
+    const imgHtml = feuilles.length
+      ? `<p class="cap">Révision ${esc(revision)}${total > 1 ? ` · ${total} feuilles` : ""}</p>` + feuilles.map(f =>
+          `<figure class="plan-f">${total > 1 ? `<figcaption class="cap">Feuille ${f.feuille} de ${total}</figcaption>` : ""}<img class="plan-img" data-blob="${esc(url(f))}" alt="Plan ${esc(f.nom)}"></figure>`).join("")
+      : `<p class="cap">Aucun plan SVG à afficher.</p>`;
     fel.innerHTML = imgHtml + (liens ? `<div class="chips" style="margin-top:10px">${liens}</div>` : "");
     chargerVisuels();
   } else {
