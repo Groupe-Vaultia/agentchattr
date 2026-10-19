@@ -102,6 +102,8 @@ temperature = 1.0
 # "none" = only route on explicit @mention. "all" = route to all agents by default.
 default = "none"
 max_agent_hops = 4
+# Agent reveille quand le loop guard coupe un canal ("" = personne).
+chef = "claude-1"
 
 [mcp]
 http_port = 8200
