@@ -1,4 +1,5 @@
 import { choisirFantomes, BBOX_DEF } from './fantomes.js';
+import { visuels, visuelsHtml, retirerVignette, creerChargeur } from './visuels.js?v=1';
 /* Atelier R&D · Vaultia — logique de la page (v3, 2026-10-16).
    Deux pages :
    - « Aujourd'hui » (#/) : tous projets confondus, ce qui t'attend (tâches attend_charles + jalons sans
@@ -858,6 +859,7 @@ function ouvrirFiche(html) {
   const d = $("#fiche");
   if (!d.open) { if (d.showModal) d.showModal(); else d.setAttribute("open", ""); }
   d.scrollTop = 0;
+  chargerVisuels();
   // Le focus va à la fiche, pas au bouton Fermer : pas d'anneau à l'ouverture, pas de clavier qui surgit au téléphone.
   $("#fiche-c").focus({preventScroll: true});
 }
@@ -925,7 +927,7 @@ async function ouvrirTache(id, pid, mode = "details") {
   const reussi = (m.ok || m.err === 404) && (e.ok || e.err === 404);
   const msgs = (m.ok && m.data && m.data.messages) || [];
   const dem = $("#fiche-dem");
-  if (dem && (m.ok || m.err === 404)) dem.innerHTML = demandeHtml(msgs, st);
+  if (dem && (m.ok || m.err === 404)) { dem.innerHTML = demandeHtml(msgs, st); chargerVisuels(); }
   else if (dem && st === "attend_charles" && !state.cartes[t.id]) dem.innerHTML = `<div class="fc demande vide"><span class="lbl">Ce qu'on te demande</span><p class="cap" style="color:var(--v-danger)">Lecture de la question impossible (erreur réseau). Referme puis rouvre la tâche.</p></div>`;
   const lignes = [];
   msgs.forEach(x => lignes.push({h: x.timestamp, html: `${agent(x.sender, true)} <span>${livInline(court(aplatir(x.text), 400))}</span>${visuelsHtml(visuels(x), "petit")}`}));
@@ -937,6 +939,7 @@ async function ouvrirTache(id, pid, mode = "details") {
     : (lignes.length
       ? lignes.map(l => `<li><time>${esc(heure(l.h))}</time><span>${l.html}</span></li>`).join("")
       : `<li class="cap">Aucun message ni exécution rattaché à cette tâche pour l'instant.</li>`);
+  chargerVisuels();
 }
 
 // ---------- conversation d'une tâche, dans la fiche ----------
@@ -1017,6 +1020,7 @@ function ajouterMessages(liste, bas) {
   zone.querySelector(".conv-vide")?.remove();
   neufs.forEach(x => { CONV.vus.add(x.id); CONV.dernier = Math.max(CONV.dernier, x.id); });
   zone.insertAdjacentHTML("beforeend", neufs.map(msgHtml).join(""));
+  chargerVisuels();
   if (bas || presDuBas) requestAnimationFrame(() => { d.scrollTop = d.scrollHeight; });
   majReflechit();
 }
@@ -1030,32 +1034,14 @@ function pieceJointe(a) {
     ? `<a class="cm-img-l" href="${esc(url)}" target="_blank" rel="noopener"><img class="cm-img" src="${esc(url)}" alt="${esc(a.name || "image")}" loading="lazy"></a>`
     : `<a class="btn mini" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${esc(a.name || "fichier")}</a>`;
 }
-// Visuels d'un message, montrés dans la fiche (Charles, 19 oct. 2026) : images jointes (/uploads/) et chemins
-// d'image cités dans le texte (`wt-x/design/rendus/a.png`, file:///…/atelier/…), servis par /api/v2/livrable.
-const RE_IMG = /(?:file:\/\/)?[\w./~-]*\w\.(?:png|jpe?g|gif|webp|svg)\b/gi;
-function visuels(m, {pj = true} = {}) {
-  const vus = new Set(), out = [];
-  if (pj) (m.attachments || []).forEach(a => {
-    const u = String(a && a.url || "");
-    if (u.startsWith("/uploads/") && /\.(png|jpe?g|gif|webp)$/i.test(u) && !vus.has(u)) { vus.add(u); out.push({src: u, nom: a.name || u.split("/").pop()}); }
-  });
-  (String(m.text || "").match(RE_IMG) || []).forEach(c => {
-    // La route refuse un chemin absolu : on garde la partie relative à la racine de l'atelier.
-    const rel = c.replace(/^file:\/\//, "").replace(/^(?:~|\/\S*?)?\/atelier\//, "");
-    if (/^[/~]/.test(rel) || rel.split("/").includes("..") || vus.has(rel)) return;
-    vus.add(rel); out.push({src: urlLivrable(rel), nom: rel.split("/").pop()});
-  });
-  return out;
-}
-const visuelsHtml = (liste, cls = "") => liste.length ? `<div class="vis${cls ? " " + cls : ""}">${liste.map(v =>
-  `<a class="vis-l" href="${esc(v.src)}" target="_blank" rel="noopener" title="${esc(v.nom)}"><img class="vis-img" src="${esc(v.src)}" alt="${esc(v.nom)}" loading="lazy"></a>`).join("")}</div>` : "";
-// Un chemin qui ne se résout pas (404, hors racine) retire sa vignette, et le cadre s'il n'en reste aucune.
+// Visuels cités dans les messages (module static/visuels.js) : les images de livrables sont lues avec l'en-tête
+// x-session-token et montrées par URL blob, révoquées à la fermeture de la fiche.
+const VISUELS = creerChargeur({headers});
+const chargerVisuels = () => VISUELS.charger($("#fiche-c"));
+// Une pièce jointe introuvable (src direct, /uploads/) retire aussi sa vignette.
 document.addEventListener("error", e => {
   const img = e.target;
-  if (!(img instanceof HTMLImageElement) || !img.classList.contains("vis-img")) return;
-  const cadre = img.closest(".vis");
-  img.closest(".vis-l")?.remove();
-  if (cadre && !cadre.querySelector(".vis-l")) cadre.remove();
+  if (img instanceof HTMLImageElement && img.classList.contains("vis-img")) retirerVignette(img);
 }, true);
 function msgHtml(m) {
   if (m.type === "system") return `<div class="cm-sys">${esc(court(m.text, 300))}</div>`;
@@ -1650,7 +1636,7 @@ document.addEventListener("submit", e => { if (e.target.id === "conv-form") envo
 document.addEventListener("change", e => { if (e.target.id === "conv-fich") { joindre(Array.from(e.target.files || [])); e.target.value = ""; } });
 // L'événement « close » arrive en tâche différée : si la fiche a été rouverte entre-temps (fermer puis rouvrir vite),
 // il ne doit pas arrêter la conversation qui vient de s'ouvrir (elle resterait sur « Ouverture… »).
-$("#fiche").addEventListener("close", () => { if (!$("#fiche").open) arreterConv(); });
+$("#fiche").addEventListener("close", () => { if (!$("#fiche").open) { arreterConv(); VISUELS.liberer(); } });
 window.addEventListener("hashchange", appliquerRoute);
 
 // ---------- démarrage ----------
