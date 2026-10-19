@@ -82,6 +82,68 @@ class DecisionsTests(unittest.TestCase):
         self.assertFalse(self.store.get_by_id(self.carte["id"])["metadata"].get("resolved"))
 
 
+class TacheLibereeTests(unittest.TestCase):
+    """Trancher la dernière carte ouverte d'une tâche « attend_charles » la remet « en_cours » : la t22 est restée
+    quatre jours à « t'attend » dans l'atelier après le choix de Charles, sans rien à trancher."""
+
+    def setUp(self):
+        from jobs import JobStore
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.store = MessageStore(str(Path(self.tmp.name) / "log.jsonl"))
+        self.jobs = JobStore(str(Path(self.tmp.name) / "jobs.json"))
+        for nom, valeur in (("store", self.store), ("jobs", self.jobs), ("room_settings", {"username": "charles"})):
+            self.addCleanup(setattr, app, nom, getattr(app, nom))
+            setattr(app, nom, valeur)
+
+        async def _rien(_):
+            return None
+        self.addCleanup(setattr, app, "_broadcast", app._broadcast)
+        app._broadcast = _rien
+        self.tache, err = self.jobs.create_tache("quad", "Style", "conception", "claude", "claude",
+                                                 equipe=[{"agent": "claude", "role": "producteur"}])
+        self.assertEqual(err, "")
+        self.mettre("attend_charles")
+
+    def mettre(self, etat):
+        _, err = self.jobs.update_tache(self.tache["id"], {"etat": etat})
+        self.assertEqual(err, "")
+
+    def etat(self):
+        return self.jobs.get(self.tache["id"])["etat"]
+
+    def carte(self, tache_id=None):
+        return self.store.add("claude", "Quelle piste ?", msg_type="decision", channel="tache-%d" % self.tache["id"],
+                              metadata={"choices": ["Piste 1", "Piste 2"]},
+                              tache_id=self.tache["id"] if tache_id is None else tache_id)
+
+    def resoudre(self, carte, corps=None):
+        return asyncio.run(app.resolve_decision(carte["id"], _Requete(corps or {"choice": "Piste 1"})))
+
+    def test_la_derniere_carte_tranchee_remet_la_tache_en_cours(self):
+        self.resoudre(self.carte())
+        self.assertEqual(self.etat(), "en_cours")
+
+    def test_repondu_autrement_libere_aussi_la_tache(self):
+        self.resoudre(self.carte(), {"autrement": True})
+        self.assertEqual(self.etat(), "en_cours")
+
+    def test_le_dual_une_autre_carte_ouverte_garde_la_tache_en_attente(self):
+        a = self.carte()
+        self.carte()
+        self.resoudre(a)
+        self.assertEqual(self.etat(), "attend_charles")
+
+    def test_le_dual_une_tache_qui_n_attend_pas_charles_ne_change_pas(self):
+        self.mettre("bloque")
+        self.resoudre(self.carte())
+        self.assertEqual(self.etat(), "bloque")
+
+    def test_le_dual_une_carte_sans_tache_ne_touche_a_rien(self):
+        self.resoudre(self.carte(tache_id=0))
+        self.assertEqual(self.etat(), "attend_charles")
+
+
 class RemplacementTests(unittest.TestCase):
     """La dernière carte d'un agent fait foi : une nouvelle carte ferme ses anciennes du même canal."""
 
