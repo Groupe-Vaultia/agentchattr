@@ -29,6 +29,7 @@ from jalons import JalonStore
 from pieces import PieceStore, Erreur as _ErreurPiece
 import jalons as _jalons_mod
 from ronde import ronde as _ronde, taches_muettes
+import progression as _progression
 from schedules import ScheduleStore, parse_schedule_spec
 from router import Router
 from agents import AgentTrigger
@@ -2049,6 +2050,7 @@ async def resolve_decision(msg_id: int, request: Request):
     channel = "general"
     sender = ""
     tache_id = None
+    projet_id = None
     with store._lock:
         msg = None
         for m in store._messages:
@@ -2078,6 +2080,7 @@ async def resolve_decision(msg_id: int, request: Request):
                     channel = msg.get("channel", "general")
                     sender = msg.get("sender", "")
                     tache_id = msg.get("tache_id")
+                    projet_id = msg.get("projet_id")
                     store._rewrite()
     if error:
         return JSONResponse({"error": error[0]}, status_code=error[1])
@@ -2085,8 +2088,13 @@ async def resolve_decision(msg_id: int, request: Request):
     if not autrement:
         username = room_settings.get("username", "user")
         reply_text = f"@{sender} {chosen}" if sender else chosen
+        # La reponse porte l'etiquette de la carte (sinon celle de son canal) : elle reste dans la conversation de la
+        # tache et dans le flux de l'atelier (tache-22 : msgs 4872 et 4874 etaient sans tache).
+        rep_projet, rep_tache, err = _etiquettes(projet_id, tache_id, channel)
+        if err:
+            rep_projet, rep_tache = None, None
         try:
-            store.add(username, reply_text, reply_to=msg_id, channel=channel)
+            store.add(username, reply_text, reply_to=msg_id, channel=channel, projet_id=rep_projet, tache_id=rep_tache)
         except Exception:
             import traceback; traceback.print_exc()
     _liberer_tache_attente(tache_id)
@@ -2876,20 +2884,18 @@ async def get_ronde():
     return JSONResponse(sortie)
 
 
+def _humains() -> set[str]:
+    """Les noms sous lesquels Charles ecrit dans la salle."""
+    return {"user", str(room_settings.get("username") or "user")}
+
+
 def _derniers_messages_canaux() -> dict[str, float]:
-    """Epoch du dernier message de chaque canal. La ronde n'en retient que tache-<id>."""
+    """`tache-<id>` -> epoch du dernier message d'agent de la tache. Un message de Charles ou du systeme, ou le rappel
+    qu'un agent s'adresse a lui-meme, n'est pas un signe de vie (tache-22 : t21 se disait muette depuis 2 h, alors
+    qu'aucun agent n'avait ecrit depuis 83 h)."""
     if store is None:
         return {}
-    derniers: dict[str, float] = {}
-    for msg in store.get_since(0):
-        canal = msg.get("channel") or ""
-        ts = msg.get("timestamp")
-        if isinstance(ts, bool) or not isinstance(ts, (int, float)):
-            continue
-        precedent = derniers.get(canal)
-        if precedent is None or ts >= precedent:
-            derniers[canal] = float(ts)
-    return derniers
+    return _progression.derniers_messages_agents(store.get_since(-1), _humains())
 
 
 _DEMARRAGE = time.time()
@@ -3065,8 +3071,15 @@ async def list_taches(projet_id: str):
     if not _projets.existe(projet_id):
         return JSONResponse({"error": "projet inconnu"}, status_code=404)
     taches = jobs.taches(projet_id)
+    # Tableau de l'atelier en direct (tache-22, msg 4926) : la derniere progression de chaque tache et les agents
+    # dont l'execution est active. Les deux viennent de ce que le serveur sait deja : aucun terminal n'est sonde.
+    acts = _progression.activites(store.get_since(-1), _humains()) if store is not None else {}
+    actifs = _progression.au_travail(executions.lister(projet_id=projet_id)) if executions is not None else {}
+    for t in taches:
+        t["activite"] = acts.get(t["id"])
+        t["au_travail"] = actifs.get(t["id"], [])
     return JSONResponse({"taches": taches, "etape": _jobs_mod.etape_du_projet(taches),
-                         "etapes": list(_jobs_mod.ETAPES)})
+                         "etapes": list(_jobs_mod.ETAPES), "humains": sorted(_humains())})
 
 
 @app.post("/api/v2/taches")

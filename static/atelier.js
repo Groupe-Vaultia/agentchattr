@@ -1,5 +1,6 @@
 import { choisirFantomes, BBOX_DEF } from './fantomes.js';
-import { visuels, visuelsHtml, retirerVignette, creerChargeur, urlLivrable, choisirPlans } from './visuels.js?v=3';
+import { visuels, visuelsHtml, retirerVignette, creerChargeur, urlLivrable, choisirPlans } from './visuels.js?v=4';
+import { appliquerMessage, tacheDuMessage, silenceDe, etatCarte, marquerBougees } from './progression.js?v=1';
 /* Atelier R&D · Vaultia — logique de la page (v3, 2026-10-16).
    Deux pages :
    - « Aujourd'hui » (#/) : tous projets confondus, ce qui t'attend (tâches attend_charles + jalons sans
@@ -72,6 +73,7 @@ const state = {
   methodes: null,    // {etape: texte} (docs/PILOTE.md)
   cartes: {},        // tache_id -> dernière carte de décision encore ouverte (pour trancher depuis l'accueil)
   maj: 0,            // heure de la dernière mise à jour globale (ms)
+  humains: ["user"], // noms sous lesquels Charles écrit (servis avec les tâches) : son message n'est pas un signe de vie
   // projet ouvert
   sel: null, taches: [], jalons: [], etape: null, fiche: null,
   executions: [], hist: null, liv: null, pieces: null, achats: null, cout: null,
@@ -199,6 +201,7 @@ async function chargerGlobal() {
       else {
         if (Array.isArray(t.data.etapes) && t.data.etapes.length && t.data.etapes.every(e => typeof e === "string")) ETAPES = t.data.etapes;
         d.taches = t.data.taches || [];
+        if (Array.isArray(t.data.humains) && t.data.humains.length) state.humains = t.data.humains;
         const idx = t.data.etape ? ETAPES.indexOf(t.data.etape) : -1;
         d.etape = idx >= 0 ? idx : (d.taches.length ? ETAPES.length : 0);
       }
@@ -233,6 +236,19 @@ function silences() {
   (r.taches_muettes || []).forEach(x => m.set(String(x.tache_id), x.silence_s || SILENCE_S));
   (r.silencieuses || []).forEach(x => { if (!m.has(String(x.tache_id))) m.set(String(x.tache_id), SILENCE_S); });
   return m;
+}
+// Silence d'une tâche : depuis le dernier message d'agent (activite, servie avec la tâche) ; à défaut, la ronde.
+const silenceTache = (t, sil) => { const s = silenceDe(t, Date.now() / 1000); return s != null ? s : (sil.get(String(t.id)) || 0); };
+// Cartes qui viennent de bouger : dernier message vu par tâche, et fin de leur surbrillance (progression.js).
+const BOUGE = {vu: new Map(), jusqua: new Map(), duree: 2400};
+const bouger = taches => marquerBougees(taches, BOUGE.vu, BOUGE.jusqua, Date.now(), BOUGE.duree);
+// La surbrillance survit aux re-rendus : l'animation repart là où elle en était.
+const bougeDelai = id => { const fin = BOUGE.jusqua.get(String(id)); return fin ? `animation-delay:${Math.round(fin - BOUGE.duree - Date.now())}ms` : ""; };
+// « au travail » : agents dont l'exécution sur la tâche est active ; le point respire si l'un d'eux écrit en ce moment.
+function auTravailHtml(t, e) {
+  if (!e.auTravail.length) return "";
+  const autres = e.auTravail.filter(a => a !== t.responsable);
+  return `<span class="au-travail${e.ecrit ? " vif" : ""}" title="${e.ecrit ? "En train d'écrire" : "Exécution active : signe de vie depuis moins de 10 min"}"><i></i>${autres.map(a => agent(a, true)).join("")}au travail</span>`;
 }
 const actif = id => (state.projets[id] || {}).statut !== "veille" && (state.projets[id] || {}).statut !== "arrete" && (state.projets[id] || {}).statut !== "termine";
 
@@ -320,10 +336,11 @@ function renderJour() {
     if (!actif(id)) continue;
     (state.par[id] ? state.par[id].taches : []).forEach(t => {
       const st = normEtat(t.etat);
-      if (st === "en_cours" || st === "bloque") travail.push({id, t, st, silence: sil.get(String(t.id)) || 0});
+      if (st === "en_cours" || st === "bloque") travail.push({id, t, st, silence: st === "en_cours" ? silenceTache(t, sil) : 0, e: etatCarte(t, Date.now() / 1000, occupe)});
     });
   }
-  travail.sort((a, b) => (b.st === "bloque") - (a.st === "bloque") || (b.silence > 0) - (a.silence > 0) || (b.t.updated_at || 0) - (a.t.updated_at || 0));
+  travail.sort((a, b) => (b.st === "bloque") - (a.st === "bloque") || (b.silence >= SILENCE_S) - (a.silence >= SILENCE_S) || (b.e.quand || 0) - (a.e.quand || 0));
+  bouger(travail.map(x => x.t));
 
   $("#jour-date").textContent = jourLong(new Date()).replace(/^./, c => c.toUpperCase());
   majIndicateur();
@@ -372,11 +389,12 @@ function renderJour() {
         const info = agentInfo(t.responsable);
         const etat = info && info.available === false ? `<span class="pill s-bloque" title="L'agent n'est pas connecté à la salle : sa tâche n'avance pas">hors ligne</span>`
           : x.st === "bloque" ? `<span class="pill s-bloque">bloqué</span>`
-          : x.silence >= SILENCE_S ? `<span class="pill s-silence" title="Aucun message dans la conversation de la tâche">rien depuis ${esc(duree(x.silence))}</span>`
-          : `<span class="quand">${esc(ilya(t.updated_at))}</span>`;
-        return `<div class="ligne" role="button" tabindex="0" data-fiche="${esc(t.id)}" data-p="${esc(x.id)}">
-          <div>${agent(t.responsable)}${occupe(t.responsable) ? `<span class="ag-occupe">en train d'écrire</span>` : ""}</div>
-          <div><div class="ligne-t">${esc(t.titre)}</div><div class="ligne-m"><span>${esc(p.nom || x.id)}</span><span class="sep">·</span><span>${esc(nomEtape(t.etape))}</span></div></div>
+          : x.silence >= SILENCE_S ? `<span class="pill s-silence" title="Aucun agent n'a écrit dans la conversation de la tâche">rien depuis ${esc(duree(x.silence))}</span>`
+          : `<span class="quand">${esc(ilya(x.e.quand))}</span>`;
+        const delai = bougeDelai(t.id);
+        return `<div class="ligne${delai ? " bouge" : ""}"${delai ? ` style="${delai}"` : ""} role="button" tabindex="0" data-fiche="${esc(t.id)}" data-p="${esc(x.id)}">
+          <div>${agent(t.responsable)}${x.e.auTravail.length ? `<span class="ag-occupe">${auTravailHtml(t, x.e)}</span>` : occupe(t.responsable) ? `<span class="ag-occupe">en train d'écrire</span>` : ""}</div>
+          <div><div class="ligne-t">${esc(t.titre)}</div><div class="ligne-m"><span>${esc(p.nom || x.id)}</span><span class="sep">·</span><span>${esc(nomEtape(t.etape))}</span></div>${x.e.extrait ? `<div class="ligne-act">${agent(x.e.par, true)}<span>${esc(x.e.extrait)}</span></div>` : ""}</div>
           <div class="ligne-a">${etat}${ico("chev", "chev")}</div></div>`;
       }).join("")}</div>`
     : `<div class="vide"><b>Personne n'est sur une tâche en ce moment.</b> Quand claude assigne une tâche, l'agent apparaît ici avec son dernier signe de vie.</div>`;
@@ -507,6 +525,7 @@ function renderTableau() {
     el.innerHTML = `<div class="vide"><b>Aucune tâche dans ce projet.</b> claude découpe le travail au lancement ; tu peux aussi en ajouter une avec « Tâche ».</div>`;
     return;
   }
+  bouger(taches);
   el.innerHTML = cols.map(([k, titre]) => {
     let liste = taches.filter(t => normEtat(t.etat) === k);
     // les plus récentes en haut ; « Fait » replié au-delà de 4
@@ -521,16 +540,21 @@ function renderTableau() {
   }).join("");
 }
 function carte(t, k, sil, veille) {
-  const s = sil.get(String(t.id)) || 0;
-  const cls = k === "attend_charles" ? " attend" : k === "bloque" ? " bloque" : k === "fait" ? " fait" : "";
+  // Hors « Fait », la carte suit la conversation de sa tâche : dernier message (auteur, extrait, heure) et « au travail ».
+  const e = etatCarte(t, Date.now() / 1000, occupe);
+  const s = k === "en_cours" ? silenceTache(t, sil) : 0;
+  const delai = k === "fait" ? "" : bougeDelai(t.id);
+  const cls = (k === "attend_charles" ? " attend" : k === "bloque" ? " bloque" : k === "fait" ? " fait" : "") + (delai ? " bouge" : "");
   const texte = k === "fait" ? (t.conclusion || t.resultat) : k === "attend_charles" ? (t.conclusion || t.critere) : "";
-  const quand = k === "en_cours" && s >= SILENCE_S ? `<span class="pill s-silence">rien depuis ${esc(duree(s))}</span>` : `<span class="quand">${esc(ilya(t.updated_at))}</span>`;
-  return `<article class="carte${cls}"${veille ? ' style="opacity:.7"' : ""} role="button" tabindex="0" data-fiche="${esc(t.id)}" aria-label="${esc(t.titre)}">
+  const quand = k === "en_cours" && s >= SILENCE_S ? `<span class="pill s-silence" title="Aucun agent n'a écrit dans la conversation de la tâche">rien depuis ${esc(duree(s))}</span>` : `<span class="quand">${esc(ilya(k === "fait" ? t.updated_at : e.quand))}</span>`;
+  const style = [veille ? "opacity:.7" : "", delai].filter(Boolean).join(";");
+  return `<article class="carte${cls}"${style ? ` style="${style}"` : ""} role="button" tabindex="0" data-fiche="${esc(t.id)}" aria-label="${esc(t.titre)}">
     ${k !== "fait" ? `<button class="ibtn disc" type="button" data-disc="${esc(t.id)}" data-p="${esc(state.sel)}" aria-label="Discuter de cette tâche" title="Discuter">${ico("chat")}</button>` : ""}
     ${state.filtre ? "" : `<div class="carte-e">${ETAPES.indexOf(t.etape) + 1 || "?"}. ${esc(nomEtape(t.etape))}</div>`}
     <div class="carte-t">${esc(t.titre)}</div>
     ${texte ? `<div class="carte-p">${esc(court(texte, 220))}</div>` : ""}
-    <div class="carte-m">${agent(t.responsable, true)}${quand}</div>
+    ${k !== "fait" && e.extrait ? `<div class="carte-act">${agent(e.par, true)}${esc(e.extrait)}</div>` : ""}
+    <div class="carte-m"><span class="carte-qui">${agent(t.responsable, true)}${k !== "fait" ? auTravailHtml(t, e) : ""}</span>${quand}</div>
   </article>`;
 }
 
@@ -717,11 +741,11 @@ async function ouvrirPiece(id) {
     // Sans jeton dans l'URL : l'image et les téléchargements passent par le chargeur (static/visuels.js).
     const url = f => `/api/v2/pieces/${encodeURIComponent(id)}/fichiers/${encodeURIComponent(f.revision || "P01")}/${encodeURIComponent(f.nom)}`;
     // Toutes les feuilles de la dernière révision, feuille 1 d'abord ; un format plus ancien porte sa révision.
-    const {revision, feuilles, total, formats} = choisirPlans(fr.data.fichiers);
+    const {revision, feuilles, total, derniere, manquantes, formats} = choisirPlans(fr.data.fichiers);
     const liens = formats.map(f => `<a href="#" data-telecharger="${esc(url(f))}" download="${esc(f.nom)}" class="btn mini">${esc(f.nom.split(".").pop().toUpperCase())}${f.revision !== revision ? ` · ${esc(f.revision)}` : ""}</a>`).join("");
     const imgHtml = feuilles.length
-      ? `<p class="cap">Révision ${esc(revision)}${total > 1 ? ` · ${total} feuilles` : ""}</p>` + feuilles.map(f =>
-          `<figure class="plan-f">${total > 1 ? `<figcaption class="cap">Feuille ${f.feuille} de ${total}</figcaption>` : ""}<img class="plan-img" data-blob="${esc(url(f))}" alt="Plan ${esc(f.nom)}"></figure>`).join("")
+      ? `<p class="cap">Révision ${esc(revision)}${total > 1 ? ` · ${total} feuilles` : ""}${manquantes.length ? ` · ${manquantes.length > 1 ? "feuilles" : "feuille"} ${manquantes.join(", ")} absente${manquantes.length > 1 ? "s" : ""}` : ""}</p>` + feuilles.map(f =>
+          `<figure class="plan-f">${derniere > 1 ? `<figcaption class="cap">Feuille ${f.feuille} de ${derniere}</figcaption>` : ""}<img class="plan-img" data-blob="${esc(url(f))}" alt="Plan ${esc(f.nom)}"></figure>`).join("")
       : `<p class="cap">Aucun plan SVG à afficher.</p>`;
     fel.innerHTML = imgHtml + (liens ? `<div class="chips" style="margin-top:10px">${liens}</div>` : "");
     chargerVisuels();
@@ -1440,16 +1464,28 @@ function brancherFlux() {
     let d; try { d = JSON.parse(ev.data); } catch (_) { return; }
     if (d.type === "message" && d.data) {
       if (CONV.canal && d.data.channel === CONV.canal && d.data.type !== "join" && d.data.type !== "leave") ajouterMessages([d.data], false);
-      if (d.data.tache_id != null || d.data.type === "decision") bientot();
+      // La carte de la tâche change sur-le-champ ; le rafraîchissement complet suit (1,5 s).
+      if (appliquerMessage(Object.values(state.par).flatMap(x => x.taches), d.data, state.humains)) redessinerTaches();
+      if (tacheDuMessage(d.data) != null || d.data.type === "decision") bientot();
     } else if (d.type === "message_update" && d.message) {
       const el = $(`.cm[data-msg="${CSS.escape(String(d.message.id))}"]`);
       if (el) el.outerHTML = msgHtml(d.message);
       bientot();
     } else if (d.type === "status" && d.data) {
+      const occ = a => !!(a && a.busy);
+      const avant = Object.keys(state.agents).filter(n => occ(state.agents[n])).sort().join();
+      const arretes = Object.keys(state.agents).some(n => occ(state.agents[n]) && !occ(d.data[n]));
       state.agents = d.data; majReflechit();
-      if (state.route.page === "jour" && !document.hidden) renderJour();
+      if (state.route.page === "jour" || Object.keys(d.data).filter(n => occ(d.data[n])).sort().join() !== avant) redessinerTaches();
+      if (arretes) bientot();  // fin d'un tour : le serveur ferme l'exécution, « au travail » doit suivre
     } else if (d.type === "job") bientot();
   };
+}
+// Redessine ce qui montre les tâches (Aujourd'hui, ou le tableau du projet), sans rien recharger.
+function redessinerTaches() {
+  if (document.hidden) return;
+  if (state.route.page === "jour") renderJour();
+  else if (state.route.page === "projet" && (state.route.onglet || "taches") === "taches") renderTableau();
 }
 
 // =====================================================================================

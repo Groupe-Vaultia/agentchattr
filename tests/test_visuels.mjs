@@ -165,6 +165,12 @@ for (const [desc, opts] of [["404", {ok: false}], ["type texte", {type: "text/ht
     const seule = choisirPlans([f("P02", "a_P02.svg"), f("P01", "a_P01.svg")]);
     check("plans : une feuille, pas de total > 1", seule.total, 1);
     check("plans : aucune liste = rien", choisirPlans([]).feuilles.length, 0);
+    // Note de codex-1 (msg 4884) : une feuille absente ne compte pas dans « N feuilles », et elle est nommée.
+    const trou = choisirPlans([f("P05", "a_P05.svg"), f("P05", "a_P05-F3.svg")]);
+    check("plans : feuille 2 absente, 2 feuilles comptées", trou.total, 2);
+    check("plans : feuille 2 absente, cartouche « de 3 »", trou.derniere, 3);
+    check("plans : feuille 2 absente, nommée", JSON.stringify(trou.manquantes), "[2]");
+    check("plans : 3 feuilles contiguës, aucune absente", JSON.stringify(p.manquantes), "[]");
 }
 
 // --- 6. Aucun fichier servi au navigateur ne fabrique d'URL avec le jeton ---

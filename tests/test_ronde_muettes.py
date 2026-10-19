@@ -1,4 +1,7 @@
-"""Ronde v4 : taches en_cours sans message depuis une heure (msg 2647)."""
+"""Ronde v4 : taches en_cours sans message depuis une heure (msg 2647).
+
+v5 (2026-10-19, claude-2, tache-22) : seul un message d'agent date le silence ; ceux de Charles et du systeme non.
+"""
 
 import sys
 import tempfile
@@ -76,9 +79,9 @@ class RondeMuettesRouteTests(unittest.TestCase):
             jobs.update_tache(autre["id"], {"etat": "en_cours"})
             vieux = time.time() - 7200
             messages = [
-                {"channel": f"tache-{muette['id']}", "timestamp": vieux},
-                {"channel": f"tache-{autre['id']}", "timestamp": vieux},
-                {"channel": "developpement-de-pro", "timestamp": vieux},
+                {"sender": "grok", "text": "plan", "channel": f"tache-{muette['id']}", "timestamp": vieux},
+                {"sender": "grok", "text": "plan", "channel": f"tache-{autre['id']}", "timestamp": vieux},
+                {"sender": "grok", "text": "plan", "channel": "developpement-de-pro", "timestamp": vieux},
             ]
             for name, value in (("jobs", jobs), ("executions", executions), ("pieces", None), ("jalons", None)):
                 patcher = mock.patch.object(app, name, value)
@@ -100,6 +103,12 @@ class RondeMuettesRouteTests(unittest.TestCase):
             self.assertEqual([t["tache_id"] for t in corps["taches_muettes"]], [muette["id"]])
             self.assertGreaterEqual(corps["taches_muettes"][0]["silence_s"], 7200)
             self.assertFalse(corps["rien_a_faire"])
+
+            # v5 : un message de Charles ne rend pas la tache vivante ; celui de l'agent, oui.
+            messages.append({"sender": "user", "text": "on avance ?", "channel": f"tache-{muette['id']}",
+                             "timestamp": time.time()})
+            corps = client.get("/api/v2/ronde").json()
+            self.assertEqual([t["tache_id"] for t in corps["taches_muettes"]], [muette["id"]])
 
             messages[0]["timestamp"] = time.time()
             corps = client.get("/api/v2/ronde").json()
