@@ -1,5 +1,6 @@
 """Le loop guard qui coupe un canal reveille le chef une fois par pause.
 
+v0.2 (2026-10-19, claude-1) : la consigne ne recopie plus le texte bloque (revue codex-1, msg 5067).
 v0.1 (2026-10-19, claude-1) : #tache-21 est reste 2 h 45 sans suite apres le loop guard (msg 5040).
 """
 
@@ -57,7 +58,10 @@ class GardeReveilChefTests(unittest.TestCase):
                        if c.args[0] == "claude-1" and "Loop guard" in c.kwargs.get("prompt", "")]
         self.assertEqual(len(appels_chef), 1)
         self.assertIn("#tache-21", appels_chef[0].kwargs["prompt"])
-        self.assertIn("relis le delta", appels_chef[0].kwargs["prompt"])
+        self.assertIn("n° 2, de claude-1", appels_chef[0].kwargs["prompt"])
+        # R3 : le texte du message bloque n'est jamais recopie dans la consigne
+        self.assertNotIn("relis le delta", appels_chef[0].kwargs["prompt"])
+        self.assertNotIn("relis le delta", appels_chef[0].kwargs["message"])
 
     def test_sans_chef_configure_personne_n_est_reveille(self):
         trigger = self._envoyer({}, [

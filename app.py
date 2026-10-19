@@ -1023,7 +1023,7 @@ async def _handle_new_message(msg: dict):
                 "Type /continue to resume.",
                 channel=channel
             )
-            await _reveiller_chef_garde(channel, sender, text)
+            await _reveiller_chef_garde(channel, sender, msg.get("id"))
         return
 
     # Build a readable message string for the wake prompt
@@ -3226,18 +3226,19 @@ def _battement_execution(agent: str, actif: bool, etait_actif: bool) -> None:
 # (transition d'etat de tache, execution terminee, revue/revision postee, jalon franchi), qui remet
 # le canal concerne a zero comme un message humain.
 
-async def _reveiller_chef_garde(channel: str, sender: str, text: str) -> None:
+async def _reveiller_chef_garde(channel: str, sender: str, msg_id) -> None:
     """Le loop guard coupe un canal sans prevenir personne : les @mentions entre agents y tombent
     en silence et l'atelier s'arrete (19 oct. 2026, #tache-21 : 2 h 45 sans suite). On reveille donc
-    le chef ([routing] chef), une fois par pause, avec le message bloque. /continue reste reserve aux
-    humains ; le chef reprend les lots hors routage et previent Charles."""
+    le chef ([routing] chef), une fois par pause. La consigne ne porte que le canal, l'auteur et le
+    numero du message bloque, jamais son texte (R3 : un message peut contenir un secret) ; le chef
+    lit le canal lui-meme. /continue reste reserve aux humains."""
     chef = str(config.get("routing", {}).get("chef", "")).strip()
     if not chef or not agents or not agents.is_available(chef):
         return
     consigne = (f"Loop guard dans #{channel} : les @mentions entre agents y sont coupees jusqu'au "
-                f"/continue de Charles. Message bloque, de {sender} : {text[:300]}. Lis #{channel} "
-                "par since_id, reprends chaque lot ouvert hors routage (injection tmux) et previens "
-                "Charles en une ligne.")
+                f"/continue de Charles. Message bloque : n° {msg_id}, de {sender}. Lis #{channel} "
+                "par since_id, decide de la suite des lots ouverts de ce canal (orchestration "
+                "seulement) et previens Charles en une ligne.")
     await agents.trigger(chef, message=f"system: {consigne}", channel=channel, prompt=consigne)
 
 
