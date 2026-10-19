@@ -276,6 +276,18 @@ a.ligne{color:inherit;text-decoration:none}
 .carte-m{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 8px}
 .carte .disc{position:absolute;top:7px;right:7px;width:30px;height:30px;border-radius:9px}
 .carte .disc svg{width:16px;height:16px}
+/* progression en direct (tache-22) : dernier message de la tâche, « au travail », surbrillance quand elle bouge */
+.carte-act,.ligne-act{font:400 13px/1.45 var(--v-ui);color:var(--v-ink-2);overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden}
+.carte-act{-webkit-line-clamp:2;padding-left:9px;border-left:2px solid var(--v-line-2)}
+.ligne-act{-webkit-line-clamp:1;margin-top:3px}
+.carte-act .ag,.ligne-act .ag{display:inline-flex;vertical-align:baseline;margin-right:6px}
+.carte-qui{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px 10px;min-width:0}
+.au-travail{display:inline-flex;align-items:center;gap:5px;font:500 12px/1.2 var(--v-ui);color:var(--v-success);white-space:nowrap}
+.au-travail>i{width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
+.au-travail.vif>i{animation:vt-souffle 1.6s ease-in-out infinite}
+.au-travail .ag{margin-right:1px}
+.carte.bouge,.ligne.bouge{animation:vt-bouge 2.4s ease-in both}
+@keyframes vt-bouge{0%{background-color:var(--v-slate-select);box-shadow:0 0 0 2px var(--v-slate-line)}}
 .plus-fait{align-self:flex-start;margin-top:2px}
 
 /* ---------- panneaux (pièces, livrables, formulaires) ---------- */

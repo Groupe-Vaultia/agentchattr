@@ -45,7 +45,12 @@ export function choisirPlans(fichiers) {
   const formats = ["pdf", "step", "stp", "glb", "svg", "dxf"]
     .map(ext => tries.find(f => f.nom.toLowerCase().endsWith("." + ext) && !(ext === "svg" && feuille(f) > 1)))
     .filter(Boolean);
-  return {revision, feuilles, total: Math.max(0, ...feuilles.map(f => f.feuille)), formats};
+  // total = feuilles présentes ; derniere = plus grand numéro (le « n DE N » du cartouche) ; manquantes = trous entre
+  // les deux (note de codex-1, msg 4884 : « N feuilles » ne doit pas compter une feuille absente).
+  const derniere = Math.max(0, ...feuilles.map(f => f.feuille));
+  const presentes = new Set(feuilles.map(f => f.feuille));
+  const manquantes = Array.from({length: derniere}, (_, i) => i + 1).filter(n => !presentes.has(n));
+  return {revision, feuilles, total: feuilles.length, derniere, manquantes, formats};
 }
 
 // Retire une vignette, et son cadre s'il n'en reste aucune.

@@ -1,0 +1,354 @@
+{
+  "_note": "Cas communs a progression.py et static/progression.js (tache-22, 2026-10-19). Lus par test_progression.py et test_progression.mjs.",
+  "est_progression": [
+    {
+      "cas": "message d'agent dans tache-29",
+      "msg": {
+        "sender": "claude-2",
+        "type": "chat",
+        "channel": "tache-29",
+        "text": "Livraison G8"
+      },
+      "attendu": true
+    },
+    {
+      "cas": "carte de decision",
+      "msg": {
+        "sender": "claude-1",
+        "type": "decision",
+        "channel": "tache-27",
+        "text": "@user Je publie ?"
+      },
+      "attendu": true
+    },
+    {
+      "cas": "message de Charles",
+      "msg": {
+        "sender": "user",
+        "type": "chat",
+        "channel": "tache-21",
+        "text": "@qwencode-1 Modelise"
+      },
+      "attendu": true
+    },
+    {
+      "cas": "type absent = chat",
+      "msg": {
+        "sender": "codex-1",
+        "channel": "tache-29",
+        "text": "GO"
+      },
+      "attendu": true
+    },
+    {
+      "cas": "message systeme",
+      "msg": {
+        "sender": "system",
+        "type": "system",
+        "channel": "tache-27",
+        "text": "Ronde en veille : aucun progres depuis 3 battements."
+      },
+      "attendu": false
+    },
+    {
+      "cas": "expediteur system en chat",
+      "msg": {
+        "sender": "system",
+        "type": "chat",
+        "channel": "tache-27",
+        "text": "Routing resumed"
+      },
+      "attendu": false
+    },
+    {
+      "cas": "join",
+      "msg": {
+        "sender": "claude-2",
+        "type": "join",
+        "channel": "tache-29",
+        "text": "claude-2 is online"
+      },
+      "attendu": false
+    },
+    {
+      "cas": "carte de job",
+      "msg": {
+        "sender": "claude-1",
+        "type": "job_created",
+        "channel": "tache-29",
+        "text": "Job created: x"
+      },
+      "attendu": false
+    },
+    {
+      "cas": "rappel R14 que le chef s'adresse (msg 4915)",
+      "msg": {
+        "sender": "claude-1",
+        "type": "chat",
+        "channel": "tache-27",
+        "text": "@claude-1 Point d'étape du chef (R14) sur les tâches actives tache-27"
+      },
+      "attendu": false
+    },
+    {
+      "cas": "rappel a soi, casse et point final",
+      "msg": {
+        "sender": "claude-1",
+        "type": "chat",
+        "channel": "tache-27",
+        "text": "  @Claude-1. relis t29"
+      },
+      "attendu": false
+    },
+    {
+      "cas": "a soi et a un autre : progression",
+      "msg": {
+        "sender": "claude-1",
+        "type": "chat",
+        "channel": "tache-29",
+        "text": "@claude-1 @codex-1 revue a prendre"
+      },
+      "attendu": true
+    },
+    {
+      "cas": "mention de soi plus loin : progression",
+      "msg": {
+        "sender": "claude-2",
+        "type": "chat",
+        "channel": "tache-29",
+        "text": "Fait. @claude-2 relira demain"
+      },
+      "attendu": true
+    },
+    {
+      "cas": "sans expediteur",
+      "msg": {
+        "sender": "",
+        "type": "chat",
+        "channel": "tache-29",
+        "text": "x"
+      },
+      "attendu": false
+    }
+  ],
+  "tache_du_message": [
+    {
+      "msg": {
+        "tache_id": 27,
+        "channel": "general"
+      },
+      "attendu": 27
+    },
+    {
+      "msg": {
+        "tache_id": null,
+        "channel": "tache-21"
+      },
+      "attendu": 21
+    },
+    {
+      "msg": {
+        "channel": "tache-29"
+      },
+      "attendu": 29
+    },
+    {
+      "msg": {
+        "tache_id": "29",
+        "channel": "general"
+      },
+      "attendu": null
+    },
+    {
+      "msg": {
+        "tache_id": true,
+        "channel": "general"
+      },
+      "attendu": null
+    },
+    {
+      "msg": {
+        "tache_id": 0,
+        "channel": "tache-0"
+      },
+      "attendu": null
+    },
+    {
+      "msg": {
+        "channel": "tache-abc"
+      },
+      "attendu": null
+    },
+    {
+      "msg": {
+        "channel": "general"
+      },
+      "attendu": null
+    }
+  ],
+  "extrait": [
+    {
+      "cas": "mention et markdown retires",
+      "texte": "@claude-1 Livraison : **#15 et #18 fusionnées dans `main`**, sur le oui consigné msg 4919.",
+      "attendu": "Livraison : #15 et #18 fusionnées dans main, sur le oui consigné msg 4919."
+    },
+    {
+      "cas": "plusieurs mentions de tete",
+      "texte": "@codex-1, @claude-2: voir ci-dessous",
+      "attendu": "voir ci-dessous"
+    },
+    {
+      "cas": "le tableau saute, la prose reste",
+      "texte": "| Contrôle | Sortie |\n|---|---|\n| x | y |\n\nLa suite vient ici.",
+      "attendu": "La suite vient ici."
+    },
+    {
+      "cas": "tableau seul : sa premiere rangee",
+      "texte": "| Contrôle | Sortie |\n|---|---|\n| x | y |",
+      "attendu": "Contrôle · Sortie"
+    },
+    {
+      "cas": "titre et puce",
+      "texte": "## Titre du point\n- détail",
+      "attendu": "Titre du point"
+    },
+    {
+      "cas": "citation",
+      "texte": "> Pousse les PR",
+      "attendu": "Pousse les PR"
+    },
+    {
+      "cas": "liste numerotee",
+      "texte": "1. Premier pas",
+      "attendu": "Premier pas"
+    },
+    {
+      "cas": "barriere de code sautee",
+      "texte": "```\ngit log -3\n```",
+      "attendu": "git log -3"
+    },
+    {
+      "cas": "mentions seules puis prose",
+      "texte": "@claude-1\n\nTout est dans main.",
+      "attendu": "Tout est dans main."
+    },
+    {
+      "cas": "espaces ecrases",
+      "texte": "  un    deux\ttrois  ",
+      "attendu": "un deux trois"
+    },
+    {
+      "cas": "vide",
+      "texte": "",
+      "attendu": ""
+    },
+    {
+      "cas": "coupe a 160",
+      "texte": "abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij",
+      "attendu": "abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abcdefghij abcde…"
+    }
+  ],
+  "activites": {
+    "humains": [
+      "user"
+    ],
+    "messages": [
+      {
+        "id": 1,
+        "sender": "claude-2",
+        "type": "chat",
+        "channel": "tache-29",
+        "tache_id": 29,
+        "timestamp": 100,
+        "text": "@claude-1 Livraison G8"
+      },
+      {
+        "id": 5,
+        "sender": "codex-1",
+        "type": "decision",
+        "channel": "general",
+        "tache_id": 27,
+        "timestamp": 150,
+        "text": "GO sur **v1.27**"
+      },
+      {
+        "id": 2,
+        "sender": "user",
+        "type": "chat",
+        "channel": "tache-29",
+        "timestamp": 200,
+        "text": "@claude-2 Pousse les PR"
+      },
+      {
+        "id": 3,
+        "sender": "claude-1",
+        "type": "chat",
+        "channel": "tache-27",
+        "timestamp": 300,
+        "text": "@claude-1 Point d'étape du chef (R14)"
+      },
+      {
+        "id": 4,
+        "sender": "system",
+        "type": "system",
+        "channel": "tache-29",
+        "timestamp": 400,
+        "text": "Ronde en veille"
+      },
+      {
+        "id": 6,
+        "sender": "user",
+        "type": "chat",
+        "channel": "tache-21",
+        "timestamp": 500,
+        "text": "@qwencode-1 Modélise avec les cotes nominales"
+      },
+      {
+        "id": 7,
+        "sender": "claude-3",
+        "type": "chat",
+        "channel": "general",
+        "timestamp": 600,
+        "text": "hors tache"
+      },
+      {
+        "id": 8,
+        "sender": "claude-2",
+        "type": "chat",
+        "channel": "tache-29",
+        "tache_id": 29,
+        "text": "sans heure"
+      }
+    ],
+    "attendu": {
+      "29": {
+        "id": 2,
+        "ts": 200,
+        "par": "user",
+        "extrait": "Pousse les PR",
+        "agent": "claude-2",
+        "agent_ts": 100
+      },
+      "27": {
+        "id": 5,
+        "ts": 150,
+        "par": "codex-1",
+        "extrait": "GO sur v1.27",
+        "agent": "codex-1",
+        "agent_ts": 150
+      },
+      "21": {
+        "id": 6,
+        "ts": 500,
+        "par": "user",
+        "extrait": "Modélise avec les cotes nominales",
+        "agent": "",
+        "agent_ts": null
+      }
+    },
+    "derniers_messages_agents": {
+      "tache-29": 100,
+      "tache-27": 150
+    }
+  }
+}
