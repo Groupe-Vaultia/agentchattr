@@ -2009,6 +2009,21 @@ async def demote_proposal(msg_id: int):
     return updated or {"ok": True}
 
 
+def _etiquette_reponse(projet_id, tache_id, channel: str) -> tuple[str | None, int | None]:
+    """Etiquette de la reponse de Charles a une carte de decision : celle de la carte, qui l'emporte sur le canal.
+    Une carte qui n'a que son projet prend la tache de son canal `tache-<id>`, seulement si cette tache est du meme
+    projet (revue codex-1 msg 4934, cas fixes par claude-1 msg 4935). Une etiquette invalide (tache ou projet
+    disparu) donne une reponse sans etiquette : elle part quand meme."""
+    projet, tache, err = _etiquettes(projet_id, tache_id, channel)
+    if err:
+        return None, None
+    if projet and tache is None and jobs is not None:
+        du_canal = jobs.get(_jobs_mod.tache_du_canal(channel) or 0)
+        if du_canal and du_canal.get("projet_id") == projet:
+            tache = du_canal["id"]
+    return projet, tache
+
+
 def _liberer_tache_attente(tache_id) -> None:
     """Vaultia (19 oct. 2026) : une tâche « attend_charles » dont la dernière carte ouverte vient d'être tranchée
     repasse « en_cours ». Sinon l'atelier affichait « t'attend » sans rien à trancher (t22, quatre jours)."""
@@ -2090,9 +2105,7 @@ async def resolve_decision(msg_id: int, request: Request):
         reply_text = f"@{sender} {chosen}" if sender else chosen
         # La reponse porte l'etiquette de la carte (sinon celle de son canal) : elle reste dans la conversation de la
         # tache et dans le flux de l'atelier (tache-22 : msgs 4872 et 4874 etaient sans tache).
-        rep_projet, rep_tache, err = _etiquettes(projet_id, tache_id, channel)
-        if err:
-            rep_projet, rep_tache = None, None
+        rep_projet, rep_tache = _etiquette_reponse(projet_id, tache_id, channel)
         try:
             store.add(username, reply_text, reply_to=msg_id, channel=channel, projet_id=rep_projet, tache_id=rep_tache)
         except Exception:

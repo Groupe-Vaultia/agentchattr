@@ -185,6 +185,41 @@ class ReponseCarteTests(_Salle):
         self.resoudre(carte)
         self.assertIsNone(self.reponse().get("tache_id"))
 
+    # Revue codex-1 (msg 4934) et cas fixes par claude-1 (msg 4935) : la carte qui n'a que son projet.
+    def carte_dans(self, canal, **etiquette):
+        return self.store.add("claude-1", "Je pousse ?", msg_type="decision", channel=canal,
+                              metadata={"choices": ["Oui", "Non"]}, **etiquette)
+
+    def etiquette(self) -> tuple:
+        r = self.reponse()
+        return r.get("projet_id"), r.get("tache_id")
+
+    def autre_tache(self, projet_id):
+        t, err = self.jobs.create_tache(projet_id, "Autre", "conception", "claude-2", "claude-1",
+                                        equipe=[{"agent": "claude-2", "role": "producteur"}])
+        self.assertEqual(err, "")
+        return t
+
+    def test_cas_de_codex_1_carte_avec_son_projet_seul_dans_tache_n(self):
+        self.assertEqual((self.pid, self.canal), ("synthetic-alpha", "tache-1"))
+        self.resoudre(self.carte_dans(self.canal, projet_id=self.pid))
+        self.assertEqual(self.etiquette(), (self.pid, self.tid), "tache_id restait None (msg 4934)")
+
+    def test_le_dual_la_tache_du_canal_est_d_un_autre_projet_on_ne_melange_pas(self):
+        beta = projects.creer("Synthetic Beta")
+        autre = self.autre_tache(beta)
+        self.resoudre(self.carte_dans(f"tache-{autre['id']}", projet_id=self.pid))
+        self.assertEqual(self.etiquette(), (self.pid, None))
+
+    def test_la_carte_qui_porte_ses_deux_etiquettes_l_emporte_sur_le_canal(self):
+        autre = self.autre_tache(self.pid)
+        self.resoudre(self.carte_dans(f"tache-{autre['id']}", projet_id=self.pid, tache_id=self.tid))
+        self.assertEqual(self.etiquette(), (self.pid, self.tid))
+
+    def test_le_dual_projet_seul_dans_un_canal_tache_sans_tache(self):
+        self.resoudre(self.carte_dans("tache-777", projet_id=self.pid))
+        self.assertEqual(self.etiquette(), (self.pid, None))
+
     def test_le_dual_une_tache_disparue_ne_bloque_pas_la_reponse(self):
         carte = self.store.add("claude-1", "Je pousse ?", msg_type="decision", channel="general",
                                metadata={"choices": ["Oui", "Non"]}, projet_id=self.pid, tache_id=9999)
