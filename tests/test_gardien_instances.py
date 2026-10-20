@@ -1,5 +1,6 @@
 """Gardien multi-instance (scripts/gardien_instances.py), sans tmux, sans kill réel.
 
+v1.0.3 (2026-10-19, claude-2) : `--simuler-absent` (claude-1 msg 5640).
 v1.0.2 (2026-10-19, claude-2) : `pane_start_command` déshabillé, vérifié sur un vrai tmux jetable (NO-GO claude-3 msg 5605).
 v1.0.1 (2026-10-19, claude-2) : relance manuelle `--relancer base:n` (claude-1 msg 5602).
 v1.0 (2026-10-19, claude-2) : l'ancien cli() de vaultia-watchdog.sh tuait par pkill les relais de toutes les instances d'une
@@ -132,6 +133,23 @@ class TestPasse(unittest.TestCase):
         code, f, pauses, out = self._main([salle(sans={"agentchattr-qwencode-2"})] * 2)
         self.assertEqual(f.tues, [201])
         self.assertIn("relance -> tuer PID 201 ; fermer ac-qwencode2 ; relancer ac-qwencode2", out)
+
+    def test_simuler_absent(self):
+        """Le cas de ce soir, répété sans danger : si agentchattr-qwencode-3 mourait, seul qwencode-3 serait relancé."""
+        code, f, pauses, out = self._main_args(["--essai", "--simuler-absent", "agentchattr-qwencode-3", "qwencode:4", "grok:1"], [salle()])
+        self.assertEqual((code, f.run, f.tues, pauses), (0, [], [], []))
+        self.assertIn("qwencode-3 (ac-qwencode3 / pas de TUI) : relance -> fermer ac-qwencode3 ; relancer ac-qwencode3", out)
+        self.assertNotIn("qwencode-1 (", out)
+        self.assertNotIn("qwencode-2 (", out)
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            self._main_args(["--simuler-absent", "agentchattr-qwencode-3", "qwencode:4"], [salle()])   # sans --essai : refusé
+
+    def _main_args(self, args, lectures):
+        f, pauses, sortie = _Faux(), [], io.StringIO()
+        it = iter(lectures)
+        with contextlib.redirect_stdout(sortie), unittest.mock.patch.object(G.time, "time", return_value=MAINTENANT):
+            code = G.main(args, lire=lambda: next(it), processus=lambda: PROCESSUS, dormir=pauses.append, run=f.lancer, tuer=f.tuer)
+        return code, f, pauses, sortie.getvalue()
 
     def test_essai_ne_fait_rien_et_journal_sans_secret(self):
         code, f, pauses, out = self._main([salle(sans={"agentchattr-qwencode-2"})], essai=True)

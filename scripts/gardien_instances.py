@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 r"""Gardien multi-instance des agents CLI : une passe par appel, une décision par instance.
 
+v1.0.3 (2026-10-19, claude-2, claude-1 msg 5640) : `--simuler-absent SESSION` (avec `--essai` seulement) : répétition sans
+danger d'une panne sur la salle réelle, pour la procédure docs/deploiement_gardien.md.
 v1.0.2 (2026-10-19, claude-2, NO-GO claude-3 msg 5605) : `#{pane_start_command}` est rendu par tmux entre guillemets, avec
 `\"`, `\\`, `\$`, `\t`, `\n` échappés ; relancée telle quelle, la session mourait aussitôt. `deshabiller()` le ramène à la
 commande d'origine dès la lecture, et toute commande doit passer `bash -n` et nommer `wrapper.py` avant qu'on tue quoi que ce soit.
@@ -13,6 +15,7 @@ même ligne de commande, puis n'en relançait qu'un (data/watchdog.log:6149, 19 
     python3 scripts/gardien_instances.py claude:3 codex:2 qwencode:4 grok:1           # appelé par vaultia-watchdog.sh
     python3 scripts/gardien_instances.py --essai claude:3 codex:2 qwencode:4 grok:1   # imprime le plan, ne fait rien
     python3 scripts/gardien_instances.py --relancer qwencode:3 [--essai] [--force]    # relance manuelle d'une instance
+    python3 scripts/gardien_instances.py --essai --simuler-absent agentchattr-qwencode-3 qwencode:4   # « et si ce TUI mourait ? »
 
 Instance <base> n° n : lanceur `ac-<base>` (n = 1) ou `ac-<base><n>`, TUI `agentchattr-<base>` ou `agentchattr-<base>-1` (n = 1),
 `agentchattr-<base>-<n>` sinon ; à défaut de nom, le TUI de la même famille créé dans les 60 s qui suivent le lanceur (un relais
@@ -47,7 +50,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = "v1.0.2"
+VERSION = "v1.0.3"
 RACINE = Path(__file__).resolve().parents[1]
 DEMARRAGE = 120          # s : un lanceur plus jeune n'est pas jugé (son TUI se crée)
 APPARIEMENT = 60         # s : TUI créé au plus tard 60 s après son lanceur
@@ -326,7 +329,14 @@ def main(argv: list[str] | None = None, lire=lire_sessions, processus=None, dorm
     ap.add_argument("--essai", action="store_true", help="imprime le plan sans rien faire")
     ap.add_argument("--relancer", metavar="BASE:N", help="relance manuelle d'une seule instance, ex. qwencode:3")
     ap.add_argument("--force", action="store_true", help="avec --relancer : passer outre les modifications non commitées")
+    ap.add_argument("--simuler-absent", action="append", default=[], metavar="SESSION",
+                    help="avec --essai seulement : faire comme si cette session tmux n'existait pas")
     a = ap.parse_args(argv)
+    if a.simuler_absent:
+        if not a.essai:
+            ap.error("--simuler-absent exige --essai (simulation, aucune action)")
+        lire_reel = lire
+        lire = lambda: [s for s in lire_reel() if s.nom not in a.simuler_absent]
     defauts = dict(x.split("=", 1) for x in a.defaut)
     lire_ps = processus or VR.lire_processus
     if a.relancer:
