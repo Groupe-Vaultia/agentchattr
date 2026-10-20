@@ -1,4 +1,8 @@
-# Affinité de carte pour les Qwen : constat et proposition (v1.1)
+# Affinité de carte pour les Qwen : constat et proposition (v1.2)
+
+v1.2 (2026-10-20, claude-2, claude-1 msg 5699, remarque claude-3 msg 5657) : § 4, `--data ~/atelier/agentchattr/data` tant que le
+gardien n'est pas déployé ; § 6, les deux scripts de vitesse (`usage_qwen.py`, `vitesse_cartes_qwen.py`) pour refaire la mesure
+de l'après à l'identique.
 
 v1.1 (2026-10-19, claude-2, revue claude-3 msg 5652, claude-1 msg 5653) : gain « 71 min certaines, jusqu'à ~4 h » ; risque non
 écarté d'une conversation neuve qui écrase la fente de son voisin ; règle de lots « un de {1, 2} et un de {3, 4} » ; rotation de
@@ -117,7 +121,9 @@ l'adresse : `--openai-base-url http://172.30.0.1:8085/v1` devient `:8086/v1` ou 
 - **Relance automatique** (TUI mort) : le gardien relance avec la commande d'origine de **ce** lanceur
   (`#{pane_start_command}`, déshabillée). Un lanceur créé avec `:8087` est relancé sur `:8087` : l'affinité survit.
 - **Les lanceurs actuels portent `:8085`** : une relance simple les garderait sur `:8085`. Pour déplacer une instance, à sa
-  relance de fin de lot : `scripts/gardien_instances.py --relancer qwencode:3 --url http://172.30.0.1:8087/v1` (v1.0.5,
+  relance de fin de lot : `scripts/gardien_instances.py --relancer qwencode:3 --url http://172.30.0.1:8087/v1` (avec
+  `--data ~/atelier/agentchattr/data` tant que le gardien n'est pas déployé dans le clone principal : sinon le registre est
+  introuvable, et la relance attend 75 s puis s'arrête, code 4) (v1.0.5,
   branche `claude2/gardien-url`, empilée sur `1ae5334`). Ce mode remplace **la seule** valeur de `--openai-base-url` dans la
   commande du lanceur et refuse si l'option manque ou est double. Il garde le reste à l'identique, clé comprise, sans l'afficher,
   et valide le tout par `bash -n`. En `--essai` sur la salle réelle (23 h 41) : qwencode-3 → `:8087`, qwencode-1 → `:8086`.
@@ -154,7 +160,12 @@ chaque semaine par un minuteur `systemd --user` :
 
 ## 6. Mesurer après
 
+Référence d'avant la bascule (19 oct., 17 h → 20 oct., 00 h 40, msg 5698) : 1 222 requêtes, 0 jeton de réflexion ; une carte
+génère ~22 jetons/s seule, ~10-11 par fente à deux ; 38-41 % du temps des fentes en calcul de prompt, dont 74 % de recalcul.
+
 ```bash
+python3 scripts/usage_qwen.py "<heure de la bascule>"                  # par agent : cache, durée moyenne, sorties
+python3 scripts/vitesse_cartes_qwen.py "<heure de la bascule>"          # par carte : génération seule / partagée, part du prompt
 python3 scripts/pertes_cache_qwen.py "<heure de la bascule>" 10000      # attendu : changement de carte = 0
 awk '{print $2, $3}' ~/atelier/qwen-switch/nginx/acces-cartes.log | sort | uniq -c   # port 8086 → 127.0.0.1:8081, 8087 → :8082
 ```
