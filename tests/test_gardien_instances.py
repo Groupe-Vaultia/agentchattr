@@ -1,5 +1,8 @@
 """Gardien multi-instance (scripts/gardien_instances.py), sans tmux, sans kill réel.
 
+v1.0.9 (2026-10-20, claude-2) : dossier de départ du lanceur (`-c #{pane_start_path}`) et lanceur mort-né, avec un vrai tmux
+jetable et une commande relative lancée depuis un autre dossier (claude-1 #tache-22 msg 5721). La vérification réelle
+(`verifier_lanceur`) est remplacée par une fausse dans les autres tests : ils ne lisent jamais le tmux de la salle.
 v1.0.6 (2026-10-19, claude-2) : attente du registre après un relais tué (course à l'emplacement, claude-3 msg 5652).
 v1.0.5 (2026-10-19, claude-2) : `--relancer … --url` (affinité de carte, claude-1 msg 5648).
 v1.0.3 (2026-10-19, claude-2) : `--simuler-absent` (claude-1 msg 5640).
@@ -67,6 +70,22 @@ def par_instance(decisions):
     return {d.instance: d for d in decisions}
 
 
+VERIFIES: list[str] = []
+_VRAI_VERIFIER = G.verifier_lanceur
+
+
+def setUpModule():
+    """Aucun test ne lit le tmux de la salle : la vérification d'après lancement est simulée (lanceur vivant)."""
+    G.verifier_lanceur = lambda nom, **kw: VERIFIES.append(nom) or ""
+
+
+def tearDownModule():
+    G.verifier_lanceur = _VRAI_VERIFIER
+
+
+RACINE = str(G.RACINE)
+
+
 class TestDecision(unittest.TestCase):
     def test_ce_soir_relais_mort_tui_vivant_signale_seulement(self):
         d = par_instance(G.decider(salle(), PROCESSUS, ATTENDU, {}, MAINTENANT))
@@ -95,7 +114,7 @@ class TestDecision(unittest.TestCase):
         # désinscrit (récupérable) : on relance
         d = par_instance(G.decider(salle(sans={"agentchattr-qwencode-2"}), sans_201, ATTENDU, {}, MAINTENANT,
                                    registre={"qwencode-2": "récupérable"}))["qwencode-2"]
-        self.assertEqual(d.actions, [("fermer", "ac-qwencode2"), ("lancer", "ac-qwencode2", CMD["qwencode"])])
+        self.assertEqual(d.actions, [("fermer", "ac-qwencode2"), ("lancer", "ac-qwencode2", CMD["qwencode"], RACINE)])
         f = _Faux()
         G.executer([d], run=f.lancer, tuer=f.tuer, dormir=lambda s: None)
         self.assertEqual(f.run, [["tmux", "kill-session", "-t", "=ac-qwencode2"],
@@ -103,13 +122,13 @@ class TestDecision(unittest.TestCase):
 
     def test_lanceur_absent_commande_du_frere(self):
         d = par_instance(G.decider(salle(sans={"ac-qwencode2", "agentchattr-qwencode-2"}), PROCESSUS, ATTENDU, {}, MAINTENANT))
-        self.assertEqual(d["qwencode-2"].actions, [("lancer", "ac-qwencode2", CMD["qwencode"])])
+        self.assertEqual(d["qwencode-2"].actions, [("lancer", "ac-qwencode2", CMD["qwencode"], RACINE)])
 
     def test_commande_de_secours(self):
         s = salle(sans={"ac-grok", "agentchattr-grok"})
         self.assertEqual(par_instance(G.decider(s, PROCESSUS, ATTENDU, {}, MAINTENANT))["grok"].etat, "sans commande")
         d = par_instance(G.decider(s, PROCESSUS, ATTENDU, {"grok": ""}, MAINTENANT))["grok"]
-        self.assertEqual(d.actions, [("lancer", "ac-grok", G.commande_defaut("grok", ""))])
+        self.assertEqual(d.actions, [("lancer", "ac-grok", G.commande_defaut("grok", ""), RACINE)])
 
     def test_instance_1_nom_numerote(self):
         s = salle(sans={"agentchattr-qwencode"}) + [G.Session("agentchattr-qwencode-1", T0, 120)]
@@ -198,7 +217,7 @@ class TestRelanceManuelle(unittest.TestCase):
         code, d, motif = self._plan("qwencode", 3)
         self.assertEqual((code, motif), (0, ""))
         self.assertEqual(d.actions, [("attendre", ["qwencode-3"]), ("fermer", "agentchattr-qwencode-3"), ("fermer", "ac-qwencode3"),
-                                     ("lancer", "ac-qwencode3", CMD["qwencode"])])  # relais déjà mort : rien à tuer
+                                     ("lancer", "ac-qwencode3", CMD["qwencode"], RACINE)])  # relais déjà mort : rien à tuer
 
     def test_relais_tue_avant_le_tui(self):
         code, d, _ = self._plan("qwencode", 2, worktrees=[("/a/wt-qwencode2-transmission", "")])
@@ -207,7 +226,7 @@ class TestRelanceManuelle(unittest.TestCase):
         f, pauses = _Faux(), []
         lectures = iter([{"qwencode-2": "actif"}, {"qwencode-2": "actif"}, {"qwencode-2": "récupérable"}])
         messages = G.executer([d], run=f.lancer, tuer=f.tuer, dormir=pauses.append, registre=lambda: next(lectures))
-        self.assertEqual(pauses, [2, G.ATTENTE_PAS, G.ATTENTE_PAS])           # 2 s après le kill, puis 2 attentes du registre
+        self.assertEqual(pauses, [2, G.ATTENTE_PAS, G.ATTENTE_PAS, G.VERIF_LANCEUR])   # kill, 2 attentes du registre, vérification
         self.assertEqual(messages, ["qwencode-2 : registre libre après 10 s"])
         self.assertEqual(f.tues, [201])
         self.assertEqual([c[:4] for c in f.run], [["tmux", "kill-session", "-t", "=agentchattr-qwencode-2"],
@@ -258,6 +277,53 @@ class TestRelanceManuelle(unittest.TestCase):
         self.assertEqual(sum(x for x in pauses if x == G.ATTENTE_PAS), G.ATTENTE_MAX)
         self.assertIn("registre encore « qwencode-2 actif » après 75 s : arrêt après le relais tué ; TUI et lanceur laissés en place",
                       sortie.getvalue())
+
+    def test_lanceur_mort_ne_code_5(self):
+        """v1.0.9 : un lanceur recréé sans relais 5 s après est signalé ; code 5 en manuel, sans lire le texte du message."""
+        f, pauses, sortie = _Faux(), [], io.StringIO()
+        with contextlib.redirect_stdout(sortie):
+            code = G.main(["--relancer", "qwencode:3"], lire=salle, processus=lambda: PROCESSUS, run=f.lancer, tuer=f.tuer,
+                          dormir=pauses.append, worktrees=[("/a/wt-qwencode3-x", "")], depot=lambda c: False, sales=lambda c: 0,
+                          registre=lambda: {}, verifier=lambda nom: "aucun relais wrapper.py sous le volet (commande échouée ?)")
+        self.assertEqual((code, pauses[-1]), (5, G.VERIF_LANCEUR))
+        self.assertIn(f"qwencode-3 : lanceur ac-qwencode3 mort-né (aucun relais wrapper.py sous le volet (commande échouée ?)) ; "
+                      f"à relancer à la main depuis {RACINE}", sortie.getvalue())
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = G.main(["--relancer", "qwencode:3"], lire=salle, processus=lambda: PROCESSUS, run=f.lancer, tuer=f.tuer,
+                          dormir=lambda s: None, worktrees=[("/a/wt-qwencode3-x", "")], depot=lambda c: False, sales=lambda c: 0,
+                          registre=lambda: {}, verifier=lambda nom: "")
+        self.assertEqual(code, 0)
+
+    def test_dossier_de_depart(self):
+        """v1.0.9 : la commande reprise part du dossier où elle avait été lancée (le sien, sinon celui du frère)."""
+        with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
+            s = salle()
+            for x in s:
+                if x.nom == "ac-qwencode3":
+                    x.depart, x.chemin = a, "/ailleurs"
+                if x.nom == "ac-qwencode":
+                    x.depart = b
+            code, d, _ = G.plan_relance("qwencode", 3, s, PROCESSUS, {}, [("/a/wt-qwencode3-x", "")], False, depot=lambda c: False,
+                                        sales=lambda c: 0)
+            self.assertEqual((code, d.actions[-1]), (0, ("lancer", "ac-qwencode3", CMD["qwencode"], a)))
+            f = _Faux()
+            G.executer([d], run=f.lancer, tuer=f.tuer, dormir=lambda s: None, registre=lambda: {}, verifier=lambda nom: "")
+            self.assertEqual(f.run[-1], ["tmux", "new-session", "-d", "-s", "ac-qwencode3", "-c", a, CMD["qwencode"]])
+            # lanceur sans commande connue : celle du frère, avec le dossier du frère
+            self.assertEqual(G.lancement("qwencode", G.Session("ac-qwencode3", T0, 300), [s[0]], {}), (CMD["qwencode"], b))
+            # pane_start_path vide : dossier courant, sinon RACINE
+            self.assertEqual(G.lancement("x", G.Session("ac-x", T0, 1, "cmd wrapper.py", a), [], {}), ("cmd wrapper.py", a))
+            self.assertEqual(G.lancement("x", G.Session("ac-x", T0, 1, "cmd wrapper.py"), [], {}), ("cmd wrapper.py", RACINE))
+        # le dossier n'existe plus : rien n'est tué, ni en manuel ni en automatique
+        s = salle(sans={"agentchattr-qwencode-3"})
+        for x in s:
+            if x.nom == "ac-qwencode3":
+                x.depart = "/n/existe/pas"
+        code, d, motif = G.plan_relance("qwencode", 3, s, PROCESSUS, {}, [("/a/wt-qwencode3-x", "")], False, depot=lambda c: False,
+                                        sales=lambda c: 0)
+        self.assertEqual((code, d.actions, motif), (2, [], "dossier de départ introuvable : /n/existe/pas : rien n'est tué"))
+        d = par_instance(G.decider(s, PROCESSUS, ATTENDU, {}, MAINTENANT))["qwencode-3"]
+        self.assertEqual((d.etat, d.actions), ("dossier de départ introuvable (rien n'est tué)", []))
 
     def test_noms_registre(self):
         self.assertEqual(G.noms_registre("qwencode", 3), ["qwencode-3"])
@@ -342,6 +408,29 @@ class TestCommandeTmux(unittest.TestCase):
         G.executer([d], run=self._run, tuer=lambda *a: None, dormir=lambda s: None)
         time.sleep(0.3)
         self.assertTrue(self._vivante("ac-x"))
+
+    def test_commande_relative_dans_son_dossier(self):
+        """v1.0.9 (msg 5721) : `.venv/bin/python wrapper.py …` relancée depuis un autre dossier que le sien. Lue par
+        lire_sessions (pane_start_path), elle repart de son dossier et porte un relais ; dans un autre dossier : mort-née."""
+        maison, ailleurs = (Path(tempfile.mkdtemp(prefix=p, dir=self.dossier)) for p in ("maison.", "ailleurs."))
+        (maison / ".venv" / "bin").mkdir(parents=True)
+        (maison / ".venv" / "bin" / "python").symlink_to(sys.executable)
+        (maison / "wrapper.py").write_text("import time\ntime.sleep(120)\n", "utf-8")    # faux relais, rien d'autre
+        cmd = ".venv/bin/python wrapper.py essai; read"
+        self.assertNotEqual(Path.cwd().resolve(), maison.resolve())                      # lancé d'un autre dossier
+        self._t("new-session", "-d", "-s", "ac-rel", "-c", str(maison), cmd)
+        lue = next(s for s in G.lire_sessions(self.tmux) if s.nom == "ac-rel")
+        self.assertEqual((lue.commande, Path(lue.depart).resolve()), (cmd, maison.resolve()))
+        self._t("kill-session", "-t", "=ac-rel")
+        verif = lambda nom: _VRAI_VERIFIER(nom, tmux=self.tmux)
+        bon = G.Decision("rel-1", "ac-rel", None, None, "relance", [("lancer", "ac-rel", *G.lancement("rel", lue, [], {}))])
+        r = G.executer([bon], run=self._run, tuer=lambda *a: None, dormir=lambda s: time.sleep(1.0), verifier=verif)
+        self.assertEqual((list(r), r.morts_nes), ([], []))
+        mal = G.Decision("mal-1", "ac-mal", None, None, "relance", [("lancer", "ac-mal", cmd, str(ailleurs))])
+        r = G.executer([mal], run=self._run, tuer=lambda *a: None, dormir=lambda s: time.sleep(1.0), verifier=verif)
+        self.assertEqual(r.morts_nes, ["mal-1"])
+        self.assertTrue(self._vivante("ac-mal"))                 # le `; read` garde le volet : pane_dead seul ne l'aurait pas vu
+        self.assertIn("aucun relais wrapper.py sous le volet", r[0])
 
     def test_commande_illisible_rien_n_est_tue(self):
         s = salle(sans={"agentchattr-qwencode-2"})

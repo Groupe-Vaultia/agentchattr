@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 r"""Gardien multi-instance des agents CLI : une passe par appel, une décision par instance.
 
+v1.0.9 (2026-10-20, claude-2, claude-1 #tache-22 msg 5721) : lanceur mort-né à 01 h 16 (`--relancer qwencode:3` lancé depuis
+un worktree) : `new-session` partait du dépôt du script (`-c RACINE`, sans `.venv`) et la commande relative
+`.venv/bin/python wrapper.py` échouait. Le lanceur est recréé dans **son** dossier de départ (`#{pane_start_path}`, celui de la
+commande reprise : le sien, sinon celui du frère ; RACINE pour `--defaut`), refusé si ce dossier n'existe pas. 5 s après, il
+doit avoir un relais `wrapper.py` sous son volet (le `; read` final garde le volet vivant même si la commande a échoué :
+`pane_dead` seul ne suffit pas) ; sinon « lanceur mort-né », code 5 en manuel. `executer` rend un `Rapport` (liste de messages,
+plus `plafond` et `morts_nes`) : le code 4 ne dépend plus du texte du message (remarque de claude-3).
 v1.0.6 (2026-10-19, claude-2, claude-3 msg 5652, claude-1 msg 5653) : course à l'emplacement. Un relais tué reste « actif »
 au registre jusqu'au crash-timeout (60 s, app.py:462-468) ; relancé trop tôt, le nouveau relais prenait un autre numéro et fermait
 le TUI d'une autre instance (22 h 57). Désormais : en automatique, on tue à cette passe et on relance à une passe suivante, quand
@@ -40,7 +47,7 @@ Relance manuelle (`--relancer qwencode:3`) : tuer le relais sous `ac-qwencode3`,
 lanceur avec sa commande d'origine. Worktrees connus de l'instance : le dossier courant de son TUI s'il est dans git, et les
 worktrees (projetcad-repo, agentchattr) dont le nom ou la branche porte `qwencode3` ou `qwencode-3`. Un fichier modifié ou non
 suivi (hors `.pyc` et `__pycache__`) bloque la relance ; aucun worktree connu aussi ; `--force` passe outre. Codes : 0 fait,
-3 refusé, 2 instance ou commande introuvable.
+3 refusé, 2 instance, commande ou dossier de départ introuvable, 4 registre encore tenu au plafond, 5 lanceur mort-né.
 Jamais de `pkill` ni de motif : un PID, une session. Le journal ne porte que des noms et des PID : les commandes de lancement
 peuvent contenir une clé d'API et ne sont jamais imprimées.
 """
@@ -58,12 +65,13 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = "v1.0.6"
+VERSION = "v1.0.9"
 RACINE = Path(__file__).resolve().parents[1]
 DEMARRAGE = 120          # s : un lanceur plus jeune n'est pas jugé (son TUI se crée)
 APPARIEMENT = 60         # s : TUI créé au plus tard 60 s après son lanceur
 CONFIRMATION = 8         # s : seconde lecture avant toute relance
 ATTENTE_PAS, ATTENTE_MAX = 5, 75   # s : attente de la désinscription au registre après un relais tué (crash-timeout 60 s)
+VERIF_LANCEUR = 5        # s : délai avant de vérifier qu'un lanceur recréé porte un relais
 OCCUPE = ("actif", "en attente")   # états du registre qui tiennent encore le nom de l'instance
 A_TUER = "relais à tuer (relance à une passe suivante)"
 A_CONFIRMER = ("relance", A_TUER)
@@ -85,6 +93,7 @@ class Session:
     pid_volet: int
     commande: str = field(default="", repr=False)   # pane_start_command : peut porter une clé, jamais imprimée
     chemin: str = ""                                 # pane_current_path : dossier courant du volet
+    depart: str = ""                                 # pane_start_path : dossier où la commande a été lancée
 
 
 @dataclass
@@ -132,16 +141,26 @@ def commande_valide(cmd: str) -> bool:
 
 def lire_sessions(tmux: tuple[str, ...] = ("tmux",)) -> list[Session]:
     r = subprocess.run([*tmux, "list-panes", "-a", "-F",
-                        "#{session_name}\t#{session_created}\t#{pane_index}\t#{pane_pid}\t#{pane_current_path}\t#{pane_start_command}"],
+                        "#{session_name}\t#{session_created}\t#{pane_index}\t#{pane_pid}\t#{pane_current_path}\t#{pane_start_path}"
+                        "\t#{pane_start_command}"],
                        capture_output=True, text=True)
     if r.returncode != 0:
         return []
     vus: dict[str, Session] = {}
     for l in r.stdout.splitlines():
-        nom, cree, idx, pid, chemin, cmd = (l.split("\t", 5) + [""] * 6)[:6]
+        nom, cree, idx, pid, chemin, depart, cmd = (l.split("\t", 6) + [""] * 7)[:7]
         if nom not in vus or idx == "0":
-            vus[nom] = Session(nom, float(cree), int(pid), deshabiller(cmd), chemin)
+            vus[nom] = Session(nom, float(cree), int(pid), deshabiller(cmd), chemin, depart)
     return list(vus.values())
+
+
+def lancement(base: str, ac: Session | None, freres: list[Session], defauts: dict[str, str]) -> tuple[str, str]:
+    """(commande, dossier de départ) : celle du lanceur, sinon d'un frère, sinon `--defaut` (dossier RACINE). Le dossier va
+    avec la commande : une commande relative (`.venv/bin/python wrapper.py`) ne vaut que là où elle a été lancée (msg 5721)."""
+    for s in ([ac] if ac else []) + freres:
+        if s.commande:
+            return s.commande, s.depart or s.chemin or str(RACINE)
+    return (commande_defaut(base, defauts[base]), str(RACINE)) if base in defauts else ("", "")
 
 
 def _git(*args: str) -> subprocess.CompletedProcess:
@@ -232,8 +251,7 @@ def decider(sessions: list[Session], processus: list[tuple[int, int, bool]], att
                 pris.add(t.nom)
     # 2. décision par instance
     for base, nb in attendu:
-        freres = [par_nom[noms(base, k)[0]].commande for k in range(1, nb + 1)
-                  if noms(base, k)[0] in par_nom and par_nom[noms(base, k)[0]].commande]
+        freres = [par_nom[noms(base, k)[0]] for k in range(1, nb + 1) if noms(base, k)[0] in par_nom]
         for n in range(1, nb + 1):
             lanceur, _, instance = noms(base, n, nb)
             ac, tui = par_nom.get(lanceur), paires[lanceur]
@@ -244,12 +262,13 @@ def decider(sessions: list[Session], processus: list[tuple[int, int, bool]], att
             elif ac and maintenant - ac.cree < DEMARRAGE:
                 d.etat = "démarrage"
             else:
-                cmd = (ac.commande if ac and ac.commande else "") or (freres[0] if freres else "") or \
-                      (commande_defaut(base, defauts[base]) if base in defauts else "")
+                cmd, dossier = lancement(base, ac, freres, defauts)
                 if not cmd:
                     d.etat = "sans commande"
                 elif not valide(cmd):
                     d.etat = "commande illisible (rien n'est tué)"
+                elif not os.path.isdir(dossier):
+                    d.etat = "dossier de départ introuvable (rien n'est tué)"
                 elif relais:                                  # tuer à cette passe, relancer après la désinscription
                     d.etat, d.actions = A_TUER, [("tuer", relais)]
                 elif tient := occupe(registre, noms_registre(base, n)):
@@ -258,7 +277,7 @@ def decider(sessions: list[Session], processus: list[tuple[int, int, bool]], att
                     d.etat = "relance"
                     if ac:
                         d.actions.append(("fermer", lanceur))
-                    d.actions.append(("lancer", lanceur, cmd))
+                    d.actions.append(("lancer", lanceur, cmd, dossier))
             out.append(d)
     return out
 
@@ -278,9 +297,33 @@ def confirmer(premiere: list[Decision], seconde: list[Decision]) -> list[Decisio
 
 # --- exécution (injectable) ------------------------------------------------------------------------------------------------
 
-def executer(decisions: list[Decision], run=subprocess.run, tuer=os.kill, dormir=time.sleep, registre=lambda: {}) -> list[str]:
-    """Exécute les actions ; rend les messages à journaliser (attente du registre, arrêt au plafond)."""
-    messages = []
+class Rapport(list):
+    """Messages à journaliser, plus ce qu'un code de sortie doit refléter (au lieu de lire le texte des messages)."""
+    def __init__(self):
+        super().__init__()
+        self.plafond: list[str] = []      # instances arrêtées au plafond de l'attente du registre
+        self.morts_nes: list[str] = []    # lanceurs recréés sans relais 5 s après
+
+
+def verifier_lanceur(nom: str, tmux: tuple[str, ...] = ("tmux",), lire_ps=None) -> str:
+    """« » si la session existe, son volet vit et porte un relais wrapper.py ; sinon le motif."""
+    r = subprocess.run([*tmux, "display-message", "-p", "-t", f"={nom}:", "#{pane_dead}\t#{pane_pid}"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return "session absente"
+    mort, pid = (r.stdout.strip().split("\t") + [""])[:2]
+    if mort != "0":
+        return "volet mort"
+    if not VR.relais_sous(int(pid), (lire_ps or VR.lire_processus)()):
+        return "aucun relais wrapper.py sous le volet (commande échouée ?)"
+    return ""
+
+
+def executer(decisions: list[Decision], run=subprocess.run, tuer=os.kill, dormir=time.sleep, registre=lambda: {},
+             verifier=None) -> Rapport:
+    """Exécute les actions ; rend les messages à journaliser (attente du registre, arrêt au plafond, lanceur mort-né)."""
+    verifier = verifier or verifier_lanceur
+    messages = Rapport()
     for d in decisions:
         for a in d.actions:
             if a[0] == "attendre":
@@ -291,6 +334,7 @@ def executer(decisions: list[Decision], run=subprocess.run, tuer=os.kill, dormir
                 if tient:
                     messages.append(f"{d.instance} : registre encore « {tient} » après {attendu} s : arrêt après le relais tué ; "
                                     "TUI et lanceur laissés en place, rien n'est relancé")
+                    messages.plafond.append(d.instance)
                     break                                     # les actions suivantes de cette instance ne sont pas faites
                 messages.append(f"{d.instance} : registre libre après {attendu} s")
             elif a[0] == "tuer":
@@ -302,7 +346,12 @@ def executer(decisions: list[Decision], run=subprocess.run, tuer=os.kill, dormir
             elif a[0] == "fermer":
                 run(["tmux", "kill-session", "-t", f"={a[1]}"], capture_output=True)
             elif a[0] == "lancer":
-                run(["tmux", "new-session", "-d", "-s", a[1], "-c", str(RACINE), a[2]], capture_output=True)
+                dossier = a[3] if len(a) > 3 else str(RACINE)
+                run(["tmux", "new-session", "-d", "-s", a[1], "-c", dossier, a[2]], capture_output=True)
+                dormir(VERIF_LANCEUR)
+                if motif := verifier(a[1]):
+                    messages.append(f"{d.instance} : lanceur {a[1]} mort-né ({motif}) ; à relancer à la main depuis {dossier}")
+                    messages.morts_nes.append(d.instance)
     return messages
 
 
@@ -315,7 +364,7 @@ def journal(decisions: list[Decision], essai: bool) -> list[str]:
             continue
         quoi = " ; ".join(f"tuer PID {a[1]}" if a[0] == "tuer" else f"fermer {a[1]}" if a[0] == "fermer"
                           else f"attendre que le registre libère {'/'.join(a[1])} ({ATTENTE_MAX} s au plus)" if a[0] == "attendre"
-                          else f"relancer {a[1]}" for a in d.actions)
+                          else f"relancer {a[1]}" + (f" depuis {a[3]}" if len(a) > 3 else "") for a in d.actions)
         out.append(f"[{horo}] gardien{' (essai)' if essai else ''} : {d.instance} ({d.lanceur} / {d.tui or 'pas de TUI'}) : {d.etat}"
                    + (f" -> {quoi}" if quoi else "")
                    + (" ; relance du relais = décision humaine (elle fermerait le TUI)" if d.etat.startswith("relais mort") else ""))
@@ -350,11 +399,11 @@ def plan_relance(base: str, n: int, sessions: list[Session], processus: list[tup
         return 3, d, "modifications non commitées : " + ", ".join(f"{c} ({k})" for c, k in sales_) + " ; commit WIP, ou --force"
     if not force and not connus:
         return 3, d, "aucun worktree connu pour cette instance : vérifier à la main, puis --force"
-    freres = [s.commande for s in lanceurs if s.commande]
-    cmd = (ac.commande if ac and ac.commande else "") or (freres[0] if freres else "") or \
-          (commande_defaut(base, defauts[base]) if base in defauts else "")
+    cmd, dossier = lancement(base, ac, [s for s in lanceurs if s is not ac], defauts)
     if not cmd:
         return 2, d, "aucune commande de lancement connue (ni lanceur, ni frère, ni --defaut)"
+    if not os.path.isdir(dossier):
+        return 2, d, f"dossier de départ introuvable : {dossier} : rien n'est tué"
     if url:
         if not re.fullmatch(r"https?://[\w.:-]+(/[\w./-]*)?", url):
             return 2, d, f"--url illisible : {url}"
@@ -371,7 +420,7 @@ def plan_relance(base: str, n: int, sessions: list[Session], processus: list[tup
         d.actions.append(("fermer", tui.nom))
     if ac:
         d.actions.append(("fermer", ac.nom))
-    d.actions.append(("lancer", d.lanceur, cmd))
+    d.actions.append(("lancer", d.lanceur, cmd, dossier))
     return 0, d, ""
 
 
@@ -383,7 +432,7 @@ def lire_registre(data: Path) -> dict[str, str] | None:
 
 
 def main(argv: list[str] | None = None, lire=lire_sessions, processus=None, dormir=time.sleep, run=subprocess.run, tuer=os.kill,
-         worktrees=None, depot=est_depot, sales=non_commites, registre=None) -> int:
+         worktrees=None, depot=est_depot, sales=non_commites, registre=None, verifier=None) -> int:
     ap = argparse.ArgumentParser(description="Gardien multi-instance (" + VERSION + ")")
     ap.add_argument("instances", nargs="*", help="base:nombre, ex. qwencode:4")
     ap.add_argument("--defaut", action="append", default=[], help="base=options, commande de secours sans lanceur connu")
@@ -403,6 +452,7 @@ def main(argv: list[str] | None = None, lire=lire_sessions, processus=None, dorm
     defauts = dict(x.split("=", 1) for x in a.defaut)
     lire_ps = processus or VR.lire_processus
     lire_reg = registre or (lambda: lire_registre(a.data))
+    verif = verifier or (lambda nom: verifier_lanceur(nom, lire_ps=lire_ps))
     if a.relancer:
         base, n = a.relancer.split(":")
         liste = worktrees if worktrees is not None else lister_worktrees([RACINE, RACINE.parent / "projetcad-repo"])
@@ -414,11 +464,13 @@ def main(argv: list[str] | None = None, lire=lire_sessions, processus=None, dorm
         for l in journal([d], a.essai):
             print(l)
         if not a.essai:
-            messages = executer([d], run=run, tuer=tuer, dormir=dormir, registre=lire_reg)
+            messages = executer([d], run=run, tuer=tuer, dormir=dormir, registre=lire_reg, verifier=verif)
             for m in messages:
                 print(f"[{time.strftime('%m-%d %H:%M:%S')}] gardien : {m}")
-            if any("rien n'est relancé" in m for m in messages):
+            if messages.plafond:
                 return 4
+            if messages.morts_nes:
+                return 5
         return 0
     if not a.instances:
         ap.error("instances attendues (base:nombre), ou --relancer base:n")
@@ -430,8 +482,11 @@ def main(argv: list[str] | None = None, lire=lire_sessions, processus=None, dorm
     for l in journal(plan, a.essai):
         print(l)
     if not a.essai:
-        for m in executer(plan, run=run, tuer=tuer, dormir=dormir, registre=lire_reg):
+        messages = executer(plan, run=run, tuer=tuer, dormir=dormir, registre=lire_reg, verifier=verif)
+        for m in messages:
             print(f"[{time.strftime('%m-%d %H:%M:%S')}] gardien : {m}")
+        if messages.morts_nes:
+            return 5
     return 0
 
 

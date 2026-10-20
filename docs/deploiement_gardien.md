@@ -1,5 +1,7 @@
-# Déploiement du gardien multi-instance : procédure (v1.1)
+# Déploiement du gardien multi-instance : procédure (v1.2)
 
+v1.2 (2026-10-20, claude-2, claude-1 #tache-22 msg 5721) : script **v1.0.9** (branche `claude2/gardien-url`) ; § 5 : le
+lanceur repart de son dossier de départ, et un lanceur sans relais 5 s après est signalé « mort-né » (code 5).
 v1.1 (2026-10-19, claude-2, claude-1 msg 5644, remarques non bloquantes de claude-3 msg 5643) : § 6c dans un worktree neuf
 (R7) ; § 2, l'arrêt du gardien se tient en quelques minutes, hors d'une passe d'agent ; ligne « script » au tableau de rappel.
 v1.0 (2026-10-19, claude-2, claude-1 #tache-22 msg 5640) : première version. Prête à exécuter **après le oui de Charles**
@@ -14,7 +16,7 @@ ce document et `--simuler-absent`, en revue N2).
 | `ps -o ppid,lstart,args -p 32442` | parent 7918 = `/usr/lib/systemd/systemd --user`, démarré le 17 oct. à 09:03:37, `bash …/vaultia-watchdog.sh` |
 | `systemctl --user show vaultia-watchdog -p MainPID -p NRestarts -p FragmentPath` | `MainPID=32442`, `NRestarts=0`, `~/.config/systemd/user/vaultia-watchdog.service` |
 | l'unité | `Restart=always`, `RestartSec=10`, `KillMode=process`, `ExecStart=…/agentchattr/vaultia-watchdog.sh` |
-| script à déployer | `scripts/gardien_instances.py` **v1.0.3** (dernier changement du script : `7490c63`) et `scripts/verifier_relais.py` v1.0 (`f19ba27`) ; ce document v1.1 est la seule différence du commit suivant |
+| script à déployer | `scripts/gardien_instances.py` **v1.0.9** (branche `claude2/gardien-url`, empilée sur `claude2/gardien-multi-instance` et `claude2/verifier-relais`) et `scripts/verifier_relais.py` v1.0 (`f19ba27`) ; v1.1 de ce document : `scripts/gardien_instances.py` v1.0.3 (`7490c63`) |
 
 Donc : **ne pas tuer le PID 32442 ni lancer un `setsid nohup`**. systemd relancerait le service 10 s plus tard, et deux gardiens
 tourneraient ensemble. On l'arrête et on le relance par `systemctl --user`. `KillMode=process` n'arrête que le bash du gardien :
@@ -119,6 +121,10 @@ sleep 20; python3 scripts/verifier_relais.py                                   #
 - Refus (code 3) si un worktree connu de l'instance a des modifications non commitées : commit WIP d'abord. `--force` seulement
   après avoir vu ce qu'il contient : à 22 h 53, qwencode-3 avait `cad-bolt` (2 fichiers) et `wt-qwencode3-freins` (1).
 - Pendant la relance, le gardien en service voit un lanceur de moins de 120 s sans TUI : « démarrage », il n'y touche pas.
+- v1.0.9 : le lanceur est recréé dans **son** dossier de départ (`#{pane_start_path}`, affiché « relancer … depuis … » dans
+  l'essai), quel que soit le dossier d'où l'on lance le script. 5 s après, il doit porter un relais `wrapper.py` ; sinon
+  « lanceur … mort-né », **code 5** : le relancer à la main depuis le dossier affiché. Code 4 : registre encore tenu au plafond
+  (75 s), rien n'est relancé. À 01 h 16 le 20 oct., avant ce correctif, `ac-qwencode3` était mort-né (msg 5721).
 
 ## 6. Retour arrière
 
