@@ -808,8 +808,16 @@ def chat_read(
         with _last_read_lock:
             _last_read_channel[sender] = ch
             _last_read_job_id.pop(sender, None)
+    # Salle sobre : un agent (pas un humain, pas le chef) ne lit des canaux tache-N que ce qui lui est adresse.
+    # Le chef est exempte : le loop guard le reveille sur un message entre deux AUTRES agents (revue du 20 oct.).
+    sobre = bool(sender) and sender.lower() not in _humains_salle() and not _est_chef(sender)
+    filtrer = sobre and not complet and (ch is None or _sobriete.est_canal_tache(ch))
     if since_id:
         msgs = store.get_since(since_id, channel=ch)
+    elif complet and _sobriete.est_canal_tache(ch):
+        # Lecture complete demandee : le recent du canal, curseur ignore (sinon les masques deja depasses par le
+        # curseur ne reviendraient jamais).
+        msgs = store.get_recent(limit, channel=ch)
     elif sender:
         ch_key = ch if ch else "__all__"
         with _cursors_lock:
@@ -818,22 +826,25 @@ def chat_read(
         if cursor:
             msgs = store.get_since(cursor, channel=ch)
         else:
-            msgs = store.get_recent(limit, channel=ch)
+            # Premiere lecture filtree : on prend plus large, le filtre retire ensuite ce qui n'est pas adresse.
+            msgs = store.get_recent(limit * 5 if filtrer else limit, channel=ch)
     else:
         msgs = store.get_recent(limit, channel=ch)
 
-    msgs = msgs[-limit:]
-    _update_cursor(sender, msgs, ch)   # le curseur avance aussi sur les messages masques : ils ne reviennent pas
     note_sobre = ""
-    if sender and _sobriete.est_canal_tache(ch) and sender.lower() not in _humains_salle():
-        if complet:
-            if sobriete is not None:
-                sobriete.ajouter(sender, lecture_complete=1)
-        else:
-            msgs, masques = _sobriete.filtrer_pour(msgs, sender, _humains_salle())
-            if sobriete is not None:
-                sobriete.masquer(sender, masques)
-            note_sobre = _sobriete.note_masques(masques, ch)
+    if filtrer:
+        tous = msgs
+        msgs, masques = _sobriete.filtrer_pour(msgs, sender, _humains_salle(), base=_base_de(sender))
+        msgs = msgs[-limit:]
+        _update_cursor(sender, tous[-1:], ch)   # le curseur avance aussi sur les masques : ils ne reviennent pas
+        if sobriete is not None and (masques or _sobriete.est_canal_tache(ch)):
+            sobriete.masquer(sender, masques)
+        note_sobre = _sobriete.note_masques(masques, ch)
+    else:
+        msgs = msgs[-limit:]
+        _update_cursor(sender, msgs, ch)
+        if sobre and complet and sobriete is not None and _sobriete.est_canal_tache(ch):
+            sobriete.ajouter(sender, lecture_complete=1)
     serialized = _serialize_messages(msgs)
     _note_pj = _hint_pieces_jointes(msgs, sender)
     if _note_pj:
@@ -886,7 +897,8 @@ def chat_resync(
     msgs = store.get_recent(limit, channel=ch)
     _update_cursor(sender, msgs, ch)
     # Salle sobre : une resynchronisation d'un canal de tache est une lecture complete, et comptee comme telle.
-    if sobriete is not None and _sobriete.est_canal_tache(ch) and sender.lower() not in _humains_salle():
+    if (sobriete is not None and _sobriete.est_canal_tache(ch) and sender.lower() not in _humains_salle()
+            and not _est_chef(sender)):
         sobriete.ajouter(sender, lecture_complete=1)
     serialized = _serialize_messages(msgs)
     return serialized
@@ -1141,6 +1153,36 @@ def _humains_salle() -> set[str]:
     return {n.lower() for n in noms}
 
 
+def _est_chef(nom: str) -> bool:
+    """L'agent designe par [routing] chef (claude-1 par defaut dans config.toml)."""
+    chef = str(((config or {}).get("routing") or {}).get("chef", "")).strip().lower()
+    return bool(chef) and str(nom or "").strip().lower() == chef
+
+
+def _base_de(nom: str) -> str:
+    """Nom de base d'une instance selon le registre (claude-music -> claude), sinon ''."""
+    if registry is None:
+        return ""
+    try:
+        inst = registry.get_instance(nom)
+    except Exception:
+        return ""
+    return str((inst or {}).get("base") or "")
+
+
+def _droit_ecrire(t: dict, sender: str, fait: bool = False) -> str:
+    """'' si `sender` peut ecrire sur la tache, sinon le message d'erreur. Membres de l'equipe et chef;
+    pour passer a `fait` : le responsable ou le chef (revue du 20 oct. : avant, PATCH refusait tout jeton d'agent)."""
+    import jobs as _jobs_mod
+    if sender.lower() in _humains_salle() or _est_chef(sender):
+        return ""
+    if fait and not _jobs_mod.est_responsable(t, sender):
+        return f"Error: seul le responsable ({t.get('responsable', '?')}) ou le chef passe la tache a fait."
+    if not _jobs_mod.est_membre(t, sender):
+        return f"Error: {sender} n'est pas dans l'equipe de la tache {t['id']}; demande au chef."
+    return ""
+
+
 def _tache_ou_erreur(tache_id: int) -> tuple[dict | None, str]:
     if jobs is None:
         return None, "Error: taches indisponibles."
@@ -1208,8 +1250,11 @@ def tache_maj(
             champs[nom] = "" if val == "-" else val
     if not champs:
         return "Error: aucun champ a mettre a jour."
+    err = _droit_ecrire(t, sender, fait=champs.get("etat") == "fait")
+    if err:
+        return err
     if maj_tache is not None:
-        res, err = maj_tache(t["id"], champs)
+        res, err = maj_tache(t["id"], champs, par_agent=True)
     else:
         res, err = jobs.update_tache(t["id"], champs)
     if err:
@@ -1237,10 +1282,13 @@ def livrable_deposer(
         return err
     if revisions is None:
         return "Error: livrables indisponibles."
+    err = _droit_ecrire(t, sender)
+    if err:
+        return err
     try:
         l = revisions.enregistrer_livrable(t["projet_id"], t["id"], chemin, commit=commit,
                                            version_doc=version_doc, qui=sender)
-    except ValueError as e:
+    except (ValueError, OSError) as e:
         return f"Error: {e}"
     return json.dumps({"ok": True, "chemin": l["chemin"], "version": l["version"],
                        "empreinte": str(l.get("empreinte", ""))[:12], "statut": l.get("statut", "")},
@@ -1254,6 +1302,9 @@ def decision_noter(sender: str, tache_id: int, texte: str, ctx: Context | None =
     if err:
         return err
     t, err = _tache_ou_erreur(tache_id)
+    if err:
+        return err
+    err = _droit_ecrire(t, sender)
     if err:
         return err
     d, err = jobs.noter_decision(t["id"], texte, sender)

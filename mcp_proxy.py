@@ -46,6 +46,11 @@ _SENDER_PARAMS = {
     "chat_channels": None,
     "chat_set_hat": "sender",
     "chat_claim": "sender",
+    # Salle sobre (20 oct. 2026)
+    "tache_lire": "sender",
+    "tache_maj": "sender",
+    "livrable_deposer": "sender",
+    "decision_noter": "sender",
 }
 
 

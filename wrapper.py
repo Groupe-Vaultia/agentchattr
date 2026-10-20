@@ -848,18 +848,21 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
                     # Use current identity (may have changed via rename)
                     current_name, _ = get_identity_fn()
                     # Salle sobre lot 2 : dans un canal de tache, la fiche remplace « lis le canal ».
+                    # Une invite propre a l'agent (trigger_prompt, ex. modele local 2 bits) reste prioritaire;
+                    # elle recoit la fiche seulement si elle porte {fiche} (revue du 20 oct.).
                     fiche = None
                     m_tache = _CANAL_TACHE_RE.match(str(channel)) if not job_id else None
-                    if not custom_prompt and m_tache:
+                    if not custom_prompt and m_tache and (not trigger_prompt or "{fiche}" in trigger_prompt):
                         fiche = _fetch_fiche(server_port, int(m_tache.group(1)),
                                              get_token_fn() if get_token_fn else "")
                     if custom_prompt:
                         prompt = custom_prompt
-                    elif fiche:
-                        prompt = _prompt_tache(fiche, channel, current_name)
                     elif trigger_prompt:
                         cible = f"job_id={job_id}" if job_id else f"channel='{channel}'"
                         prompt = trigger_prompt.replace("{name}", current_name).replace("{cible}", cible)
+                        prompt = prompt.replace("{fiche}", json.dumps(fiche, ensure_ascii=False) if fiche else "")
+                    elif fiche:
+                        prompt = _prompt_tache(fiche, channel, current_name)
                     elif job_id:
                         prompt = f"use mcp to read job_id={job_id} - you're mentioned in a job thread, take appropriate action and respond"
                     else:

@@ -292,7 +292,7 @@ def _install_security_middleware(token: str, cfg: dict, cible: FastAPI | None = 
             # Allow registered agents to authenticate via Bearer token
             # for /api/messages and /api/send (no browser session needed).
             auth_header = request.headers.get("authorization", "")
-            fiche_tache = path.startswith("/api/v2/taches/") and path.endswith("/fiche") and request.method == "GET"
+            fiche_tache = request.method == "GET" and _re.fullmatch(r"/api/v2/taches/\d+/fiche", path) is not None
             if auth_header.lower().startswith("bearer ") and (path in ("/api/messages", "/api/send")
                                                               or path.startswith("/api/rules/") or fiche_tache):
                 bearer = auth_header[7:].strip()
@@ -1825,18 +1825,23 @@ def _agent_du_jeton(request: Request) -> str:
 async def get_messages(request: Request, since_id: int = 0, limit: int = 50, channel: str = "",
                        complet: bool = False):
     ch = channel if channel else None
-    msgs = store.get_since(since_id, channel=ch) if since_id else store.get_recent(limit, channel=ch)
-    # Salle sobre : un AGENT (jeton Bearer) qui lit un canal de tache ne recoit que les messages des humains et
-    # ceux qui le mentionnent; l'etat est dans la fiche. L'interface (jeton de session) voit tout, comme avant.
+    # Salle sobre : un AGENT (jeton Bearer) qui lit un canal de tache ne recoit que les messages des humains, ceux
+    # qui le mentionnent et les siens (ces agents ne gardent rien entre deux reveils); l'etat est dans la fiche.
+    # L'interface (jeton de session) et le chef ([routing] chef) voient tout, comme avant.
     agent = _agent_du_jeton(request)
-    if agent and _sobriete.est_canal_tache(ch):
-        if complet:
-            if sobriete is not None:
-                sobriete.ajouter(agent, lecture_complete=1)
-        else:
-            msgs, masques = _sobriete.filtrer_pour(msgs, agent, _humains())
-            if sobriete is not None:
-                sobriete.masquer(agent, masques)
+    chef = str(config.get("routing", {}).get("chef", "")).strip().lower() if config else ""
+    sobre = bool(agent) and _sobriete.est_canal_tache(ch) and agent.lower() != chef
+    if sobre and not complet:
+        tous = store.get_since(since_id, channel=ch) if since_id else store.get_recent(limit * 5, channel=ch)
+        inst = registry.get_instance(agent) if registry else None
+        msgs, masques = _sobriete.filtrer_pour(tous, agent, _humains(), base=(inst or {}).get("base", ""),
+                                               garder_siens=True)
+        if sobriete is not None:
+            sobriete.masquer(agent, masques)
+        return msgs[-limit:]
+    msgs = store.get_since(since_id, channel=ch) if since_id else store.get_recent(limit, channel=ch)
+    if sobre and complet and sobriete is not None:
+        sobriete.ajouter(agent, lecture_complete=1)
     return msgs
 
 
@@ -3212,18 +3217,25 @@ async def update_tache(tache_id: int, request: Request):
     return JSONResponse(tache)
 
 
-def appliquer_maj_tache(tache_id: int, champs: dict) -> tuple[dict | None, str]:
+def appliquer_maj_tache(tache_id: int, champs: dict, par_agent: bool = False) -> tuple[dict | None, str]:
     """Mise a jour d'une tache et ses effets (livrables a `fait`, progres de la ronde sur changement d'etat).
-    Chemin unique pour la route PATCH et l'outil MCP `tache_maj` (salle sobre lot 1) : memes effets partout."""
+    Chemin unique pour la route PATCH et l'outil MCP `tache_maj` (salle sobre lot 1).
+    par_agent=True (outil MCP, revue du 20 oct.) : le progres n'est compte que si l'etat CHANGE vraiment, et il ne
+    leve jamais une pause du loop guard. Sinon un agent pourrait, en redeclarant son etat, relancer une boucle
+    que seul le /continue de Charles doit relancer."""
     if jobs is None:
         return None, "taches indisponibles"
+    avant = jobs.get(tache_id) or {}
     tache, err = jobs.update_tache(tache_id, champs)
     if err:
         return None, err
     if tache.get("etat") == "fait":
         _enregistrer_livrables_tache(tache)
     # Progres reel : une transition d'etat de tache fait avancer la ronde.
-    if "etat" in champs:
+    if par_agent:
+        if "etat" in champs and avant.get("etat") != tache.get("etat"):
+            _note_round_progress(_jobs_mod.canal_tache(tache_id), reprendre=False)
+    elif "etat" in champs:
         _note_round_progress(_jobs_mod.canal_tache(tache_id))
     return tache, ""
 
@@ -3322,12 +3334,13 @@ def _canal_orchestration() -> str:
     return _CANAL_PILOTE if _CANAL_PILOTE in room_settings.get("channels", []) else "general"
 
 
-def _note_round_progress(channel: str) -> None:
+def _note_round_progress(channel: str, reprendre: bool = True) -> None:
     """Un progres reel enregistre cote serveur. Remet le loop guard ET le compteur anti-tournage-a-vide
-    du canal a zero, sans router de message. Sans routeur (demarrage partiel) ou sans canal : sans effet."""
+    du canal a zero, sans router de message. Sans routeur (demarrage partiel) ou sans canal : sans effet.
+    reprendre=False : ne leve jamais une pause du loop guard (progres declare par un agent)."""
     if not router or not channel:
         return
-    router.note_progress(channel)
+    router.note_progress(channel, reprendre=reprendre)
     log.info("garde-fou : progrès réel sur « %s » — compteurs remis à zéro", channel)
 
 

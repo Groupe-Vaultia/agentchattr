@@ -9,6 +9,8 @@ v3 (13 oct. 2026, claude, SOCLE-SHOP v1.0) : la conversation d'une tache est le 
 v4 (20 oct. 2026, claude, salle sobre lot 1) : la tache devient la memoire de travail, pas le fil. Champs
 `prochaine_action` et `derniere_erreur` (texte court, ecrasable); journal `decisions` en ajout seul (`noter_decision`,
 jamais par `update_tache`); `fiche()` rend l'etat d'une tache en taille bornee, quel que soit le nombre de messages.
+v4.1 (20 oct. 2026, claude, revue independante) : fiche bornee aussi sur `critere` (300) et les livrables (10 plus
+recents); `est_membre` / `est_responsable` pour les droits des outils MCP.
 """
 
 import json
@@ -45,6 +47,8 @@ MAX_COURT = 500          # prochaine_action, derniere_erreur, texte d'une decisi
 MAX_PREUVE_FICHE = 600   # la preuve complete reste dans la tache; la fiche n'en montre que le debut
 MAX_DECISIONS = 50       # journal conserve
 DECISIONS_FICHE = 8      # decisions montrees dans la fiche (les plus recentes)
+LIVRABLES_FICHE = 10     # livrables montres dans la fiche (les plus recents)
+MAX_CRITERE_FICHE = 300
 
 
 def _equipe_valide(equipe) -> list[dict] | None:
@@ -79,6 +83,22 @@ def etape_du_projet(taches: list[dict]) -> str:
     return ""
 
 
+def _meme_agent(a: str, b: str) -> bool:
+    """claude-1 et claude designent le meme agent; claude-1 et claude-2 non."""
+    a, b = str(a or "").strip().lower(), str(b or "").strip().lower()
+    if not a or not b:
+        return False
+    return a == b or re.sub(r"-\d+$", "", a) == b or re.sub(r"-\d+$", "", b) == a
+
+
+def est_membre(tache: dict, agent: str) -> bool:
+    return any(_meme_agent(m.get("agent", ""), agent) for m in tache.get("equipe") or [])
+
+
+def est_responsable(tache: dict, agent: str) -> bool:
+    return _meme_agent(tache.get("responsable", ""), agent)
+
+
 def _role_de(tache: dict, agent: str) -> str:
     """Role de `agent` dans l'equipe de la tache. Accepte le nom d'instance (claude-1) ou le nom de base (claude)."""
     agent = str(agent or "").strip().lower()
@@ -102,18 +122,20 @@ def fiche(tache: dict, pour: str = "", livrables: list[dict] | None = None) -> d
         "etape": tache.get("etape", ""),
         "etat": tache.get("etat", ""),
         "responsable": tache.get("responsable", ""),
-        "critere": tache.get("critere", ""),
+        "critere": str(tache.get("critere", ""))[:MAX_CRITERE_FICHE],
         "prochaine_action": tache.get("prochaine_action", ""),
         "derniere_erreur": tache.get("derniere_erreur", ""),
         "preuve": preuve[:MAX_PREUVE_FICHE] + (" […]" if len(preuve) > MAX_PREUVE_FICHE else ""),
         "decisions": [{"texte": d.get("texte", ""), "par": d.get("par", "")} for d in decisions],
         "livrables": [{"chemin": l.get("chemin", ""), "version": l.get("version"),
                        "empreinte": str(l.get("empreinte", ""))[:12], "statut": l.get("statut", "")}
-                      for l in (livrables or [])],
+                      for l in sorted(livrables or [], key=lambda l: l.get("heure") or 0)[-LIVRABLES_FICHE:]],
         "canal": canal_tache(tache["id"]) if tache.get("id") else "",
     }
     if pour:
         f["ton_role"] = _role_de(tache, pour) or "hors equipe"
+    if len(livrables or []) > LIVRABLES_FICHE:
+        f["livrables_masques"] = len(livrables) - LIVRABLES_FICHE
     nb_decisions = len(tache.get("decisions") or [])
     if nb_decisions > DECISIONS_FICHE:
         f["decisions_masquees"] = nb_decisions - DECISIONS_FICHE

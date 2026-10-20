@@ -1,5 +1,6 @@
 """Salle sobre, lots 2 et 3 : la fiche au reveil, le fil filtre dans les canaux de tache, et le compteur.
 
+v1.1 (2026-10-20, claude) : revue independante — compteur a ecritures groupees (vider), libelle de la note.
 v1.0 (2026-10-20, claude) : donnees synthetiques seulement.
 - Lot 3 : sobriete.filtrer_pour; chat_read filtre dans tache-N (complet=True explicite); /api/messages filtre pour
   un jeton d'agent (Gemini cli_print, agents API) et pas pour l'interface; compteur et GET /api/v2/sobriete.
@@ -73,6 +74,7 @@ class CompteurTests(unittest.TestCase):
             c.ajouter("codex", tache_lire=2, fiche_au_reveil=1)
             c.masquer("codex", [_msg("grok", "x" * 400), _msg("qwen", "y" * 400)])
             c.ajouter("codex", lecture_complete=1)
+            c.vider()
             r = sobriete.Compteur(chemin).rapport()["agents"]["codex"]  # relu depuis le disque
             self.assertEqual((r["tache_lire"], r["fiche_au_reveil"]), (2, 1))
             self.assertEqual((r["lecture_filtree"], r["lecture_complete"]), (1, 1))
@@ -118,7 +120,7 @@ class ChatReadFiltreTests(unittest.TestCase):
     def test_canal_tache_filtre_et_note(self):
         brut = mcp_bridge.chat_read(sender="claude-1", channel="tache-7")
         self.assertEqual(self._textes(brut), ["Go pour la tache", "@claude-1 revue rendue"])
-        self.assertIn("2 message(s) d'autres agents masque(s)", brut)
+        self.assertIn("2 message(s) masque(s) dans #tache-7", brut)
         self.assertIn("tache_lire(tache_id=7)", brut)
         r = self.compteur.rapport()["agents"]["claude-1"]
         self.assertEqual((r["lecture_filtree"], r["messages_masques"]), (1, 2))

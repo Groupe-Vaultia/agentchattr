@@ -364,7 +364,7 @@ def main():
         return data["choices"][0]["message"]["content"]
 
     # Format chat messages into OpenAI format
-    def format_messages(chat_msgs, channel="general", projet_ids=frozenset()):
+    def format_messages(chat_msgs, channel="general", projet_ids=frozenset(), fiche=None):
         my_name = get_name()
 
         # Build dynamic system prompt with online status, role, and mention instructions
@@ -384,7 +384,6 @@ def main():
                          "use @name (e.g. " + ", ".join(f"@{n}" for n in others[:3]) + ").")
         parts.append(f"Your name in this chat is {my_name}. Do not prefix your "
                      "messages with your own name.")
-        fiche = read_fiche(channel)
         if fiche:
             parts.append("FICHE DE LA TACHE (etat a jour; les messages ci-dessous sont seulement ceux des humains "
                          f"et ceux qui te mentionnent) : {json.dumps(fiche, ensure_ascii=False)}")
@@ -405,10 +404,11 @@ def main():
         set_working(True)
         try:
             chat_msgs = read_messages(channel=channel, limit=context_messages)
-            if not chat_msgs:
+            fiche = read_fiche(channel)  # salle sobre : l'etat de la tache, une seule lecture par reveil
+            if not chat_msgs and not fiche:
                 return
 
-            messages = format_messages(chat_msgs, channel, projet_ids)
+            messages = format_messages(chat_msgs, channel, projet_ids, fiche=fiche)
             print(f"  [{channel}] Calling model with {len(messages)} messages...")
 
             response = call_model(messages, get_my_effort(), get_my_model())

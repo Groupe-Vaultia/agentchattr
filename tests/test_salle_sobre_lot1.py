@@ -1,5 +1,6 @@
 """Salle sobre, lot 1 : la tache est la memoire de travail, pas le fil.
 
+v1.1 (2026-10-20, claude) : revue independante — maj_tache appele avec par_agent=True; chef en config (droits).
 v1.0 (2026-10-20, claude) : outils MCP tache_lire, tache_maj, livrable_deposer, decision_noter; fiche bornee;
 journal de decisions en ajout seul. Donnees synthetiques seulement.
 """
@@ -39,14 +40,16 @@ class SalleSobreTests(unittest.TestCase):
         self.tid = self.tache["id"]
         self.appels = []
 
-        def maj(tid, champs):
-            self.appels.append((tid, dict(champs)))
+        def maj(tid, champs, par_agent=False):
+            self.appels.append((tid, dict(champs), par_agent))
             return self.jobs.update_tache(tid, champs)
 
         for p in (
             mock.patch.object(mcp_bridge, "jobs", self.jobs),
             mock.patch.object(mcp_bridge, "revisions", self.revs),
             mock.patch.object(mcp_bridge, "maj_tache", maj),
+            mock.patch.object(mcp_bridge, "config", {"routing": {"chef": "claude-1"}}),
+            mock.patch.object(mcp_bridge, "room_settings", {"username": "Charles"}),
             mock.patch.object(mcp_bridge, "_resolve_tool_identity",
                               side_effect=lambda sender, *_a, **_k: (sender, None)),
         ):
@@ -100,7 +103,7 @@ class SalleSobreTests(unittest.TestCase):
         self.assertTrue(r["ok"])
         self.assertEqual(r["modifies"], ["etat", "prochaine_action"])
         self.assertEqual(self.appels, [(self.tid, {"etat": "en_cours",
-                                                   "prochaine_action": "Generer le script build123d"})])
+                                                   "prochaine_action": "Generer le script build123d"}, True)])
         self.assertEqual(self._fiche()["prochaine_action"], "Generer le script build123d")
 
     def test_maj_vide_refusee(self):

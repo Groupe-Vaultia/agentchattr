@@ -101,11 +101,15 @@ class Router:
     def set_guard_emitted(self, channel: str = "general"):
         self._get_ch(channel)["guard_emitted"] = True
 
-    def note_progress(self, channel: str = "general"):
+    def note_progress(self, channel: str = "general", reprendre: bool = True):
         """Un progres reel sur ce canal (tache qui avance, execution terminee, revue rendue,
         jalon franchi). Remet le compteur de relais agent->agent ET le compteur anti-tournage-a-vide
-        a zero, comme un message humain, mais SANS router de message."""
+        a zero, comme un message humain, mais SANS router de message.
+        reprendre=False (salle sobre, progres declare par un agent) : un canal en pause le reste, seul
+        le /continue d'un humain le relance; hors pause, les compteurs sont remis a zero comme avant."""
         ch = self._get_ch(channel)
+        if not reprendre and ch["paused"]:
+            return
         ch["hop_count"] = 0
         ch["paused"] = False
         ch["guard_emitted"] = False
