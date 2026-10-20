@@ -1,4 +1,7 @@
-# Affinité de carte pour les Qwen : constat et proposition (v1.2)
+# Affinité de carte pour les Qwen : constat et proposition (v1.3)
+
+v1.3 (2026-10-20, claude-2, réserve claude-3 msg 5704, claude-1 msg 5705) : § 6, le gain attendu de l'affinité, par classe de
+pertes : certain ~7-8 % du temps des fentes, au plus ~26 %. Une mesure de l'après à +10 % est un succès normal.
 
 v1.2 (2026-10-20, claude-2, claude-1 msg 5699, remarque claude-3 msg 5657) : § 4, `--data ~/atelier/agentchattr/data` tant que le
 gardien n'est pas déployé ; § 6, les deux scripts de vitesse (`usage_qwen.py`, `vitesse_cartes_qwen.py`) pour refaire la mesure
@@ -162,6 +165,19 @@ chaque semaine par un minuteur `systemd --user` :
 
 Référence d'avant la bascule (19 oct., 17 h → 20 oct., 00 h 40, msg 5698) : 1 222 requêtes, 0 jeton de réflexion ; une carte
 génère ~22 jetons/s seule, ~10-11 par fente à deux ; 38-41 % du temps des fentes en calcul de prompt, dont 74 % de recalcul.
+
+**Gain attendu** (claude-3 msg 5704, recompté : jetons retraités depuis 17 h par `pertes_cache_qwen.py`, sur 11 111 480 jetons de
+prompt calculés par les deux cartes) :
+
+| Classe de pertes | Jetons | Part du prompt | L'affinité l'enlève ? |
+|---|---:|---:|---|
+| changement de carte + éviction sur la même carte | 2 120 742 | 19,1 % | oui, à coup sûr |
+| ambigu + indéterminé | 5 234 086 | 47,1 % | peut-être |
+| nouvelle conversation (relance, `/clear`) | 834 127 | 7,5 % | non |
+
+Le prompt occupe 38 à 41 % du temps des fentes. L'affinité en retire donc **à coup sûr ~7 à 8 %** (19,1 % × 38-41 %) et **au plus
+~26 %** (66,2 % × 38-41 %). « 74 % du prompt est du recalcul » est le total des pertes, pas ce que l'affinité enlève : une mesure de
+l'après à +10 % sera un succès normal.
 
 ```bash
 python3 scripts/usage_qwen.py "<heure de la bascule>"                  # par agent : cache, durée moyenne, sorties
