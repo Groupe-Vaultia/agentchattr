@@ -23,6 +23,7 @@ INCLUDE_FILES = [
     "mcp_proxy.py",
     "registry.py",
     "router.py",
+    "sobriete.py",
     "rules.py",
     "run.py",
     "session_engine.py",

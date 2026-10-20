@@ -14,6 +14,8 @@ from pathlib import Path
 
 from mcp.server.fastmcp import Context, FastMCP
 
+import sobriete as _sobriete
+
 log = logging.getLogger(__name__)
 
 # Shared state — set by run.py before starting
@@ -86,6 +88,11 @@ _MCP_INSTRUCTIONS = (
     "in the same channel. NEVER respond only in your terminal/console output. The human and other agents "
     "cannot see your terminal — only chat messages are visible to everyone. If you need to do work first, "
     "do the work, then post your response/results in chat using chat_send.\n\n"
+    "CRITICAL — La tache est la memoire, pas le fil (salle sobre):\n"
+    "Quand tu travailles sur une tache (canal tache-N), lis d'abord sa fiche avec tache_lire(tache_id=N): "
+    "consigne, critere, etat, ton role, prochaine action, decisions, livrables. Ecris ton avancement avec "
+    "tache_maj, tes fichiers avec livrable_deposer (chemin, jamais le contenu), tes decisions avec decision_noter. "
+    "Dans le fil: une ligne courte seulement si un humain doit le savoir ou si tu passes le relais (@agent).\n\n"
     "CRITICAL — Token-Aware Reading:\n"
     "Each chat_read call costs tokens. Default: one read per relevant channel per turn. "
     "A second read is fine if you can name the reason (checked a different channel, did work and expect a reply, "
@@ -727,9 +734,14 @@ def chat_read(
     limit: int = 20,
     channel: str = "",
     job_id: int = 0,
+    complet: bool = False,
     ctx: Context | None = None,
 ) -> str:
     """Read chat messages. Returns JSON array with: id, sender, text, type, time, channel.
+
+    Salle sobre : dans un canal tache-N, tu recois seulement les messages des humains et ceux qui
+    t'@mentionnent. L'etat de la tache (travail des autres, decisions, livrables) est dans tache_lire.
+    complet=True rend tout le canal : seulement si la fiche ne suffit pas, et dis pourquoi dans le fil.
 
     Smart defaults:
     - First call with sender: returns last `limit` messages (full context).
@@ -796,8 +808,16 @@ def chat_read(
         with _last_read_lock:
             _last_read_channel[sender] = ch
             _last_read_job_id.pop(sender, None)
+    # Salle sobre : un agent (pas un humain, pas le chef) ne lit des canaux tache-N que ce qui lui est adresse.
+    # Le chef est exempte : le loop guard le reveille sur un message entre deux AUTRES agents (revue du 20 oct.).
+    sobre = bool(sender) and sender.lower() not in _humains_salle() and not _est_chef(sender)
+    filtrer = sobre and not complet and (ch is None or _sobriete.est_canal_tache(ch))
     if since_id:
         msgs = store.get_since(since_id, channel=ch)
+    elif complet and _sobriete.est_canal_tache(ch):
+        # Lecture complete demandee : le recent du canal, curseur ignore (sinon les masques deja depasses par le
+        # curseur ne reviendraient jamais).
+        msgs = store.get_recent(limit, channel=ch)
     elif sender:
         ch_key = ch if ch else "__all__"
         with _cursors_lock:
@@ -806,16 +826,31 @@ def chat_read(
         if cursor:
             msgs = store.get_since(cursor, channel=ch)
         else:
-            msgs = store.get_recent(limit, channel=ch)
+            # Premiere lecture filtree : on prend plus large, le filtre retire ensuite ce qui n'est pas adresse.
+            msgs = store.get_recent(limit * 5 if filtrer else limit, channel=ch)
     else:
         msgs = store.get_recent(limit, channel=ch)
 
-    msgs = msgs[-limit:]
-    _update_cursor(sender, msgs, ch)
+    note_sobre = ""
+    if filtrer:
+        tous = msgs
+        msgs, masques = _sobriete.filtrer_pour(msgs, sender, _humains_salle(), base=_base_de(sender))
+        msgs = msgs[-limit:]
+        _update_cursor(sender, tous[-1:], ch)   # le curseur avance aussi sur les masques : ils ne reviennent pas
+        if sobriete is not None and (masques or _sobriete.est_canal_tache(ch)):
+            sobriete.masquer(sender, masques)
+        note_sobre = _sobriete.note_masques(masques, ch)
+    else:
+        msgs = msgs[-limit:]
+        _update_cursor(sender, msgs, ch)
+        if sobre and complet and sobriete is not None and _sobriete.est_canal_tache(ch):
+            sobriete.ajouter(sender, lecture_complete=1)
     serialized = _serialize_messages(msgs)
     _note_pj = _hint_pieces_jointes(msgs, sender)
     if _note_pj:
         serialized = f"{serialized}\n\n{_note_pj}" if serialized else _note_pj
+    if note_sobre:
+        serialized = f"{serialized}\n\n{note_sobre}" if serialized else note_sobre
 
     # Escalating empty-read hints to discourage polling loops
     if not serialized and sender:
@@ -861,6 +896,10 @@ def chat_resync(
     ch = channel if channel else None
     msgs = store.get_recent(limit, channel=ch)
     _update_cursor(sender, msgs, ch)
+    # Salle sobre : une resynchronisation d'un canal de tache est une lecture complete, et comptee comme telle.
+    if (sobriete is not None and _sobriete.est_canal_tache(ch) and sender.lower() not in _humains_salle()
+            and not _est_chef(sender)):
+        sobriete.ajouter(sender, lecture_complete=1)
     serialized = _serialize_messages(msgs)
     return serialized
 
@@ -1094,9 +1133,190 @@ def chat_summary(
     return f"Unknown action: {action}. Valid actions: read, write."
 
 
+# ---------------------------------------------------------------------------
+# Salle sobre, lot 1 (20 oct. 2026, claude) : la tache est la memoire de travail, pas le fil.
+# Un agent lit la fiche de sa tache (taille bornee) au lieu de relire le canal, et ecrit son avancement
+# dans la base au lieu de l'annoncer en message. Les ecritures passent par `maj_tache` (app.appliquer_maj_tache),
+# le meme chemin que la route PATCH /api/v2/taches : memes validations, memes effets.
+# ---------------------------------------------------------------------------
+
+revisions = None   # set by run.py — RevisionStore (livrables figes par empreinte)
+sobriete = None    # set by run.py — sobriete.Compteur (lots 2-3 : preuve que la base est lue)
+maj_tache = None   # set by run.py — app.appliquer_maj_tache(tache_id, champs) -> (tache, err)
+
+
+def _humains_salle() -> set[str]:
+    """Les noms sous lesquels Charles ecrit (meme definition que app._humains)."""
+    noms = {"user"}
+    if room_settings:
+        noms.add(str(room_settings.get("username") or "user"))
+    return {n.lower() for n in noms}
+
+
+def _est_chef(nom: str) -> bool:
+    """L'agent designe par [routing] chef (claude-1 par defaut dans config.toml)."""
+    chef = str(((config or {}).get("routing") or {}).get("chef", "")).strip().lower()
+    return bool(chef) and str(nom or "").strip().lower() == chef
+
+
+def _base_de(nom: str) -> str:
+    """Nom de base d'une instance selon le registre (claude-music -> claude), sinon ''."""
+    if registry is None:
+        return ""
+    try:
+        inst = registry.get_instance(nom)
+    except Exception:
+        return ""
+    return str((inst or {}).get("base") or "")
+
+
+def _droit_ecrire(t: dict, sender: str, fait: bool = False) -> str:
+    """'' si `sender` peut ecrire sur la tache, sinon le message d'erreur. Membres de l'equipe et chef;
+    pour passer a `fait` : le responsable ou le chef (revue du 20 oct. : avant, PATCH refusait tout jeton d'agent)."""
+    import jobs as _jobs_mod
+    if sender.lower() in _humains_salle() or _est_chef(sender):
+        return ""
+    if fait and not _jobs_mod.est_responsable(t, sender):
+        return f"Error: seul le responsable ({t.get('responsable', '?')}) ou le chef passe la tache a fait."
+    if not _jobs_mod.est_membre(t, sender):
+        return f"Error: {sender} n'est pas dans l'equipe de la tache {t['id']}; demande au chef."
+    return ""
+
+
+def _tache_ou_erreur(tache_id: int) -> tuple[dict | None, str]:
+    if jobs is None:
+        return None, "Error: taches indisponibles."
+    try:
+        tid = int(tache_id)
+    except (TypeError, ValueError):
+        return None, "Error: tache_id entier requis."
+    t = jobs.get(tid)
+    if not t or not t.get("projet_id"):
+        return None, f"Error: tache {tid} inconnue."
+    return t, ""
+
+
+def _livrables_de(t: dict) -> list[dict]:
+    if revisions is None:
+        return []
+    try:
+        return [l for l in revisions.livrables(t["projet_id"]) if str(l.get("tache_id", "")) == str(t["id"])]
+    except Exception:
+        log.exception("fiche : livrables de la tache %s", t.get("id"))
+        return []
+
+
+def tache_lire(sender: str, tache_id: int, ctx: Context | None = None) -> str:
+    """Lit la FICHE de travail d'une tache : consigne, critere de sortie, etat, ton role, prochaine action,
+    derniere erreur, decisions recentes, livrables (chemin + empreinte). Taille bornee.
+    A utiliser AU LIEU de relire le canal tache-N : la fiche dit ou en est la tache. Lis le canal seulement si
+    un humain t'y a ecrit, ou si la fiche ne suffit pas (dis pourquoi)."""
+    sender, err = _resolve_tool_identity(sender, ctx, field_name="sender", required=True)
+    if err:
+        return err
+    t, err = _tache_ou_erreur(tache_id)
+    if err:
+        return err
+    import jobs as _jobs_mod
+    if sobriete is not None:
+        sobriete.ajouter(sender, tache_lire=1)
+    return json.dumps(_jobs_mod.fiche(t, pour=sender, livrables=_livrables_de(t)), ensure_ascii=False)
+
+
+def tache_maj(
+    sender: str,
+    tache_id: int,
+    etat: str = "",
+    prochaine_action: str = "",
+    derniere_erreur: str = "",
+    preuve: str = "",
+    ctx: Context | None = None,
+) -> str:
+    """Ecrit l'avancement d'une tache DANS LA BASE, au lieu de l'annoncer dans le fil.
+    Ne passe que les champs qui changent (vide = inchange). etat : a_faire, en_cours, attend_charles, bloque, fait.
+    `fait` exige une preuve (commande et sortie, sortie d'outil ou fichier:ligne).
+    prochaine_action et derniere_erreur : une ou deux phrases (500 caracteres max); passe "-" pour vider."""
+    sender, err = _resolve_tool_identity(sender, ctx, field_name="sender", required=True)
+    if err:
+        return err
+    t, err = _tache_ou_erreur(tache_id)
+    if err:
+        return err
+    champs = {}
+    for nom, val in (("etat", etat), ("prochaine_action", prochaine_action),
+                     ("derniere_erreur", derniere_erreur), ("preuve", preuve)):
+        val = str(val or "").strip()
+        if val:
+            champs[nom] = "" if val == "-" else val
+    if not champs:
+        return "Error: aucun champ a mettre a jour."
+    err = _droit_ecrire(t, sender, fait=champs.get("etat") == "fait")
+    if err:
+        return err
+    if maj_tache is not None:
+        res, err = maj_tache(t["id"], champs, par_agent=True)
+    else:
+        res, err = jobs.update_tache(t["id"], champs)
+    if err:
+        return f"Error: {err}"
+    return json.dumps({"ok": True, "tache_id": res["id"], "etat": res.get("etat"),
+                       "modifies": sorted(champs)}, ensure_ascii=False)
+
+
+def livrable_deposer(
+    sender: str,
+    tache_id: int,
+    chemin: str,
+    commit: str = "",
+    version_doc: str = "",
+    ctx: Context | None = None,
+) -> str:
+    """Enregistre un livrable de la tache par son CHEMIN (relatif a la racine de l'atelier) : le serveur calcule
+    l'empreinte et la version. Ne colle jamais le contenu ou le diff dans le fil : depose le fichier ici,
+    les autres le liront par son chemin."""
+    sender, err = _resolve_tool_identity(sender, ctx, field_name="sender", required=True)
+    if err:
+        return err
+    t, err = _tache_ou_erreur(tache_id)
+    if err:
+        return err
+    if revisions is None:
+        return "Error: livrables indisponibles."
+    err = _droit_ecrire(t, sender)
+    if err:
+        return err
+    try:
+        l = revisions.enregistrer_livrable(t["projet_id"], t["id"], chemin, commit=commit,
+                                           version_doc=version_doc, qui=sender)
+    except (ValueError, OSError) as e:
+        return f"Error: {e}"
+    return json.dumps({"ok": True, "chemin": l["chemin"], "version": l["version"],
+                       "empreinte": str(l.get("empreinte", ""))[:12], "statut": l.get("statut", "")},
+                      ensure_ascii=False)
+
+
+def decision_noter(sender: str, tache_id: int, texte: str, ctx: Context | None = None) -> str:
+    """Ajoute une decision au journal de la tache (ajout seul). Une phrase : quoi, et pourquoi en quelques mots.
+    Le raisonnement detaille va dans un fichier du depot. Les decisions apparaissent dans la fiche (tache_lire)."""
+    sender, err = _resolve_tool_identity(sender, ctx, field_name="sender", required=True)
+    if err:
+        return err
+    t, err = _tache_ou_erreur(tache_id)
+    if err:
+        return err
+    err = _droit_ecrire(t, sender)
+    if err:
+        return err
+    d, err = jobs.noter_decision(t["id"], texte, sender)
+    if err:
+        return f"Error: {err}"
+    return json.dumps({"ok": True, "tache_id": t["id"], "decision": d["texte"]}, ensure_ascii=False)
+
+
 _ALL_TOOLS = [
     chat_send, chat_read, chat_resync, chat_join, chat_who, chat_rules, chat_decision,
     chat_channels, chat_set_hat, chat_claim, chat_summary, chat_propose_job,
+    tache_lire, tache_maj, livrable_deposer, decision_noter,
 ]
 
 

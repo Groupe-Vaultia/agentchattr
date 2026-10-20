@@ -20,6 +20,7 @@ How it works:
 
 import argparse
 import json
+import re
 import os
 import sys
 import threading
@@ -277,6 +278,22 @@ def main():
         with urllib.request.urlopen(req, timeout=10) as resp:
             return json.loads(resp.read())
 
+    # Salle sobre lot 2 : fiche de la tache d'un canal tache-N (None ailleurs ou en cas d'echec).
+    def read_fiche(channel):
+        m = re.match(r"^tache-([1-9][0-9]{0,13})$", str(channel or ""))
+        if not m:
+            return None
+        try:
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{server_port}/api/v2/taches/{m.group(1)}/fiche?reveil=1",
+                headers=_auth_headers(get_token()),
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read())
+            return data if isinstance(data, dict) and data.get("tache_id") else None
+        except Exception:
+            return None
+
     # Send message back to chat
     def send_message(text, channel="general"):
         body = json.dumps({"text": text, "channel": channel}).encode()
@@ -347,7 +364,7 @@ def main():
         return data["choices"][0]["message"]["content"]
 
     # Format chat messages into OpenAI format
-    def format_messages(chat_msgs, channel="general", projet_ids=frozenset()):
+    def format_messages(chat_msgs, channel="general", projet_ids=frozenset(), fiche=None):
         my_name = get_name()
 
         # Build dynamic system prompt with online status, role, and mention instructions
@@ -367,6 +384,9 @@ def main():
                          "use @name (e.g. " + ", ".join(f"@{n}" for n in others[:3]) + ").")
         parts.append(f"Your name in this chat is {my_name}. Do not prefix your "
                      "messages with your own name.")
+        if fiche:
+            parts.append("FICHE DE LA TACHE (etat a jour; les messages ci-dessous sont seulement ceux des humains "
+                         f"et ceux qui te mentionnent) : {json.dumps(fiche, ensure_ascii=False)}")
 
         messages = [{"role": "system", "content": " ".join(parts)}]
         for msg in chat_msgs:
@@ -384,10 +404,11 @@ def main():
         set_working(True)
         try:
             chat_msgs = read_messages(channel=channel, limit=context_messages)
-            if not chat_msgs:
+            fiche = read_fiche(channel)  # salle sobre : l'etat de la tache, une seule lecture par reveil
+            if not chat_msgs and not fiche:
                 return
 
-            messages = format_messages(chat_msgs, channel, projet_ids)
+            messages = format_messages(chat_msgs, channel, projet_ids, fiche=fiche)
             print(f"  [{channel}] Calling model with {len(messages)} messages...")
 
             response = call_model(messages, get_my_effort(), get_my_model())
