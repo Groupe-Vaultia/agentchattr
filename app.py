@@ -1870,7 +1870,18 @@ async def rapport_sobriete():
     """Par agent : lectures de la base (fiche) contre lectures du fil, et ce que le filtre a evite."""
     if sobriete is None:
         return JSONResponse({"error": "compteur indisponible"}, status_code=503)
-    return JSONResponse(sobriete.rapport())
+    rapport = sobriete.rapport()
+    # Taille de chaque memoire de projet face a la borne d'injection : jamais le texte lui-meme (R3, R4).
+    borne = _sobriete.memoire_max(config)
+    try:
+        projets = _projets.lister()["v2"]["projets"]
+    except Exception:
+        projets = {}
+    rapport["memoires"] = {"borne": borne, "projets": sorted(
+        ({"id": pid, "nom": p.get("nom", ""), "statut": p.get("statut", ""),
+          "caracteres": len(p.get("memoire") or ""), "tronquee": len(p.get("memoire") or "") > borne}
+         for pid, p in projets.items()), key=lambda m: -m["caracteres"])}
+    return JSONResponse(rapport)
 
 
 @app.post("/api/send")

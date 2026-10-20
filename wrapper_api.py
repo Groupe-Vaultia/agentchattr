@@ -375,8 +375,8 @@ def main():
         parts = [system_prompt]
         memoire, nom_projet = get_project_memory(channel, projet_ids)
         if memoire:
-            if len(memoire) > 3000:  # meme borne que wrapper.MAX_MEMOIRE_INJECTEE (~750 jetons)
-                memoire = memoire[:3000] + " […] (memoire tronquee : le detail est dans le depot)"
+            import sobriete as _sobriete
+            memoire = _sobriete.borner_memoire(memoire, _sobriete.memoire_max(config))
             parts.append(f"Projet « {nom_projet} » — memoire du projet (contexte a respecter) :\n{memoire}")
         # Inject role if set
         my_role = get_my_role()

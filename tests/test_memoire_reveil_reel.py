@@ -1,5 +1,6 @@
 """Memoire de projet et fiche au reveil, de bout en bout : vrai serveur HTTP, vrai middleware, vrai jeton.
 
+v1.1 (2026-10-20, claude) : borne reglable ([sobriete] memoire_max) et tailles des memoires dans /api/v2/sobriete.
 v1.0 (2026-10-20, claude) : les tests existants remplacaient urlopen par un faux; ils ne pouvaient pas voir que le
 middleware refusait (403) les lectures de memoire faites sans jeton par wrapper.py et wrapper_api.py. Ici, uvicorn
 ecoute sur un port libre et les fonctions des wrappers l'appellent comme en production. Donnees synthetiques.
@@ -126,6 +127,36 @@ class ReveilReelTests(unittest.TestCase):
         self.assertIn("MEMO_QUAD", injecte[0])
         self.assertNotIn("MEMO_QUAD", injecte[1])
         self.assertIn("memoire inchangee", injecte[1])
+
+
+    def test_rapport_montre_la_taille_des_memoires_sans_leur_texte(self):
+        import urllib.request
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}/api/v2/sobriete",
+                                     headers={"x-session-token": "sess-reel"})
+        with urllib.request.urlopen(req, timeout=3) as r:
+            rapport = json.loads(r.read())
+        m = rapport["memoires"]
+        self.assertEqual(m["borne"], 3000)
+        quad = next(x for x in m["projets"] if x["id"] == self.pid)
+        self.assertEqual((quad["caracteres"], quad["tronquee"]), (len("MEMO_QUAD : bus 48 V, FS >= 1,25"), False))
+        self.assertNotIn("MEMO_QUAD", json.dumps(rapport))
+
+
+class BorneMemoireTests(unittest.TestCase):
+    def test_borne_reglable_et_encadree(self):
+        import sobriete
+        self.assertEqual(sobriete.memoire_max({}), 3000)
+        self.assertEqual(sobriete.memoire_max({"sobriete": {"memoire_max": 8000}}), 8000)
+        self.assertEqual(sobriete.memoire_max({"sobriete": {"memoire_max": 10}}), 500)
+        self.assertEqual(sobriete.memoire_max({"sobriete": {"memoire_max": 10**9}}), 50000)
+        self.assertEqual(sobriete.memoire_max({"sobriete": {"memoire_max": "abc"}}), 3000)
+
+    def test_troncature_dit_ce_qu_elle_coupe(self):
+        import sobriete
+        t = sobriete.borner_memoire("m" * 4200, 3000)
+        self.assertTrue(t.startswith("m" * 3000))
+        self.assertIn("tronquee a 3000 caracteres sur 4200", t)
+        self.assertEqual(sobriete.borner_memoire("court", 3000), "court")
 
 
 if __name__ == "__main__":

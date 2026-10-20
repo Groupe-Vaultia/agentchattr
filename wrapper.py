@@ -29,6 +29,8 @@ import threading
 import time
 from pathlib import Path
 
+import sobriete as _sobriete
+
 ROOT = Path(__file__).parent
 
 SERVER_NAME = "agentchattr"
@@ -690,13 +692,12 @@ def _fetch_role(server_port: int, agent_name: str) -> str:
         return ""
 
 
-MAX_MEMOIRE_INJECTEE = 3000  # caracteres (~750 jetons) : au-dela, la memoire renvoie au depot
+# Borne de la memoire injectee (caracteres) : `[sobriete] memoire_max` dans la config, lue au demarrage (main).
+MAX_MEMOIRE_INJECTEE = _sobriete.MEMOIRE_MAX_DEFAUT
 
 
 def _borner_memoire(memoire: str) -> str:
-    if len(memoire) <= MAX_MEMOIRE_INJECTEE:
-        return memoire
-    return memoire[:MAX_MEMOIRE_INJECTEE] + " […] (memoire tronquee : le detail est dans le depot)"
+    return _sobriete.borner_memoire(memoire, MAX_MEMOIRE_INJECTEE)
 
 
 def _fetch_trigger_memory(server_port: int, projet_ids: set, channel: str, token: str = "") -> tuple[str, str]:
@@ -985,6 +986,8 @@ def main():
 
     agent = args.agent
     agent_cfg = config.get("agents", {}).get(agent, {})
+    global MAX_MEMOIRE_INJECTEE
+    MAX_MEMOIRE_INJECTEE = _sobriete.memoire_max(config)
     cwd = agent_cfg.get("cwd", ".")
     command = agent_cfg.get("command", agent)
     data_dir = ROOT / config.get("server", {}).get("data_dir", "./data")
