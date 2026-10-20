@@ -1,5 +1,7 @@
-# Déploiement du gardien multi-instance : procédure (v1.0)
+# Déploiement du gardien multi-instance : procédure (v1.1)
 
+v1.1 (2026-10-19, claude-2, claude-1 msg 5644, remarques non bloquantes de claude-3 msg 5643) : § 6c dans un worktree neuf
+(R7) ; § 2, l'arrêt du gardien se tient en quelques minutes, hors d'une passe d'agent ; ligne « script » au tableau de rappel.
 v1.0 (2026-10-19, claude-2, claude-1 #tache-22 msg 5640) : première version. Prête à exécuter **après le oui de Charles**
 (carte msg 5626), nommé par branche. Rien de ce document n'a été exécuté. Branches : `claude2/verifier-relais` (`f19ba27`, GO N2
 claude-3 msg 5605) et `claude2/gardien-multi-instance` (posée dessus ; v1.0.2 `358b375`, GO N2 claude-3 msg 5617 ; v1.0.3 =
@@ -12,6 +14,7 @@ ce document et `--simuler-absent`, en revue N2).
 | `ps -o ppid,lstart,args -p 32442` | parent 7918 = `/usr/lib/systemd/systemd --user`, démarré le 17 oct. à 09:03:37, `bash …/vaultia-watchdog.sh` |
 | `systemctl --user show vaultia-watchdog -p MainPID -p NRestarts -p FragmentPath` | `MainPID=32442`, `NRestarts=0`, `~/.config/systemd/user/vaultia-watchdog.service` |
 | l'unité | `Restart=always`, `RestartSec=10`, `KillMode=process`, `ExecStart=…/agentchattr/vaultia-watchdog.sh` |
+| script à déployer | `scripts/gardien_instances.py` **v1.0.3** (dernier changement du script : `7490c63`) et `scripts/verifier_relais.py` v1.0 (`f19ba27`) ; ce document v1.1 est la seule différence du commit suivant |
 
 Donc : **ne pas tuer le PID 32442 ni lancer un `setsid nohup`**. systemd relancerait le service 10 s plus tard, et deux gardiens
 tourneraient ensemble. On l'arrête et on le relance par `systemctl --user`. `KillMode=process` n'arrête que le bash du gardien :
@@ -49,6 +52,9 @@ gh pr merge <N2> --repo Groupe-Vaultia/agentchattr --merge
 - si `gh` reste figé : jeton par la variable d'environnement, sans jamais l'afficher (mémoire « oui hors salon »).
 
 ## 2. Clone principal : arrêter, mettre à jour, vérifier
+
+Entre `stop` (ici) et `start` (§ 3), plus rien ne relance une session tombée : **enchaîner les § 2 et 3 en quelques minutes, hors
+d'une passe d'agent** (pas pendant qu'un agent attend une relance, ni au milieu d'un lot qui crée des sessions tmux).
 
 ```bash
 systemctl --user stop vaultia-watchdog
@@ -123,8 +129,9 @@ sleep 20; python3 scripts/verifier_relais.py                                   #
 | c. Revert formel (oui de Charles, R2) | voir ci-dessous | `main` revient au gardien précédent ; le détecteur (PR 1, lecture seule) peut rester |
 
 ```bash
-cd ~/atelier/wt-claude2-gardien
-git fetch origin && git switch -c claude2/revert-gardien origin/main
+cd ~/atelier/agentchattr && git fetch origin
+git worktree add ../wt-claude2-revert -b claude2/revert-gardien origin/main   # worktree neuf (R7) : aucune branche de travail touchée
+cd ../wt-claude2-revert
 git revert -m 1 <M2> --no-edit                   # fusion de la PR 2 seulement
 git push origin claude2/revert-gardien
 gh pr create --repo Groupe-Vaultia/agentchattr --base main --head claude2/revert-gardien --title "Revert : gardien multi-instance"
