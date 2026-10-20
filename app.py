@@ -3155,15 +3155,26 @@ async def update_tache(tache_id: int, request: Request):
         return JSONResponse({"error": "invalid json"}, status_code=400)
     if not isinstance(body, dict):
         return JSONResponse({"error": "objet attendu"}, status_code=400)
-    tache, err = jobs.update_tache(tache_id, body)
+    tache, err = appliquer_maj_tache(tache_id, body)
     if err:
         return JSONResponse({"error": err}, status_code=404 if err == "tache inconnue" else 400)
+    return JSONResponse(tache)
+
+
+def appliquer_maj_tache(tache_id: int, champs: dict) -> tuple[dict | None, str]:
+    """Mise a jour d'une tache et ses effets (livrables a `fait`, progres de la ronde sur changement d'etat).
+    Chemin unique pour la route PATCH et l'outil MCP `tache_maj` (salle sobre lot 1) : memes effets partout."""
+    if jobs is None:
+        return None, "taches indisponibles"
+    tache, err = jobs.update_tache(tache_id, champs)
+    if err:
+        return None, err
     if tache.get("etat") == "fait":
         _enregistrer_livrables_tache(tache)
     # Progres reel : une transition d'etat de tache fait avancer la ronde.
-    if "etat" in body:
+    if "etat" in champs:
         _note_round_progress(_jobs_mod.canal_tache(tache_id))
-    return JSONResponse(tache)
+    return tache, ""
 
 
 # SOCLE-SHOP S3 : executions et evenements (panneau « En direct »).

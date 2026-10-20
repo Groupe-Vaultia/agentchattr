@@ -87,6 +87,10 @@ def main():
     mcp_bridge.config = config
     mcp_bridge.router = app_router
     mcp_bridge.agents = app_agents
+    # Salle sobre lot 1 : les outils tache_* ecrivent dans la base par le meme chemin que l'API.
+    import app as _app_mod
+    mcp_bridge.revisions = _app_mod.revisions
+    mcp_bridge.maj_tache = _app_mod.appliquer_maj_tache
 
     # Enable cursor and role persistence across restarts
     data_dir = ROOT / config.get("server", {}).get("data_dir", "./data")

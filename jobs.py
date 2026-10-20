@@ -5,6 +5,10 @@ v2 (12 oct. 2026, socle de la Shop, SOCLE-SHOP.md S2) : un job peut etre une **t
 et pour les essais les champs RS&DE. Un job sans `projet_id` reste un job « sans projet » (anciens jobs).
 
 v3 (13 oct. 2026, claude, SOCLE-SHOP v1.0) : la conversation d'une tache est le canal `tache-<id>`.
+
+v4 (20 oct. 2026, claude, salle sobre lot 1) : la tache devient la memoire de travail, pas le fil. Champs
+`prochaine_action` et `derniere_erreur` (texte court, ecrasable); journal `decisions` en ajout seul (`noter_decision`,
+jamais par `update_tache`); `fiche()` rend l'etat d'une tache en taille bornee, quel que soit le nombre de messages.
 """
 
 import json
@@ -34,7 +38,13 @@ def tache_du_canal(canal: str) -> int | None:
 
 
 CHAMPS_TACHE = ("titre", "etape", "etat", "responsable", "equipe", "critere", "preuve",
-                "incertitude", "hypothese", "methode", "resultat", "conclusion")
+                "incertitude", "hypothese", "methode", "resultat", "conclusion",
+                "prochaine_action", "derniere_erreur")
+# Bornes de la fiche (salle sobre) : la fiche garde une taille fixe, quel que soit l'historique.
+MAX_COURT = 500          # prochaine_action, derniere_erreur, texte d'une decision
+MAX_PREUVE_FICHE = 600   # la preuve complete reste dans la tache; la fiche n'en montre que le debut
+MAX_DECISIONS = 50       # journal conserve
+DECISIONS_FICHE = 8      # decisions montrees dans la fiche (les plus recentes)
 
 
 def _equipe_valide(equipe) -> list[dict] | None:
@@ -67,6 +77,47 @@ def etape_du_projet(taches: list[dict]) -> str:
         if e in ouvertes:
             return e
     return ""
+
+
+def _role_de(tache: dict, agent: str) -> str:
+    """Role de `agent` dans l'equipe de la tache. Accepte le nom d'instance (claude-1) ou le nom de base (claude)."""
+    agent = str(agent or "").strip().lower()
+    base = re.sub(r"-\d+$", "", agent)
+    for m in tache.get("equipe") or []:
+        nom = str(m.get("agent", "")).strip().lower()
+        if nom in (agent, base) or re.sub(r"-\d+$", "", nom) == agent:
+            return str(m.get("role", ""))
+    return ""
+
+
+def fiche(tache: dict, pour: str = "", livrables: list[dict] | None = None) -> dict:
+    """Etat de travail d'une tache, en taille bornee (salle sobre). C'est ce qu'un agent lit au lieu du fil :
+    la taille ne depend pas du nombre de messages echanges. `livrables` : fiches RevisionStore de CETTE tache."""
+    preuve = str(tache.get("preuve") or "")
+    decisions = list(tache.get("decisions") or [])[-DECISIONS_FICHE:]
+    f = {
+        "tache_id": tache.get("id"),
+        "titre": tache.get("titre") or tache.get("title", ""),
+        "projet_id": tache.get("projet_id", ""),
+        "etape": tache.get("etape", ""),
+        "etat": tache.get("etat", ""),
+        "responsable": tache.get("responsable", ""),
+        "critere": tache.get("critere", ""),
+        "prochaine_action": tache.get("prochaine_action", ""),
+        "derniere_erreur": tache.get("derniere_erreur", ""),
+        "preuve": preuve[:MAX_PREUVE_FICHE] + (" […]" if len(preuve) > MAX_PREUVE_FICHE else ""),
+        "decisions": [{"texte": d.get("texte", ""), "par": d.get("par", "")} for d in decisions],
+        "livrables": [{"chemin": l.get("chemin", ""), "version": l.get("version"),
+                       "empreinte": str(l.get("empreinte", ""))[:12], "statut": l.get("statut", "")}
+                      for l in (livrables or [])],
+        "canal": canal_tache(tache["id"]) if tache.get("id") else "",
+    }
+    if pour:
+        f["ton_role"] = _role_de(tache, pour) or "hors equipe"
+    nb_decisions = len(tache.get("decisions") or [])
+    if nb_decisions > DECISIONS_FICHE:
+        f["decisions_masquees"] = nb_decisions - DECISIONS_FICHE
+    return f
 
 
 class JobStore:
@@ -257,6 +308,9 @@ class JobStore:
             nouveau = dict(a)
             for k, v in champs.items():
                 nouveau[k] = v
+            for k in ("prochaine_action", "derniere_erreur"):
+                if k in champs:
+                    nouveau[k] = str(champs[k] or "").strip()[:MAX_COURT]
             if nouveau.get("etape") not in ETAPES:
                 return None, f"etape parmi {', '.join(ETAPES)}"
             if nouveau.get("etat") not in ETATS:
@@ -283,6 +337,28 @@ class JobStore:
             result = dict(a)
         self._fire("update", result)
         return result, ""
+
+    def noter_decision(self, job_id: int, texte: str, par: str) -> tuple[dict | None, str]:
+        """Ajoute une decision au journal de la tache (ajout seul, jamais reecrit). Rend (decision, '') ou
+        (None, erreur). Le journal garde les MAX_DECISIONS plus recentes."""
+        texte = str(texte or "").strip()
+        if not texte:
+            return None, "texte requis"
+        if len(texte) > MAX_COURT:
+            return None, f"decision trop longue ({len(texte)} > {MAX_COURT} caracteres) : le detail va dans le depot"
+        with self._lock:
+            for a in self._jobs:
+                if a["id"] == job_id and a.get("projet_id"):
+                    break
+            else:
+                return None, "tache inconnue"
+            d = {"texte": texte, "par": str(par or "").strip(), "heure": time.time()}
+            a["decisions"] = (list(a.get("decisions") or []) + [d])[-MAX_DECISIONS:]
+            a["updated_at"] = time.time()
+            self._save()
+            result = dict(a)
+        self._fire("update", result)
+        return dict(d), ""
 
     def update_status(self, job_id: int, status: str) -> dict | None:
         """Update job status. Valid: open, done, archived."""
