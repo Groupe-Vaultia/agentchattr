@@ -1,5 +1,6 @@
 """Gardien multi-instance (scripts/gardien_instances.py), sans tmux, sans kill réel.
 
+v1.0.1 (2026-10-19, claude-2) : relance manuelle `--relancer base:n` (claude-1 msg 5602).
 v1.0 (2026-10-19, claude-2) : l'ancien cli() de vaultia-watchdog.sh tuait par pkill les relais de toutes les instances d'une
 famille quand l'instance 1 manquait (claude-1 #tache-22 msg 5600).
 """
@@ -9,6 +10,7 @@ import importlib.util
 import io
 import subprocess
 import sys
+import tempfile
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -133,6 +135,85 @@ class TestPasse(unittest.TestCase):
         for interdit in (SECRET, "--openai-api-key", "wrapper.py", "env PATH"):
             self.assertNotIn(interdit, out)
         self.assertIn("relais mort (TUI vivant) ; relance du relais = décision humaine", out)
+
+
+class TestRelanceManuelle(unittest.TestCase):
+    WT = [("/a/cad-bolt", "cad-bolt/travail"), ("/a/wt-qwencode3-freins", "qwen/t21-freins"), ("/a/wt-qwencode-t21b", "qwen/t21-jante"),
+          ("/a/wt-x", "qwencode3/lot"), ("/a/wt-qwencode2-transmission", "qwencode2/t21-transmission")]
+
+    def _plan(self, base, n, sessions=None, sales=None, force=False, worktrees=None, depot=lambda c: c == "/a/cad-bolt"):
+        s = sessions or salle()
+        for x in s:
+            if x.nom == "agentchattr-qwencode-3":
+                x.chemin = "/a/cad-bolt"
+        return G.plan_relance(base, n, s, PROCESSUS, {}, self.WT if worktrees is None else worktrees, force,
+                              depot=depot, sales=sales or (lambda c: 0))
+
+    def test_worktrees_connus(self):
+        tui = G.Session("agentchattr-qwencode-3", T0, 310, "", "/a/cad-bolt")
+        self.assertEqual(G.worktrees_connus("qwencode", 3, 4, tui, self.WT, depot=lambda c: True),
+                         ["/a/cad-bolt", "/a/wt-qwencode3-freins", "/a/wt-x"])     # pas wt-qwencode-t21b (sans numéro)
+
+    def test_relance_qwencode3_ce_soir(self):
+        code, d, motif = self._plan("qwencode", 3)
+        self.assertEqual((code, motif), (0, ""))
+        self.assertEqual(d.actions, [("fermer", "agentchattr-qwencode-3"), ("fermer", "ac-qwencode3"),
+                                     ("lancer", "ac-qwencode3", CMD["qwencode"])])  # relais déjà mort : rien à tuer
+
+    def test_relais_tue_avant_le_tui(self):
+        code, d, _ = self._plan("qwencode", 2, worktrees=[("/a/wt-qwencode2-transmission", "")])
+        self.assertEqual([a[:2] for a in d.actions], [("tuer", 201), ("fermer", "agentchattr-qwencode-2"), ("fermer", "ac-qwencode2"),
+                                                      ("lancer", "ac-qwencode2")])
+        f = _Faux()
+        G.executer([d], run=f.lancer, tuer=f.tuer, dormir=lambda s: None)
+        self.assertEqual(f.tues, [201])
+        self.assertEqual([c[:4] for c in f.run], [["tmux", "kill-session", "-t", "=agentchattr-qwencode-2"],
+                                                   ["tmux", "kill-session", "-t", "=ac-qwencode2"], ["tmux", "new-session", "-d", "-s"]])
+
+    def test_refus_si_non_commite_sauf_force(self):
+        sales = lambda c: 1 if c == "/a/wt-qwencode3-freins" else 0
+        code, d, motif = self._plan("qwencode", 3, sales=sales)
+        self.assertEqual((code, d.actions), (3, []))
+        self.assertIn("/a/wt-qwencode3-freins (1)", motif)
+        self.assertEqual(self._plan("qwencode", 3, sales=sales, force=True)[0], 0)
+
+    def test_refus_si_aucun_worktree_connu_sauf_force(self):
+        code, _, motif = self._plan("qwencode", 4, worktrees=[], depot=lambda c: False)
+        self.assertEqual(code, 3)
+        self.assertIn("aucun worktree connu", motif)
+        self.assertEqual(self._plan("qwencode", 4, worktrees=[], depot=lambda c: False, force=True)[0], 0)
+
+    def test_instance_inconnue(self):
+        self.assertEqual(self._plan("qwencode", 7)[0], 2)
+
+    def test_non_commites_ignore_les_pyc(self):
+        with tempfile.TemporaryDirectory() as d:
+            git = lambda *a: subprocess.run(["git", "-C", d, *a], capture_output=True, check=True)
+            git("init", "-q")
+            Path(d, "__pycache__").mkdir()
+            Path(d, "__pycache__", "x.cpython-314.pyc").write_bytes(b"a")
+            Path(d, "fiche.md").write_text("a", "utf-8")
+            git("add", ".")
+            git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "x")
+            Path(d, "__pycache__", "x.cpython-314.pyc").write_bytes(b"b")
+            self.assertEqual(G.non_commites(d), 0)
+            Path(d, "fiche.md").write_text("b", "utf-8")
+            Path(d, "nouveau.md").write_text("c", "utf-8")
+            self.assertEqual(G.non_commites(d), 2)
+
+    def test_main_relancer(self):
+        f, sortie = _Faux(), io.StringIO()
+        with contextlib.redirect_stdout(sortie):
+            code = G.main(["--relancer", "qwencode:3", "--essai"], lire=salle, processus=lambda: PROCESSUS, run=f.lancer, tuer=f.tuer,
+                          worktrees=[("/a/wt-qwencode3-freins", "")], depot=lambda c: False, sales=lambda c: 0)
+        self.assertEqual((code, f.run, f.tues), (0, [], []))
+        self.assertIn("relance manuelle -> fermer agentchattr-qwencode-3 ; fermer ac-qwencode3 ; relancer ac-qwencode3", sortie.getvalue())
+        self.assertNotIn(SECRET, sortie.getvalue())
+        with contextlib.redirect_stdout(io.StringIO()) as s2:
+            code = G.main(["--relancer", "qwencode:3"], lire=salle, processus=lambda: PROCESSUS, run=f.lancer, tuer=f.tuer,
+                          worktrees=[("/a/wt-qwencode3-freins", "")], depot=lambda c: False, sales=lambda c: 2)
+        self.assertEqual((code, f.run), (3, []))
+        self.assertIn("refusée : modifications non commitées : /a/wt-qwencode3-freins (2)", s2.getvalue())
 
 
 class TestGardienBash(unittest.TestCase):
