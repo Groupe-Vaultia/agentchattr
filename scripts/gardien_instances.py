@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 r"""Gardien multi-instance des agents CLI : une passe par appel, une décision par instance.
 
+v1.0.5 (2026-10-19, claude-2, claude-1 msg 5648) : `--relancer base:n --url URL` remplace la seule valeur de
+`--openai-base-url` dans la commande du lanceur (affinité de carte : qwencode-3 → :8087) ; refus si l'option manque ou est double.
 v1.0.3 (2026-10-19, claude-2, claude-1 msg 5640) : `--simuler-absent SESSION` (avec `--essai` seulement) : répétition sans
 danger d'une panne sur la salle réelle, pour la procédure docs/deploiement_gardien.md.
 v1.0.2 (2026-10-19, claude-2, NO-GO claude-3 msg 5605) : `#{pane_start_command}` est rendu par tmux entre guillemets, avec
@@ -15,6 +17,7 @@ même ligne de commande, puis n'en relançait qu'un (data/watchdog.log:6149, 19 
     python3 scripts/gardien_instances.py claude:3 codex:2 qwencode:4 grok:1           # appelé par vaultia-watchdog.sh
     python3 scripts/gardien_instances.py --essai claude:3 codex:2 qwencode:4 grok:1   # imprime le plan, ne fait rien
     python3 scripts/gardien_instances.py --relancer qwencode:3 [--essai] [--force]    # relance manuelle d'une instance
+    python3 scripts/gardien_instances.py --relancer qwencode:3 --url http://172.30.0.1:8087/v1   # … sur une autre adresse
     python3 scripts/gardien_instances.py --essai --simuler-absent agentchattr-qwencode-3 qwencode:4   # « et si ce TUI mourait ? »
 
 Instance <base> n° n : lanceur `ac-<base>` (n = 1) ou `ac-<base><n>`, TUI `agentchattr-<base>` ou `agentchattr-<base>-1` (n = 1),
@@ -50,7 +53,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = "v1.0.3"
+VERSION = "v1.0.5"
 RACINE = Path(__file__).resolve().parents[1]
 DEMARRAGE = 120          # s : un lanceur plus jeune n'est pas jugé (son TUI se crée)
 APPARIEMENT = 60         # s : TUI créé au plus tard 60 s après son lanceur
@@ -288,7 +291,7 @@ def worktrees_connus(base: str, n: int, nb: int, tui: Session | None, worktrees:
 
 def plan_relance(base: str, n: int, sessions: list[Session], processus: list[tuple[int, int, bool]], defauts: dict[str, str],
                  worktrees: list[tuple[str, str]], force: bool, depot=est_depot, sales=non_commites,
-                 valide=commande_valide) -> tuple[int, Decision, str]:
+                 valide=commande_valide, url: str = "") -> tuple[int, Decision, str]:
     """(code, décision, motif de refus) pour `--relancer base:n`."""
     lanceurs = [s for s in sessions if re.fullmatch(rf"ac-{re.escape(base)}\d*", s.nom)]
     nb = max([n] + [int(s.nom[len(f"ac-{base}"):] or 1) for s in lanceurs])
@@ -309,6 +312,13 @@ def plan_relance(base: str, n: int, sessions: list[Session], processus: list[tup
           (commande_defaut(base, defauts[base]) if base in defauts else "")
     if not cmd:
         return 2, d, "aucune commande de lancement connue (ni lanceur, ni frère, ni --defaut)"
+    if url:
+        if not re.fullmatch(r"https?://[\w.:-]+(/[\w./-]*)?", url):
+            return 2, d, f"--url illisible : {url}"
+        cmd, n_url = re.subn(r"(--openai-base-url[= ])\S+", lambda m: m.group(1) + url, cmd)
+        if n_url != 1:
+            return 2, d, f"--openai-base-url trouvé {n_url} fois dans la commande du lanceur (1 attendu) : rien n'est tué"
+        d.etat = f"relance manuelle, adresse -> {url}"
     if not valide(cmd):
         return 2, d, "commande de lancement illisible (bash -n) : rien n'est tué"
     if d.relais:
@@ -329,6 +339,7 @@ def main(argv: list[str] | None = None, lire=lire_sessions, processus=None, dorm
     ap.add_argument("--essai", action="store_true", help="imprime le plan sans rien faire")
     ap.add_argument("--relancer", metavar="BASE:N", help="relance manuelle d'une seule instance, ex. qwencode:3")
     ap.add_argument("--force", action="store_true", help="avec --relancer : passer outre les modifications non commitées")
+    ap.add_argument("--url", default="", help="avec --relancer : nouvelle valeur de --openai-base-url (ex. http://172.30.0.1:8087/v1)")
     ap.add_argument("--simuler-absent", action="append", default=[], metavar="SESSION",
                     help="avec --essai seulement : faire comme si cette session tmux n'existait pas")
     a = ap.parse_args(argv)
@@ -342,7 +353,7 @@ def main(argv: list[str] | None = None, lire=lire_sessions, processus=None, dorm
     if a.relancer:
         base, n = a.relancer.split(":")
         liste = worktrees if worktrees is not None else lister_worktrees([RACINE, RACINE.parent / "projetcad-repo"])
-        code, d, motif = plan_relance(base, int(n), lire(), lire_ps(), defauts, liste, a.force, depot, sales)
+        code, d, motif = plan_relance(base, int(n), lire(), lire_ps(), defauts, liste, a.force, depot, sales, url=a.url)
         horo = time.strftime("%m-%d %H:%M:%S")
         if code:
             print(f"[{horo}] gardien : relance manuelle de {d.instance} refusée : {motif}")

@@ -1,5 +1,6 @@
 """Gardien multi-instance (scripts/gardien_instances.py), sans tmux, sans kill réel.
 
+v1.0.5 (2026-10-19, claude-2) : `--relancer … --url` (affinité de carte, claude-1 msg 5648).
 v1.0.3 (2026-10-19, claude-2) : `--simuler-absent` (claude-1 msg 5640).
 v1.0.2 (2026-10-19, claude-2) : `pane_start_command` déshabillé, vérifié sur un vrai tmux jetable (NO-GO claude-3 msg 5605).
 v1.0.1 (2026-10-19, claude-2) : relance manuelle `--relancer base:n` (claude-1 msg 5602).
@@ -204,6 +205,27 @@ class TestRelanceManuelle(unittest.TestCase):
         self.assertEqual(code, 3)
         self.assertIn("aucun worktree connu", motif)
         self.assertEqual(self._plan("qwencode", 4, worktrees=[], depot=lambda c: False, force=True)[0], 0)
+
+    def test_url_remplace_la_seule_adresse(self):
+        cmd = 'env PATH="/x" .venv/bin/python wrapper.py qwencode --auth-type openai --openai-base-url http://172.30.0.1:8085/v1 ' \
+              f'--openai-api-key {SECRET} -m qwen-cartes-ab; read'
+        s = salle()
+        for x in s:
+            if x.nom == "ac-qwencode3":
+                x.commande = cmd
+        code, d, motif = G.plan_relance("qwencode", 3, s, PROCESSUS, {}, self.WT, False, depot=lambda c: c == "/a/cad-bolt",
+                                        sales=lambda c: 0, valide=lambda c: True, url="http://172.30.0.1:8087/v1")
+        self.assertEqual((code, motif), (0, ""))
+        self.assertEqual(d.actions[-1][2], cmd.replace(":8085/v1", ":8087/v1"))
+        self.assertIn(f"--openai-api-key {SECRET} -m", d.actions[-1][2])       # le reste de la commande est intact
+        self.assertEqual(d.etat, "relance manuelle, adresse -> http://172.30.0.1:8087/v1")
+        self.assertNotIn(SECRET, "\n".join(G.journal([d], True)))
+        code, _, motif = G.plan_relance("qwencode", 3, salle(), PROCESSUS, {}, self.WT, False, depot=lambda c: c == "/a/cad-bolt",
+                                        sales=lambda c: 0, valide=lambda c: True, url="http://172.30.0.1:8087/v1")
+        self.assertEqual(code, 2)                                            # CMD[...] n'a pas de --openai-base-url
+        self.assertIn("trouvé 0 fois", motif)
+        self.assertEqual(G.plan_relance("qwencode", 3, s, PROCESSUS, {}, self.WT, False, depot=lambda c: True, sales=lambda c: 0,
+                                        valide=lambda c: True, url="http://x y")[0], 2)
 
     def test_instance_inconnue(self):
         self.assertEqual(self._plan("qwencode", 7)[0], 2)
