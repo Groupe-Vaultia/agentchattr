@@ -1,5 +1,6 @@
 """Gardien multi-instance (scripts/gardien_instances.py), sans tmux, sans kill réel.
 
+v1.0.6 (2026-10-19, claude-2) : attente du registre après un relais tué (course à l'emplacement, claude-3 msg 5652).
 v1.0.5 (2026-10-19, claude-2) : `--relancer … --url` (affinité de carte, claude-1 msg 5648).
 v1.0.3 (2026-10-19, claude-2) : `--simuler-absent` (claude-1 msg 5640).
 v1.0.2 (2026-10-19, claude-2) : `pane_start_command` déshabillé, vérifié sur un vrai tmux jetable (NO-GO claude-3 msg 5605).
@@ -77,12 +78,26 @@ class TestDecision(unittest.TestCase):
         self.assertEqual((f.run, f.tues), ([], []))                           # ni kill, ni tmux : le TUI vivant est gardé
 
     def test_tui_mort_une_seule_instance_touchee(self):
+        # passe 1 : le relais vit encore, on le tue seulement (il tient son nom au registre 60 s)
         d = par_instance(G.decider(salle(sans={"agentchattr-qwencode-2"}), PROCESSUS, ATTENDU, {}, MAINTENANT))
-        self.assertEqual(d["qwencode-2"].etat, "relance")
-        self.assertEqual(d["qwencode-2"].actions, [("tuer", 201), ("fermer", "ac-qwencode2"), ("lancer", "ac-qwencode2", CMD["qwencode"])])
+        self.assertEqual((d["qwencode-2"].etat, d["qwencode-2"].actions), (G.A_TUER, [("tuer", 201)]))
         f = _Faux()
         G.executer(list(d.values()), run=f.lancer, tuer=f.tuer, dormir=lambda s: None)
-        self.assertEqual(f.tues, [201])                                       # pas 101 : l'ancien pkill tuait toute la famille
+        self.assertEqual((f.tues, f.run), ([201], []))                        # pas 101 : l'ancien pkill tuait toute la famille
+        # passe suivante : relais mort, mais le registre tient encore qwencode-2 : on attend
+        sans_201 = [p for p in PROCESSUS if p[0] != 201]
+        d = par_instance(G.decider(salle(sans={"agentchattr-qwencode-2"}), sans_201, ATTENDU, {}, MAINTENANT,
+                                   registre={"qwencode-2": "actif"}))["qwencode-2"]
+        self.assertEqual((d.etat, d.actions), ("attente du registre (qwencode-2 actif)", []))
+        d = par_instance(G.decider(salle(sans={"agentchattr-qwencode-2"}), sans_201, ATTENDU, {}, MAINTENANT,
+                                   registre=None))["qwencode-2"]
+        self.assertEqual((d.etat, d.actions), ("attente du registre (illisible)", []))
+        # désinscrit (récupérable) : on relance
+        d = par_instance(G.decider(salle(sans={"agentchattr-qwencode-2"}), sans_201, ATTENDU, {}, MAINTENANT,
+                                   registre={"qwencode-2": "récupérable"}))["qwencode-2"]
+        self.assertEqual(d.actions, [("fermer", "ac-qwencode2"), ("lancer", "ac-qwencode2", CMD["qwencode"])])
+        f = _Faux()
+        G.executer([d], run=f.lancer, tuer=f.tuer, dormir=lambda s: None)
         self.assertEqual(f.run, [["tmux", "kill-session", "-t", "=ac-qwencode2"],
                                  ["tmux", "new-session", "-d", "-s", "ac-qwencode2", "-c", str(G.RACINE), CMD["qwencode"]]])
 
@@ -106,7 +121,7 @@ class TestDecision(unittest.TestCase):
         d = par_instance(G.decider(base + [G.Session("agentchattr-qwencode-5", MAINTENANT - 295, 250)], PROCESSUS, ATTENDU, {}, MAINTENANT))
         self.assertEqual((d["qwencode-2"].etat, d["qwencode-2"].tui), ("ok", "agentchattr-qwencode-5"))
         d = par_instance(G.decider(base + [G.Session("agentchattr-qwencode-5", MAINTENANT - 200, 250)], PROCESSUS, ATTENDU, {}, MAINTENANT))
-        self.assertEqual(d["qwencode-2"].etat, "relance")                     # 100 s après le lanceur : pas le sien
+        self.assertEqual(d["qwencode-2"].etat, G.A_TUER)                      # 100 s après le lanceur : pas le sien
 
     def test_lanceur_jeune_pas_juge(self):
         s = salle(sans={"agentchattr-qwencode-2"}, crees={"ac-qwencode2": MAINTENANT - 30})
@@ -120,7 +135,8 @@ class TestPasse(unittest.TestCase):
         it = iter(lectures)
         args = (["--essai"] if essai else []) + ["qwencode:4", "grok:1"]
         with contextlib.redirect_stdout(sortie), unittest.mock.patch.object(G.time, "time", return_value=MAINTENANT):
-            code = G.main(args, lire=lambda: next(it), processus=lambda: PROCESSUS, dormir=pauses.append, run=f.lancer, tuer=f.tuer)
+            code = G.main(args, lire=lambda: next(it), processus=lambda: PROCESSUS, dormir=pauses.append, run=f.lancer, tuer=f.tuer,
+                          registre=lambda: {})
         return code, f, pauses, sortie.getvalue()
 
     def test_seconde_lecture_annule(self):
@@ -132,8 +148,8 @@ class TestPasse(unittest.TestCase):
 
     def test_seconde_lecture_confirme(self):
         code, f, pauses, out = self._main([salle(sans={"agentchattr-qwencode-2"})] * 2)
-        self.assertEqual(f.tues, [201])
-        self.assertIn("relance -> tuer PID 201 ; fermer ac-qwencode2 ; relancer ac-qwencode2", out)
+        self.assertEqual((f.tues, f.run), ([201], []))                        # relance à une passe suivante
+        self.assertIn(f"qwencode-2 (ac-qwencode2 / pas de TUI) : {G.A_TUER} -> tuer PID 201", out)
 
     def test_simuler_absent(self):
         """Le cas de ce soir, répété sans danger : si agentchattr-qwencode-3 mourait, seul qwencode-3 serait relancé."""
@@ -149,7 +165,8 @@ class TestPasse(unittest.TestCase):
         f, pauses, sortie = _Faux(), [], io.StringIO()
         it = iter(lectures)
         with contextlib.redirect_stdout(sortie), unittest.mock.patch.object(G.time, "time", return_value=MAINTENANT):
-            code = G.main(args, lire=lambda: next(it), processus=lambda: PROCESSUS, dormir=pauses.append, run=f.lancer, tuer=f.tuer)
+            code = G.main(args, lire=lambda: next(it), processus=lambda: PROCESSUS, dormir=pauses.append, run=f.lancer, tuer=f.tuer,
+                          registre=lambda: {})
         return code, f, pauses, sortie.getvalue()
 
     def test_essai_ne_fait_rien_et_journal_sans_secret(self):
@@ -180,15 +197,18 @@ class TestRelanceManuelle(unittest.TestCase):
     def test_relance_qwencode3_ce_soir(self):
         code, d, motif = self._plan("qwencode", 3)
         self.assertEqual((code, motif), (0, ""))
-        self.assertEqual(d.actions, [("fermer", "agentchattr-qwencode-3"), ("fermer", "ac-qwencode3"),
+        self.assertEqual(d.actions, [("attendre", ["qwencode-3"]), ("fermer", "agentchattr-qwencode-3"), ("fermer", "ac-qwencode3"),
                                      ("lancer", "ac-qwencode3", CMD["qwencode"])])  # relais déjà mort : rien à tuer
 
     def test_relais_tue_avant_le_tui(self):
         code, d, _ = self._plan("qwencode", 2, worktrees=[("/a/wt-qwencode2-transmission", "")])
-        self.assertEqual([a[:2] for a in d.actions], [("tuer", 201), ("fermer", "agentchattr-qwencode-2"), ("fermer", "ac-qwencode2"),
-                                                      ("lancer", "ac-qwencode2")])
-        f = _Faux()
-        G.executer([d], run=f.lancer, tuer=f.tuer, dormir=lambda s: None)
+        self.assertEqual([a[:2] for a in d.actions], [("tuer", 201), ("attendre", ["qwencode-2"]), ("fermer", "agentchattr-qwencode-2"),
+                                                      ("fermer", "ac-qwencode2"), ("lancer", "ac-qwencode2")])
+        f, pauses = _Faux(), []
+        lectures = iter([{"qwencode-2": "actif"}, {"qwencode-2": "actif"}, {"qwencode-2": "récupérable"}])
+        messages = G.executer([d], run=f.lancer, tuer=f.tuer, dormir=pauses.append, registre=lambda: next(lectures))
+        self.assertEqual(pauses, [2, G.ATTENTE_PAS, G.ATTENTE_PAS])           # 2 s après le kill, puis 2 attentes du registre
+        self.assertEqual(messages, ["qwencode-2 : registre libre après 10 s"])
         self.assertEqual(f.tues, [201])
         self.assertEqual([c[:4] for c in f.run], [["tmux", "kill-session", "-t", "=agentchattr-qwencode-2"],
                                                    ["tmux", "kill-session", "-t", "=ac-qwencode2"], ["tmux", "new-session", "-d", "-s"]])
@@ -227,6 +247,23 @@ class TestRelanceManuelle(unittest.TestCase):
         self.assertEqual(G.plan_relance("qwencode", 3, s, PROCESSUS, {}, self.WT, False, depot=lambda c: True, sales=lambda c: 0,
                                         valide=lambda c: True, url="http://x y")[0], 2)
 
+    def test_plafond_du_registre_rien_n_est_relance(self):
+        """Au plafond de 75 s, le relais est tué mais TUI et lanceur restent : pas de nouveau relais sur un autre numéro."""
+        f, pauses, sortie = _Faux(), [], io.StringIO()
+        with contextlib.redirect_stdout(sortie):
+            code = G.main(["--relancer", "qwencode:2"], lire=salle, processus=lambda: PROCESSUS, run=f.lancer, tuer=f.tuer,
+                          dormir=pauses.append, worktrees=[("/a/wt-qwencode2-x", "")], depot=lambda c: False, sales=lambda c: 0,
+                          registre=lambda: {"qwencode-2": "actif"})
+        self.assertEqual((code, f.tues, f.run), (4, [201], []))
+        self.assertEqual(sum(x for x in pauses if x == G.ATTENTE_PAS), G.ATTENTE_MAX)
+        self.assertIn("registre encore « qwencode-2 actif » après 75 s : arrêt après le relais tué ; TUI et lanceur laissés en place",
+                      sortie.getvalue())
+
+    def test_noms_registre(self):
+        self.assertEqual(G.noms_registre("qwencode", 3), ["qwencode-3"])
+        self.assertEqual(G.noms_registre("qwencode", 1, "agentchattr-qwencode"), ["qwencode", "qwencode-1"])
+        self.assertEqual(G.noms_registre("qwencode", 2, "agentchattr-qwencode-5"), ["qwencode-5", "qwencode-2"])
+
     def test_instance_inconnue(self):
         self.assertEqual(self._plan("qwencode", 7)[0], 2)
 
@@ -251,7 +288,8 @@ class TestRelanceManuelle(unittest.TestCase):
             code = G.main(["--relancer", "qwencode:3", "--essai"], lire=salle, processus=lambda: PROCESSUS, run=f.lancer, tuer=f.tuer,
                           worktrees=[("/a/wt-qwencode3-freins", "")], depot=lambda c: False, sales=lambda c: 0)
         self.assertEqual((code, f.run, f.tues), (0, [], []))
-        self.assertIn("relance manuelle -> fermer agentchattr-qwencode-3 ; fermer ac-qwencode3 ; relancer ac-qwencode3", sortie.getvalue())
+        self.assertIn("relance manuelle -> attendre que le registre libère qwencode-3 (75 s au plus) ; fermer agentchattr-qwencode-3 ; "
+                      "fermer ac-qwencode3 ; relancer ac-qwencode3", sortie.getvalue())
         self.assertNotIn(SECRET, sortie.getvalue())
         with contextlib.redirect_stdout(io.StringIO()) as s2:
             code = G.main(["--relancer", "qwencode:3"], lire=salle, processus=lambda: PROCESSUS, run=f.lancer, tuer=f.tuer,
@@ -311,7 +349,8 @@ class TestCommandeTmux(unittest.TestCase):
             if x.nom == "ac-qwencode2":
                 x.commande = G.deshabiller('"a" "b"')                         # deux mots : illisible
         f = _Faux()
-        d = par_instance(G.decider([x for x in s if x.nom != "ac-qwencode"], PROCESSUS, ATTENDU, {}, MAINTENANT,
+        sans_201 = [p for p in PROCESSUS if p[0] != 201]                     # relais déjà mort : chemin de relance
+        d = par_instance(G.decider([x for x in s if x.nom != "ac-qwencode"], sans_201, ATTENDU, {}, MAINTENANT,
                                    valide=G.commande_valide))["qwencode-2"]
         self.assertEqual(d.actions[-1][2], CMD["qwencode"])                  # repli sur un frère lisible
         s2 = [x for x in s if not x.nom.startswith("ac-qwencode") or x.nom == "ac-qwencode2"]

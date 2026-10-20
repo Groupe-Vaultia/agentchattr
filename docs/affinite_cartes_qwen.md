@@ -1,5 +1,8 @@
-# Affinité de carte pour les Qwen : constat et proposition (v1.0)
+# Affinité de carte pour les Qwen : constat et proposition (v1.1)
 
+v1.1 (2026-10-19, claude-2, revue claude-3 msg 5652, claude-1 msg 5653) : gain « 71 min certaines, jusqu'à ~4 h » ; risque non
+écarté d'une conversation neuve qui écrase la fente de son voisin ; règle de lots « un de {1, 2} et un de {3, 4} » ; rotation de
+`acces-cartes.log` ; § 4 : attente du registre après un relais tué (gardien v1.0.6). nginx est appliqué depuis 23 h 48 (msg 5653).
 v1.0 (2026-10-19, claude-2, claude-1 #tache-22 msg 5648) : première version. **Rien n'est appliqué** : ni nginx, ni
 `vaultia-start.sh`, ni relance. claude-1 appliquera à chaque relance de Qwen, en fin de lot.
 
@@ -25,9 +28,18 @@ Le cache de prompts en RAM n'aide pas : `prompt state size 1673.739 MiB exceeds 
 (`--cache-ram 512`).
 
 **Ce qui justifie le correctif** : avec une carte fixe par Qwen, deux conversations se partagent les deux fentes de leur carte, et
-chacune retrouve la sienne par LCP. Les quatre premières colonnes de pertes (121 depuis 17 h, environ 4 h de calcul de prompt)
-disparaissent alors, que la cause soit un changement de carte ou une éviction par un troisième Qwen. Seules les nouvelles
-conversations (32, 31 min) restent.
+chacune retrouve la sienne par LCP. Gain depuis 17 h : **71 min certaines** (27 changements de carte et 8 évictions attribués),
+**jusqu'à environ 4 h** si les 86 pertes ambiguës ou indéterminées (168 min) relèvent des mêmes causes. Les nouvelles conversations
+(32, 31 min) restent.
+
+**Risque non écarté, à mesurer après la bascule** : une conversation neuve (relance ou `/clear`) a le même préfixe système (~27 k)
+que ses voisines de carte, et llama-server prend la fente au plus long LCP (seuil 0,100 au journal). Un Qwen relancé peut donc
+écraser le cache de son voisin de carte ; l'affinité n'empêche pas ça. `pertes_cache_qwen.py` (« éviction sur la même carte »)
+et `acces-cartes.log` le montreront.
+
+**Compromis** : à 2 Qwen fixes par carte, deux Qwen qui travaillent seuls sur la même carte laissent l'autre vide (la raison du
+`least_conn`). **Règle pour les lots : quand deux Qwen seulement travaillent, prendre un de {qwencode-1, qwencode-2} (carte A) et
+un de {qwencode-3, qwencode-4} (carte B).**
 
 **Limite du comptage** : les journaux ne disent pas quel agent a envoyé la requête. Une conversation est suivie par sa longueur,
 d'où les 70 cas « ambigus » entre changement de carte et éviction. Le journal d'accès proposé au § 2 lève cette limite pour la
@@ -109,13 +121,38 @@ l'adresse : `--openai-base-url http://172.30.0.1:8085/v1` devient `:8086/v1` ou 
   branche `claude2/gardien-url`, empilée sur `1ae5334`). Ce mode remplace **la seule** valeur de `--openai-base-url` dans la
   commande du lanceur et refuse si l'option manque ou est double. Il garde le reste à l'identique, clé comprise, sans l'afficher,
   et valide le tout par `bash -n`. En `--essai` sur la salle réelle (23 h 41) : qwencode-3 → `:8087`, qwencode-1 → `:8086`.
+- **Course à l'emplacement** (incident de 22 h 57, claude-3 msg 5652) : un relais tué reste « actif » au registre jusqu'au
+  crash-timeout (60 s, `app.py:462-468`). Relancé trop tôt, le nouveau relais prend un autre numéro et ferme le TUI d'une autre
+  instance. Gardien v1.0.6 :
+  - en automatique, il tue à une passe et relance à une passe suivante, quand `data/registry.json` ne montre plus l'instance
+    « actif » ni « en attente » ;
+  - en manuel (`--relancer`), il attend après le kill, toutes les 5 s et 75 s au plus. Au plafond, il s'arrête : TUI et lanceur
+    restent en place, et le code de sortie vaut 4.
 - **Limite connue** : si un lanceur `ac-*` a disparu, le gardien reprend la commande d'un lanceur **frère**, qui peut être sur
   l'autre carte. L'instance tourne alors, mais sans affinité jusqu'à sa prochaine relance avec `--url`. Les lanceurs ne
   disparaissent pas d'eux-mêmes : leur `; read` les garde après la mort du relais.
 - **Risque résiduel** : une requête annexe de Qwen Code (compaction, sous-agent) peut prendre la fente de l'autre Qwen de la carte.
   C'est rare ; le journal `acces-cartes.log` et `scripts/pertes_cache_qwen.py` le montreront.
 
-## 5. Mesurer après
+## 5. Rotation de `acces-cartes.log`
+
+Une ligne d'environ 90 octets par requête, soit environ 1 300 requêtes en 6 h ce soir : moins de 1 Mo par jour. Pas d'urgence.
+Proposition, à poser quand claude-1 le décide : un `logrotate` utilisateur (`copytruncate`, donc sans `nginx -s reopen`), lancé
+chaque semaine par un minuteur `systemd --user` :
+
+```text
+# ~/atelier/qwen-switch/nginx/logrotate.conf ; lancé par : logrotate -s ~/.local/state/logrotate-qwen.state <ce fichier>
+/home/charles-antoine/atelier/qwen-switch/nginx/acces-cartes.log {
+  weekly
+  rotate 4
+  compress
+  missingok
+  notifempty
+  copytruncate
+}
+```
+
+## 6. Mesurer après
 
 ```bash
 python3 scripts/pertes_cache_qwen.py "<heure de la bascule>" 10000      # attendu : changement de carte = 0
