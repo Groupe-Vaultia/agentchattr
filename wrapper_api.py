@@ -244,11 +244,13 @@ def main():
                 url = f"http://127.0.0.1:{server_port}/api/projects/{pid}/memory"
             else:
                 url = f"http://127.0.0.1:{server_port}/api/projects/channel/{urllib.parse.quote(channel, safe='')}/memory"
-            with urllib.request.urlopen(urllib.request.Request(url), timeout=3) as resp:
+            # 20 oct. 2026 : sans jeton, 403 avale; l'agent n'a jamais recu sa memoire de projet.
+            req = urllib.request.Request(url, headers=_auth_headers(get_token()))
+            with urllib.request.urlopen(req, timeout=3) as resp:
                 data = json.loads(resp.read())
             return (data.get("memoire", "") or "").strip(), data.get("nom", "") or ""
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"  Memoire de projet illisible ({exc}) : reponse sans memoire", flush=True)
         return "", ""
 
     # Get online agents from server
@@ -373,6 +375,8 @@ def main():
         parts = [system_prompt]
         memoire, nom_projet = get_project_memory(channel, projet_ids)
         if memoire:
+            if len(memoire) > 3000:  # meme borne que wrapper.MAX_MEMOIRE_INJECTEE (~750 jetons)
+                memoire = memoire[:3000] + " […] (memoire tronquee : le detail est dans le depot)"
             parts.append(f"Projet « {nom_projet} » — memoire du projet (contexte a respecter) :\n{memoire}")
         # Inject role if set
         my_role = get_my_role()

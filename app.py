@@ -293,8 +293,11 @@ def _install_security_middleware(token: str, cfg: dict, cible: FastAPI | None = 
             # for /api/messages and /api/send (no browser session needed).
             auth_header = request.headers.get("authorization", "")
             fiche_tache = request.method == "GET" and _re.fullmatch(r"/api/v2/taches/\d+/fiche", path) is not None
+            # Memoire de projet en lecture (20 oct. 2026) : les wrappers la lisaient sans jeton -> 403 avale.
+            memoire = request.method == "GET" and _re.fullmatch(r"/api/projects/(channel/)?[^/]+/memory", path) is not None
             if auth_header.lower().startswith("bearer ") and (path in ("/api/messages", "/api/send")
-                                                              or path.startswith("/api/rules/") or fiche_tache):
+                                                              or path.startswith("/api/rules/") or fiche_tache
+                                                              or memoire):
                 bearer = auth_header[7:].strip()
                 if _self.registry and _self.registry.resolve_token(bearer):
                     return await call_next(request)
