@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Gardien multi-instance des agents CLI : une passe par appel, une décision par instance.
+r"""Gardien multi-instance des agents CLI : une passe par appel, une décision par instance.
 
+v1.0.2 (2026-10-19, claude-2, NO-GO claude-3 msg 5605) : `#{pane_start_command}` est rendu par tmux entre guillemets, avec
+`\"`, `\\`, `\$`, `\t`, `\n` échappés ; relancée telle quelle, la session mourait aussitôt. `deshabiller()` le ramène à la
+commande d'origine dès la lecture, et toute commande doit passer `bash -n` et nommer `wrapper.py` avant qu'on tue quoi que ce soit.
 v1.0.1 (2026-10-19, claude-2, claude-1 msg 5602) : `--relancer base:n`, relance manuelle d'une seule instance (relais, TUI et
 lanceur), refusée si un worktree connu de l'instance a des modifications non commitées, ou si aucun n'est connu, sauf `--force`.
 v1.0 (2026-10-19, claude-2, claude-1 #tache-22 msg 5600) : l'ancien `cli()` de vaultia-watchdog.sh ne regardait que l'instance 1
-(`agentchattr-qwencode`) ; quand elle manquait, `pkill -f "… wrapper\\.py qwencode"` tuait les relais des 4 instances, qui ont la
+(`agentchattr-qwencode`) ; quand elle manquait, `pkill -f "… wrapper\.py qwencode"` tuait les relais des 4 instances, qui ont la
 même ligne de commande, puis n'en relançait qu'un (data/watchdog.log:6149, 19 oct. 17 h 10 : qwencode-3 et -4 sans relais).
 
     python3 scripts/gardien_instances.py claude:3 codex:2 qwencode:4 grok:1           # appelé par vaultia-watchdog.sh
@@ -44,7 +47,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = "v1.0.1"
+VERSION = "v1.0.2"
 RACINE = Path(__file__).resolve().parents[1]
 DEMARRAGE = 120          # s : un lanceur plus jeune n'est pas jugé (son TUI se crée)
 APPARIEMENT = 60         # s : TUI créé au plus tard 60 s après son lanceur
@@ -80,8 +83,39 @@ class Decision:
 
 # --- lectures --------------------------------------------------------------------------------------------------------------
 
-def lire_sessions() -> list[Session]:
-    r = subprocess.run(["tmux", "list-panes", "-a", "-F",
+def deshabiller(brut: str) -> str:
+    r"""Commande d'origine d'un `#{pane_start_command}` : tmux l'entoure de guillemets et échappe \\ \" \$ \` \t \n \r \NNN.
+    Une chaîne qui n'est pas un seul mot entre guillemets est rendue telle quelle ; un guillemet nu au milieu donne « » (illisible)."""
+    if len(brut) < 2 or not (brut.startswith('"') and brut.endswith('"')):
+        return brut
+    s, out, i = brut[1:-1], [], 0
+    simples = {'"': '"', "\\": "\\", "$": "$", "`": "`", "t": "\t", "n": "\n", "r": "\r"}
+    while i < len(s):
+        c = s[i]
+        if c == '"':
+            return ""
+        if c == "\\" and i + 1 < len(s):
+            nxt = s[i + 1]
+            if nxt in simples:
+                out.append(simples[nxt])
+                i += 2
+                continue
+            if re.fullmatch(r"[0-7]{3}", s[i + 1:i + 4]):
+                out.append(chr(int(s[i + 1:i + 4], 8)))
+                i += 4
+                continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def commande_valide(cmd: str) -> bool:
+    """La commande se lit en bash (`bash -n`, rien n'est exécuté) et lance bien un relais."""
+    return bool(cmd) and "wrapper.py" in cmd and subprocess.run(["bash", "-n", "-c", cmd], capture_output=True).returncode == 0
+
+
+def lire_sessions(tmux: tuple[str, ...] = ("tmux",)) -> list[Session]:
+    r = subprocess.run([*tmux, "list-panes", "-a", "-F",
                         "#{session_name}\t#{session_created}\t#{pane_index}\t#{pane_pid}\t#{pane_current_path}\t#{pane_start_command}"],
                        capture_output=True, text=True)
     if r.returncode != 0:
@@ -90,7 +124,7 @@ def lire_sessions() -> list[Session]:
     for l in r.stdout.splitlines():
         nom, cree, idx, pid, chemin, cmd = (l.split("\t", 5) + [""] * 6)[:6]
         if nom not in vus or idx == "0":
-            vus[nom] = Session(nom, float(cree), int(pid), cmd, chemin)
+            vus[nom] = Session(nom, float(cree), int(pid), deshabiller(cmd), chemin)
     return list(vus.values())
 
 
@@ -140,7 +174,7 @@ def commande_defaut(base: str, options: str) -> str:
 
 
 def decider(sessions: list[Session], processus: list[tuple[int, int, bool]], attendu: list[tuple[str, int]],
-            defauts: dict[str, str], maintenant: float) -> list[Decision]:
+            defauts: dict[str, str], maintenant: float, valide=commande_valide) -> list[Decision]:
     par_nom = {s.nom: s for s in sessions}
     pris: set[str] = set()
     out: list[Decision] = []
@@ -181,6 +215,8 @@ def decider(sessions: list[Session], processus: list[tuple[int, int, bool]], att
                       (commande_defaut(base, defauts[base]) if base in defauts else "")
                 if not cmd:
                     d.etat = "sans commande"
+                elif not valide(cmd):
+                    d.etat = "commande illisible (rien n'est tué)"
                 else:
                     d.etat = "relance"
                     if relais:
@@ -248,11 +284,12 @@ def worktrees_connus(base: str, n: int, nb: int, tui: Session | None, worktrees:
 
 
 def plan_relance(base: str, n: int, sessions: list[Session], processus: list[tuple[int, int, bool]], defauts: dict[str, str],
-                 worktrees: list[tuple[str, str]], force: bool, depot=est_depot, sales=non_commites) -> tuple[int, Decision, str]:
+                 worktrees: list[tuple[str, str]], force: bool, depot=est_depot, sales=non_commites,
+                 valide=commande_valide) -> tuple[int, Decision, str]:
     """(code, décision, motif de refus) pour `--relancer base:n`."""
     lanceurs = [s for s in sessions if re.fullmatch(rf"ac-{re.escape(base)}\d*", s.nom)]
     nb = max([n] + [int(s.nom[len(f"ac-{base}"):] or 1) for s in lanceurs])
-    d = next(x for x in decider(sessions, processus, [(base, nb)], {}, float("inf")) if x.lanceur == noms(base, n, nb)[0])
+    d = next(x for x in decider(sessions, processus, [(base, nb)], {}, float("inf"), valide) if x.lanceur == noms(base, n, nb)[0])
     par_nom = {s.nom: s for s in sessions}
     ac, tui = par_nom.get(d.lanceur), par_nom.get(d.tui) if d.tui else None
     d.etat, d.actions = "relance manuelle", []
@@ -269,6 +306,8 @@ def plan_relance(base: str, n: int, sessions: list[Session], processus: list[tup
           (commande_defaut(base, defauts[base]) if base in defauts else "")
     if not cmd:
         return 2, d, "aucune commande de lancement connue (ni lanceur, ni frère, ni --defaut)"
+    if not valide(cmd):
+        return 2, d, "commande de lancement illisible (bash -n) : rien n'est tué"
     if d.relais:
         d.actions.append(("tuer", d.relais))                  # d'abord le relais : sinon il relance le TUI fermé (3 s)
     if tui:

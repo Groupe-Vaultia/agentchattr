@@ -1,5 +1,6 @@
 """Gardien multi-instance (scripts/gardien_instances.py), sans tmux, sans kill réel.
 
+v1.0.2 (2026-10-19, claude-2) : `pane_start_command` déshabillé, vérifié sur un vrai tmux jetable (NO-GO claude-3 msg 5605).
 v1.0.1 (2026-10-19, claude-2) : relance manuelle `--relancer base:n` (claude-1 msg 5602).
 v1.0 (2026-10-19, claude-2) : l'ancien cli() de vaultia-watchdog.sh tuait par pkill les relais de toutes les instances d'une
 famille quand l'instance 1 manquait (claude-1 #tache-22 msg 5600).
@@ -8,9 +9,12 @@ famille quand l'instance 1 manquait (claude-1 #tache-22 msg 5600).
 import contextlib
 import importlib.util
 import io
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import unittest.mock
 from pathlib import Path
@@ -214,6 +218,70 @@ class TestRelanceManuelle(unittest.TestCase):
                           worktrees=[("/a/wt-qwencode3-freins", "")], depot=lambda c: False, sales=lambda c: 2)
         self.assertEqual((code, f.run), (3, []))
         self.assertIn("refusée : modifications non commitées : /a/wt-qwencode3-freins (2)", s2.getvalue())
+
+
+class TestCommandeTmux(unittest.TestCase):
+    """Vrai tmux sur un socket jetable (-S, sans TMUX hérité) : rien du serveur réel n'est touché."""
+    ORIGINE = 'env PATH="$PATH" FOO="a b" X=\\$HOME sleep 120; read # wrapper.py essai'
+
+    def setUp(self):
+        if not shutil.which("tmux"):
+            self.skipTest("tmux absent")
+        self.dossier = tempfile.mkdtemp(prefix="tmx.", dir="/tmp")
+        self.tmux = ("tmux", "-S", os.path.join(self.dossier, "s"))
+        self.env = {k: v for k, v in os.environ.items() if k not in ("TMUX", "TMUX_PANE")}
+        self._t("new-session", "-d", "-s", "garde", "sleep 600")             # garde le serveur jetable en vie
+
+    def tearDown(self):
+        self._t("kill-server")
+        shutil.rmtree(self.dossier, ignore_errors=True)
+
+    def _t(self, *args):
+        return subprocess.run([*self.tmux, *args], capture_output=True, text=True, env=self.env)
+
+    def _run(self, cmd, **kw):                                               # executer() parle à ce tmux-ci
+        return subprocess.run([*self.tmux, *cmd[1:]], env=self.env, **kw)
+
+    def _vivante(self, nom):
+        r = self._t("display-message", "-p", "-t", f"={nom}:", "#{pane_dead}")
+        return r.returncode == 0 and r.stdout.strip() == "0"
+
+    def test_brut_mort_ne_deshabille_vivant(self):
+        self._t("new-session", "-d", "-s", "ac-x", self.ORIGINE)
+        brut = self._t("display-message", "-p", "-t", "=ac-x:", "#{pane_start_command}").stdout.rstrip("\n")
+        self.assertTrue(brut.startswith('"') and brut.endswith('"'))           # ce que rend tmux (claude-3 msg 5605)
+        self.assertEqual(G.deshabiller(brut), self.ORIGINE)
+        lue = next(s for s in G.lire_sessions(self.tmux) if s.nom == "ac-x")
+        self.assertEqual(lue.commande, self.ORIGINE)
+        self.assertTrue(G.commande_valide(lue.commande))
+        # l'ancienne relance (chaîne brute) : session mort-née
+        self._t("kill-session", "-t", "=ac-x")
+        self._t("new-session", "-d", "-s", "ac-brut", "-c", "/tmp", brut)
+        time.sleep(0.3)
+        self.assertFalse(self._vivante("ac-brut"))
+        # la relance du gardien : vivante
+        d = G.Decision("x-1", "ac-x", None, None, "relance", [("lancer", "ac-x", lue.commande)])
+        G.executer([d], run=self._run, tuer=lambda *a: None, dormir=lambda s: None)
+        time.sleep(0.3)
+        self.assertTrue(self._vivante("ac-x"))
+
+    def test_commande_illisible_rien_n_est_tue(self):
+        s = salle(sans={"agentchattr-qwencode-2"})
+        for x in s:
+            if x.nom == "ac-qwencode2":
+                x.commande = G.deshabiller('"a" "b"')                         # deux mots : illisible
+        f = _Faux()
+        d = par_instance(G.decider([x for x in s if x.nom != "ac-qwencode"], PROCESSUS, ATTENDU, {}, MAINTENANT,
+                                   valide=G.commande_valide))["qwencode-2"]
+        self.assertEqual(d.actions[-1][2], CMD["qwencode"])                  # repli sur un frère lisible
+        s2 = [x for x in s if not x.nom.startswith("ac-qwencode") or x.nom == "ac-qwencode2"]
+        d = par_instance(G.decider(s2, PROCESSUS, ATTENDU, {}, MAINTENANT))["qwencode-2"]
+        self.assertEqual((d.etat, d.actions), ("sans commande", []))
+        s3 = salle(sans={"agentchattr-qwencode-2"})
+        d = par_instance(G.decider(s3, PROCESSUS, ATTENDU, {}, MAINTENANT, valide=lambda c: False))["qwencode-2"]
+        self.assertEqual((d.etat, d.actions), ("commande illisible (rien n'est tué)", []))
+        G.executer([d], run=f.lancer, tuer=f.tuer, dormir=lambda s: None)
+        self.assertEqual((f.run, f.tues), ([], []))
 
 
 class TestGardienBash(unittest.TestCase):
