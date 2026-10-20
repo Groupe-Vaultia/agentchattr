@@ -1,5 +1,7 @@
 """Salle sobre : ce qu'un agent lit du fil d'une tache, et la preuve qu'il lit la base plutot que le fil.
 
+v1.2 (20 oct. 2026, claude) : borne de la memoire de projet injectee, reglable par `[sobriete] memoire_max`
+dans la config (defaut 3000 caracteres, entre 500 et 50000); `borner_memoire` le dit quand il coupe.
 v1.1 (20 oct. 2026, claude, revue independante) :
 - un message de l'agent qui le @mentionne lui-meme (rappel auto-adresse du chef, R14) est garde;
 - `base` : nom de base fourni par le registre (instance renommee, ex. claude-music, reconnue sur @claude);
@@ -23,6 +25,26 @@ from pathlib import Path
 from jobs import tache_du_canal
 
 _SLOT = re.compile(r"-\d+$")
+
+
+MEMOIRE_MAX_DEFAUT = 3000
+_MEMOIRE_MIN, _MEMOIRE_PLAFOND = 500, 50000
+
+
+def memoire_max(config: dict | None) -> int:
+    """Borne de la memoire de projet injectee au reveil, lue dans `[sobriete] memoire_max`."""
+    try:
+        v = int(((config or {}).get("sobriete") or {}).get("memoire_max", MEMOIRE_MAX_DEFAUT))
+    except (TypeError, ValueError):
+        return MEMOIRE_MAX_DEFAUT
+    return max(_MEMOIRE_MIN, min(v, _MEMOIRE_PLAFOND))
+
+
+def borner_memoire(memoire: str, maxi: int = MEMOIRE_MAX_DEFAUT) -> str:
+    memoire = str(memoire or "")
+    if len(memoire) <= maxi:
+        return memoire
+    return memoire[:maxi] + f" […] (memoire tronquee a {maxi} caracteres sur {len(memoire)} : le detail est dans le depot)"
 
 
 def est_canal_tache(canal: str | None) -> bool:

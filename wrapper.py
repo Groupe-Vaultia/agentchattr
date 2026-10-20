@@ -29,6 +29,8 @@ import threading
 import time
 from pathlib import Path
 
+import sobriete as _sobriete
+
 ROOT = Path(__file__).parent
 
 SERVER_NAME = "agentchattr"
@@ -690,7 +692,15 @@ def _fetch_role(server_port: int, agent_name: str) -> str:
         return ""
 
 
-def _fetch_trigger_memory(server_port: int, projet_ids: set, channel: str) -> tuple[str, str]:
+# Borne de la memoire injectee (caracteres) : `[sobriete] memoire_max` dans la config, lue au demarrage (main).
+MAX_MEMOIRE_INJECTEE = _sobriete.MEMOIRE_MAX_DEFAUT
+
+
+def _borner_memoire(memoire: str) -> str:
+    return _sobriete.borner_memoire(memoire, MAX_MEMOIRE_INJECTEE)
+
+
+def _fetch_trigger_memory(server_port: int, projet_ids: set, channel: str, token: str = "") -> tuple[str, str]:
     """SOCLE-SHOP S1 : la memoire du projet de CE declenchement, jamais celle d'un projet global.
     - un seul projet_id dans les entrees de file : sa memoire (inconnu = 404 = aucune) ;
     - plusieurs projets melanges dans le meme lot, ou un projet + une entree sans projet : aucune ;
@@ -707,10 +717,14 @@ def _fetch_trigger_memory(server_port: int, projet_ids: set, channel: str) -> tu
             url = f"http://127.0.0.1:{server_port}/api/projects/{pid}/memory"
         else:
             url = f"http://127.0.0.1:{server_port}/api/projects/channel/{urllib.parse.quote(channel, safe='')}/memory"
-        with urllib.request.urlopen(urllib.request.Request(url), timeout=3) as resp:
+        # 20 oct. 2026 : sans jeton, le middleware refusait (403) et l'erreur etait avalee : la memoire de projet
+        # n'atteignait jamais les agents CLI. Le jeton de l'agent est accepte en lecture sur ces deux routes.
+        req = urllib.request.Request(url, headers=_auth_headers(token) if token else {})
+        with urllib.request.urlopen(req, timeout=3) as resp:
             data = json.loads(resp.read())
         return (data.get("memoire", "") or "").strip(), data.get("nom", "") or ""
-    except Exception:
+    except Exception as exc:
+        print(f"  Memoire de projet illisible ({exc}) : reveil sans memoire")
         return "", ""
 
 
@@ -795,6 +809,7 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
     first_mention = True
     last_rules_epoch = 0  # 0 = unknown/cold start — will inject on first trigger
     trigger_count = 0
+    memoires_vues: dict[str, str] = {}  # projet -> empreinte de la memoire deja injectee dans ce contexte
     while True:
         try:
             _, queue_file = get_identity_fn()
@@ -875,12 +890,10 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
                     if role:
                         prompt += f"\n\nROLE: {role}"
 
-                    memoire_projet, nom_projet = _fetch_trigger_memory(server_port, projet_ids, channel)
-                    if memoire_projet:
-                        prompt += f"\n\nPROJET « {nom_projet} » — memoire du projet (contexte a respecter) :\n{memoire_projet}"
+                    _token = get_token_fn() if get_token_fn else ""
+                    memoire_projet, nom_projet = _fetch_trigger_memory(server_port, projet_ids, channel, _token)
 
                     # Smart rules injection: first trigger, epoch change, or periodic refresh
-                    _token = get_token_fn() if get_token_fn else ""
                     rules_data = _fetch_active_rules(server_port, _token)
                     trigger_count += 1
                     # Auto-clear: bound context growth. Every N triggers, reset
@@ -891,7 +904,22 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
                         if clear_fn():
                             last_rules_epoch = 0
                             first_mention = True
+                            memoires_vues.clear()
                             print(f"  AUTO-CLEAR: contexte réinitialisé après {trigger_count} déclenchements")
+                    # Memoire de projet (salle sobre) : un agent CLI garde son historique d'un reveil a l'autre.
+                    # On ne la reinjecte que si elle a change, apres un nettoyage de contexte, ou aux
+                    # refresh_interval reveils (comme les regles); sinon une ligne de rappel suffit.
+                    if memoire_projet:
+                        empreinte = hashlib.sha256(memoire_projet.encode("utf-8")).hexdigest()
+                        ri_mem = (rules_data or {}).get("refresh_interval", refresh_interval)
+                        if (memoires_vues.get(nom_projet) != empreinte
+                                or (ri_mem > 0 and trigger_count % ri_mem == 0)):
+                            prompt += (f"\n\nPROJET « {nom_projet} » — memoire du projet (contexte a respecter) :\n"
+                                       f"{_borner_memoire(memoire_projet)}")
+                            memoires_vues[nom_projet] = empreinte
+                        else:
+                            prompt += f"\n\nPROJET « {nom_projet} » : memoire inchangee depuis ton dernier reveil."
+
                     if rules_data:
                         # Use server-side refresh_interval (live from settings UI)
                         ri = rules_data.get("refresh_interval", refresh_interval)
@@ -958,6 +986,8 @@ def main():
 
     agent = args.agent
     agent_cfg = config.get("agents", {}).get(agent, {})
+    global MAX_MEMOIRE_INJECTEE
+    MAX_MEMOIRE_INJECTEE = _sobriete.memoire_max(config)
     cwd = agent_cfg.get("cwd", ".")
     command = agent_cfg.get("command", agent)
     data_dir = ROOT / config.get("server", {}).get("data_dir", "./data")

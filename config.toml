@@ -105,6 +105,11 @@ max_agent_hops = 4
 # Agent reveille quand le loop guard coupe un canal ("" = personne).
 chef = "claude-1"
 
+# Salle sobre : borne de la memoire de projet injectee au reveil (caracteres, 500 a 50000, defaut 3000).
+# GET /api/v2/sobriete montre la taille de chaque memoire et celles qui depassent.
+# [sobriete]
+# memoire_max = 3000
+
 [mcp]
 http_port = 8200
 sse_port = 8201

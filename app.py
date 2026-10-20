@@ -293,8 +293,11 @@ def _install_security_middleware(token: str, cfg: dict, cible: FastAPI | None = 
             # for /api/messages and /api/send (no browser session needed).
             auth_header = request.headers.get("authorization", "")
             fiche_tache = request.method == "GET" and _re.fullmatch(r"/api/v2/taches/\d+/fiche", path) is not None
+            # Memoire de projet en lecture (20 oct. 2026) : les wrappers la lisaient sans jeton -> 403 avale.
+            memoire = request.method == "GET" and _re.fullmatch(r"/api/projects/(channel/)?[^/]+/memory", path) is not None
             if auth_header.lower().startswith("bearer ") and (path in ("/api/messages", "/api/send")
-                                                              or path.startswith("/api/rules/") or fiche_tache):
+                                                              or path.startswith("/api/rules/") or fiche_tache
+                                                              or memoire):
                 bearer = auth_header[7:].strip()
                 if _self.registry and _self.registry.resolve_token(bearer):
                     return await call_next(request)
@@ -1867,7 +1870,18 @@ async def rapport_sobriete():
     """Par agent : lectures de la base (fiche) contre lectures du fil, et ce que le filtre a evite."""
     if sobriete is None:
         return JSONResponse({"error": "compteur indisponible"}, status_code=503)
-    return JSONResponse(sobriete.rapport())
+    rapport = sobriete.rapport()
+    # Taille de chaque memoire de projet face a la borne d'injection : jamais le texte lui-meme (R3, R4).
+    borne = _sobriete.memoire_max(config)
+    try:
+        projets = _projets.lister()["v2"]["projets"]
+    except Exception:
+        projets = {}
+    rapport["memoires"] = {"borne": borne, "projets": sorted(
+        ({"id": pid, "nom": p.get("nom", ""), "statut": p.get("statut", ""),
+          "caracteres": len(p.get("memoire") or ""), "tronquee": len(p.get("memoire") or "") > borne}
+         for pid, p in projets.items()), key=lambda m: -m["caracteres"])}
+    return JSONResponse(rapport)
 
 
 @app.post("/api/send")
