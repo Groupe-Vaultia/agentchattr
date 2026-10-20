@@ -91,6 +91,7 @@ def main():
     import app as _app_mod
     mcp_bridge.revisions = _app_mod.revisions
     mcp_bridge.maj_tache = _app_mod.appliquer_maj_tache
+    mcp_bridge.sobriete = _app_mod.sobriete  # meme compteur pour le pont MCP et /api/messages
 
     # Enable cursor and role persistence across restarts
     data_dir = ROOT / config.get("server", {}).get("data_dir", "./data")

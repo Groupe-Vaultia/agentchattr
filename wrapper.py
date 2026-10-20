@@ -714,6 +714,33 @@ def _fetch_trigger_memory(server_port: int, projet_ids: set, channel: str) -> tu
         return "", ""
 
 
+_CANAL_TACHE_RE = re.compile(r"^tache-([1-9][0-9]{0,13})$")
+
+
+def _fetch_fiche(server_port: int, tache_id: int, token: str = "") -> dict | None:
+    """Salle sobre lot 2 : fiche de la tache, lue avec le jeton de l'agent (le serveur la compte « au reveil »)."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{server_port}/api/v2/taches/{int(tache_id)}/fiche?reveil=1",
+                                     headers=_auth_headers(token) if token else {})
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read())
+        return data if isinstance(data, dict) and data.get("tache_id") else None
+    except Exception:
+        return None
+
+
+def _prompt_tache(fiche: dict, canal: str, nom: str) -> str:
+    """Invite de reveil dans un canal de tache : la fiche d'abord, le fil seulement pour ce qui t'est adresse."""
+    tid = fiche.get("tache_id")
+    return (f"Tu es {nom}, mentionne dans #{canal} (tache {tid}). FICHE DE LA TACHE (l'etat a jour, inutile de "
+            f"relire le fil pour le connaitre) : {json.dumps(fiche, ensure_ascii=False)} . "
+            f"Les messages qui te sont adresses : chat_read(sender='{nom}', channel='{canal}') "
+            f"(filtre : humains et @{nom} seulement). Ecris ton avancement avec tache_maj, tes fichiers avec "
+            f"livrable_deposer (chemin), tes decisions avec decision_noter. Dans le fil : une ligne courte, "
+            f"seulement si un humain doit le savoir ou pour passer le relais (@agent).")
+
+
 def _fetch_active_rules(server_port: int, token: str = "") -> dict | None:
     """Fetch active rules from the server."""
     try:
@@ -820,8 +847,16 @@ def _queue_watcher(get_identity_fn, inject_fn, *, is_multi_instance: bool = Fals
 
                     # Use current identity (may have changed via rename)
                     current_name, _ = get_identity_fn()
+                    # Salle sobre lot 2 : dans un canal de tache, la fiche remplace « lis le canal ».
+                    fiche = None
+                    m_tache = _CANAL_TACHE_RE.match(str(channel)) if not job_id else None
+                    if not custom_prompt and m_tache:
+                        fiche = _fetch_fiche(server_port, int(m_tache.group(1)),
+                                             get_token_fn() if get_token_fn else "")
                     if custom_prompt:
                         prompt = custom_prompt
+                    elif fiche:
+                        prompt = _prompt_tache(fiche, channel, current_name)
                     elif trigger_prompt:
                         cible = f"job_id={job_id}" if job_id else f"channel='{channel}'"
                         prompt = trigger_prompt.replace("{name}", current_name).replace("{cible}", cible)

@@ -25,6 +25,7 @@ from executions import ExecutionStore
 import historique as _historique
 from revisions import RevisionStore
 import revisions as _revisions_mod
+import sobriete as _sobriete
 from jalons import JalonStore
 from pieces import PieceStore, Erreur as _ErreurPiece
 import jalons as _jalons_mod
@@ -48,6 +49,7 @@ summaries: SummaryStore | None = None
 jobs: JobStore | None = None
 executions: ExecutionStore | None = None  # SOCLE-SHOP S3
 revisions: RevisionStore | None = None  # SOCLE-SHOP S5
+sobriete: _sobriete.Compteur | None = None  # salle sobre lots 2-3 : lectures base contre fil
 jalons: JalonStore | None = None  # SOCLE-SHOP v1.1 P1
 pieces: PieceStore | None = None  # PIECES.md N1
 _copie_pieces = [""]
@@ -290,7 +292,9 @@ def _install_security_middleware(token: str, cfg: dict, cible: FastAPI | None = 
             # Allow registered agents to authenticate via Bearer token
             # for /api/messages and /api/send (no browser session needed).
             auth_header = request.headers.get("authorization", "")
-            if auth_header.lower().startswith("bearer ") and (path in ("/api/messages", "/api/send") or path.startswith("/api/rules/")):
+            fiche_tache = path.startswith("/api/v2/taches/") and path.endswith("/fiche") and request.method == "GET"
+            if auth_header.lower().startswith("bearer ") and (path in ("/api/messages", "/api/send")
+                                                              or path.startswith("/api/rules/") or fiche_tache):
                 bearer = auth_header[7:].strip()
                 if _self.registry and _self.registry.resolve_token(bearer):
                     return await call_next(request)
@@ -307,6 +311,7 @@ def _install_security_middleware(token: str, cfg: dict, cible: FastAPI | None = 
 
 
 def configure(cfg: dict, session_token: str = ""):
+    global sobriete
     global store, rules, summaries, jobs, executions, revisions, jalons, pieces, schedules, router, agents, registry, session_store, session_engine, config, notifs
     config = cfg
     # --- Security: store the session token and install middleware ---
@@ -353,6 +358,7 @@ def configure(cfg: dict, session_token: str = ""):
     # Les livrables vivent dans les worktrees de l'atelier ; un chemin hors de cette racine est refuse.
     racine = cfg.get("socle", {}).get("racine_livrables", str(Path.home() / "atelier"))
     revisions = RevisionStore(str(Path(data_dir) / "revisions.json"), racine)
+    sobriete = _sobriete.Compteur(Path(data_dir) / "sobriete.json")
     jalons = JalonStore(str(Path(data_dir) / "jalons.json"))
     # PIECES.md N1 : la base des pieces vit sur la tour, dans data/ (exclu du depot public).
     pieces = PieceStore(str(Path(data_dir) / "pieces.db"))
@@ -1806,12 +1812,57 @@ def _etiquettes(projet_id, tache_id, channel: str = "") -> tuple[str | None, int
     return tache["projet_id"], tache_id, ""
 
 
+def _agent_du_jeton(request: Request) -> str:
+    """Nom de l'agent si la requete porte un jeton Bearer d'agent enregistre, sinon ''."""
+    auth = request.headers.get("authorization", "")
+    if not auth.lower().startswith("bearer ") or registry is None:
+        return ""
+    inst = registry.resolve_token(auth[7:].strip())
+    return inst["name"] if inst else ""
+
+
 @app.get("/api/messages")
-async def get_messages(since_id: int = 0, limit: int = 50, channel: str = ""):
+async def get_messages(request: Request, since_id: int = 0, limit: int = 50, channel: str = "",
+                       complet: bool = False):
     ch = channel if channel else None
-    if since_id:
-        return store.get_since(since_id, channel=ch)
-    return store.get_recent(limit, channel=ch)
+    msgs = store.get_since(since_id, channel=ch) if since_id else store.get_recent(limit, channel=ch)
+    # Salle sobre : un AGENT (jeton Bearer) qui lit un canal de tache ne recoit que les messages des humains et
+    # ceux qui le mentionnent; l'etat est dans la fiche. L'interface (jeton de session) voit tout, comme avant.
+    agent = _agent_du_jeton(request)
+    if agent and _sobriete.est_canal_tache(ch):
+        if complet:
+            if sobriete is not None:
+                sobriete.ajouter(agent, lecture_complete=1)
+        else:
+            msgs, masques = _sobriete.filtrer_pour(msgs, agent, _humains())
+            if sobriete is not None:
+                sobriete.masquer(agent, masques)
+    return msgs
+
+
+@app.get("/api/v2/taches/{tache_id}/fiche")
+async def fiche_tache(tache_id: int, request: Request, pour: str = "", reveil: bool = False):
+    """Fiche de travail d'une tache (taille bornee). Un agent (jeton Bearer) la lit pour lui-meme : `pour` est
+    alors son nom, quel que soit le parametre. `reveil=1` : injectee par le wrapper au declenchement."""
+    tache = jobs.get(tache_id) if jobs else None
+    if not tache or not tache.get("projet_id"):
+        return JSONResponse({"error": "tache inconnue"}, status_code=404)
+    agent = _agent_du_jeton(request)
+    qui = agent or pour
+    livrables = []
+    if revisions is not None:
+        livrables = [l for l in revisions.livrables(tache["projet_id"]) if str(l.get("tache_id", "")) == str(tache_id)]
+    if agent and sobriete is not None:
+        sobriete.ajouter(agent, **({"fiche_au_reveil": 1} if reveil else {"tache_lire": 1}))
+    return JSONResponse(_jobs_mod.fiche(tache, pour=qui, livrables=livrables))
+
+
+@app.get("/api/v2/sobriete")
+async def rapport_sobriete():
+    """Par agent : lectures de la base (fiche) contre lectures du fil, et ce que le filtre a evite."""
+    if sobriete is None:
+        return JSONResponse({"error": "compteur indisponible"}, status_code=503)
+    return JSONResponse(sobriete.rapport())
 
 
 @app.post("/api/send")

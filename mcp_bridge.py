@@ -14,6 +14,8 @@ from pathlib import Path
 
 from mcp.server.fastmcp import Context, FastMCP
 
+import sobriete as _sobriete
+
 log = logging.getLogger(__name__)
 
 # Shared state — set by run.py before starting
@@ -732,9 +734,14 @@ def chat_read(
     limit: int = 20,
     channel: str = "",
     job_id: int = 0,
+    complet: bool = False,
     ctx: Context | None = None,
 ) -> str:
     """Read chat messages. Returns JSON array with: id, sender, text, type, time, channel.
+
+    Salle sobre : dans un canal tache-N, tu recois seulement les messages des humains et ceux qui
+    t'@mentionnent. L'etat de la tache (travail des autres, decisions, livrables) est dans tache_lire.
+    complet=True rend tout le canal : seulement si la fiche ne suffit pas, et dis pourquoi dans le fil.
 
     Smart defaults:
     - First call with sender: returns last `limit` messages (full context).
@@ -816,11 +823,23 @@ def chat_read(
         msgs = store.get_recent(limit, channel=ch)
 
     msgs = msgs[-limit:]
-    _update_cursor(sender, msgs, ch)
+    _update_cursor(sender, msgs, ch)   # le curseur avance aussi sur les messages masques : ils ne reviennent pas
+    note_sobre = ""
+    if sender and _sobriete.est_canal_tache(ch) and sender.lower() not in _humains_salle():
+        if complet:
+            if sobriete is not None:
+                sobriete.ajouter(sender, lecture_complete=1)
+        else:
+            msgs, masques = _sobriete.filtrer_pour(msgs, sender, _humains_salle())
+            if sobriete is not None:
+                sobriete.masquer(sender, masques)
+            note_sobre = _sobriete.note_masques(masques, ch)
     serialized = _serialize_messages(msgs)
     _note_pj = _hint_pieces_jointes(msgs, sender)
     if _note_pj:
         serialized = f"{serialized}\n\n{_note_pj}" if serialized else _note_pj
+    if note_sobre:
+        serialized = f"{serialized}\n\n{note_sobre}" if serialized else note_sobre
 
     # Escalating empty-read hints to discourage polling loops
     if not serialized and sender:
@@ -866,6 +885,9 @@ def chat_resync(
     ch = channel if channel else None
     msgs = store.get_recent(limit, channel=ch)
     _update_cursor(sender, msgs, ch)
+    # Salle sobre : une resynchronisation d'un canal de tache est une lecture complete, et comptee comme telle.
+    if sobriete is not None and _sobriete.est_canal_tache(ch) and sender.lower() not in _humains_salle():
+        sobriete.ajouter(sender, lecture_complete=1)
     serialized = _serialize_messages(msgs)
     return serialized
 
@@ -1107,7 +1129,16 @@ def chat_summary(
 # ---------------------------------------------------------------------------
 
 revisions = None   # set by run.py — RevisionStore (livrables figes par empreinte)
+sobriete = None    # set by run.py — sobriete.Compteur (lots 2-3 : preuve que la base est lue)
 maj_tache = None   # set by run.py — app.appliquer_maj_tache(tache_id, champs) -> (tache, err)
+
+
+def _humains_salle() -> set[str]:
+    """Les noms sous lesquels Charles ecrit (meme definition que app._humains)."""
+    noms = {"user"}
+    if room_settings:
+        noms.add(str(room_settings.get("username") or "user"))
+    return {n.lower() for n in noms}
 
 
 def _tache_ou_erreur(tache_id: int) -> tuple[dict | None, str]:
@@ -1145,6 +1176,8 @@ def tache_lire(sender: str, tache_id: int, ctx: Context | None = None) -> str:
     if err:
         return err
     import jobs as _jobs_mod
+    if sobriete is not None:
+        sobriete.ajouter(sender, tache_lire=1)
     return json.dumps(_jobs_mod.fiche(t, pour=sender, livrables=_livrables_de(t)), ensure_ascii=False)
 
 
