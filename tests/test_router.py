@@ -125,6 +125,37 @@ class RouterProgressGuardTests(unittest.TestCase):
         self.assertFalse(router.is_paused("general"))
 
 
+class RouterMentionsDansLeCodeTests(unittest.TestCase):
+    """Une mention citée dans du code n'est pas une mention (#tache-26 msg 6772 : un message qui citait la règle entre
+    accents graves a réveillé tous les agents et fait sauter le Loop guard)."""
+
+    def test_mention_en_code_en_ligne_ignoree(self):
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(router.parse_mentions("La règle compte les messages à `@all` et `@both`."), [])
+        self.assertEqual(router.parse_mentions("Cite ``@b`` sans le réveiller."), [])
+        self.assertEqual(router.get_targets("a", "Seuls comptent les relais à `@all`.", "general"), [])
+
+    def test_mention_dans_un_bloc_de_code_ignoree(self):
+        router = Router(["a", "b", "c"], default_mention="none")
+        bloc = "Exemple :\n```\nrouter.get_targets('a', '@b merci', 'general')\n@all\n```\nFin."
+        self.assertEqual(router.parse_mentions(bloc), [])
+        self.assertEqual(router.parse_mentions("Bloc non refermé :\n```\n@c relance"), [])
+
+    def test_mention_ordinaire_compte_toujours(self):
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(router.parse_mentions("@b relis `@c` puis réponds"), ["b"])
+        self.assertEqual(router.parse_mentions("Après le bloc ```@c``` : @a, à toi."), ["a"])
+        self.assertEqual(sorted(router.get_targets("a", "@b et @c, voyez `@all`", "general")), ["b", "c"])
+        self.assertFalse(router.is_paused("general"))
+
+    def test_all_en_code_ne_compte_pas_comme_diffusion(self):
+        # Trois groupes différents, chacun citant la règle entre accents graves : aucune diffusion, donc aucune pause.
+        router = Router(["a", "b", "c"], default_mention="none", max_hops=2)
+        for de, vers in (("a", "b"), ("b", "c"), ("c", "a")):
+            self.assertEqual(router.get_targets(de, f"@{vers} voir `@all`", "general"), [vers])
+        self.assertFalse(router.is_paused("general"))
+
+
 class RouterPaireTests(unittest.TestCase):
     """Loop guard par groupe (21 oct. 2026) : seuls comptent les relais consécutifs du même groupe d'agents (expéditeur et
     destinataires) et les messages d'agent à @all/@both ; un relais vers un autre groupe repart à 1. Mesure sur le journal

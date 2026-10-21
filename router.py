@@ -2,6 +2,16 @@
 
 import re
 
+# Code dans un message (21 oct. 2026, #tache-26 msg 6772) : une mention citée entre accents graves, ou dans un bloc
+# délimité par trois accents graves, n'est pas une mention. Sinon un message qui parle de la règle (« `@all` »)
+# réveille tout le monde. Un bloc non refermé court jusqu'à la fin du message.
+_CODE_RE = re.compile(r"```.*?(?:```|\Z)|``[^\n]*?``|`[^`\n]*`", re.DOTALL)
+
+
+def sans_code(text: str) -> str:
+    """Le texte sans le code en ligne ni les blocs de code (remplacés par une espace)."""
+    return _CODE_RE.sub(" ", text or "")
+
 
 class Router:
     def __init__(self, agent_names: list[str], default_mention: str = "both",
@@ -41,7 +51,7 @@ class Router:
 
     def parse_mentions(self, text: str) -> list[str]:
         mentions = set()
-        for match in self._mention_re.finditer(text):
+        for match in self._mention_re.finditer(sans_code(text)):
             name = match.group(1).lower()
             if name in ("both", "all"):
                 # Only tag online agents when using @all
@@ -91,7 +101,7 @@ class Router:
             # copie) qui revient a chaque relais, ou des messages d'agent a @all/@both. Seuls ces relais comptent ; un
             # relais vers un autre groupe repart a 1. L'orchestration du chef (« chef -> a + b », puis « a -> chef » :
             # deux groupes) ne s'accumule plus, et un agent ne leve toujours pas une pause (seul un humain).
-            diffusion = bool(self._diffusion_re.search(text))
+            diffusion = bool(self._diffusion_re.search(sans_code(text)))
             paire = frozenset([sender.lower(), *cibles])
             if diffusion or paire == ch["paire"]:
                 ch["hop_count"] += 1
