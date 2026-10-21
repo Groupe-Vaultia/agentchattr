@@ -1,4 +1,14 @@
-"""Message routing based on @mentions with per-channel loop guard."""
+"""Message routing based on @mentions with per-channel loop guard.
+
+Loop guard par groupe (21 oct. 2026) : seuls comptent les relais d'agent consecutifs du meme groupe de participants
+(expediteur + destinataires) et les messages d'agent a @all/@both ; un relais vers un autre groupe repart a 1 ; seul un
+humain leve une pause. Limites connues de la regle « meme groupe » :
+- un cycle a trois sans copie (A -> B, B -> C, C -> A) change de groupe a chaque relais et n'est jamais compte ;
+- une boucle A <-> B qui met C en copie un relais sur quatre alterne les groupes ({A, B} trois fois, puis {A, B, C}) :
+  la suite ne depasse pas 3, et 60 relais passent sans pause au seuil 4 (revue N3 de codex-2, #tache-26 msg 6777).
+Toutes deux supposent des agents qui changent de destinataires a dessein ; aucune n'a ete vue dans le journal depuis le
+21 sept. 2026.
+"""
 
 import re
 

@@ -233,6 +233,19 @@ class RouterPaireTests(unittest.TestCase):
             self.assertEqual(router.get_targets("b", f"@chef revu {i}", "tache-21"), ["chef"])
         self.assertFalse(router.is_paused("tache-21"))
 
+    def test_limites_connues_de_la_regle_par_groupe(self):
+        # Documentées dans la docstring de router.py : elles passent sans pause (ce test casse si la règle change).
+        router = Router(["a", "b", "c"], default_mention="none", max_hops=4)
+        for i in range(60):                                       # A <-> B, C en copie un relais sur quatre
+            de, vers = ("a", "b") if i % 2 == 0 else ("b", "a")
+            texte = f"@{vers} @c suite" if i % 4 == 3 else f"@{vers} suite"
+            self.assertNotEqual(router.get_targets(de, texte, "limite-copie"), [])
+        self.assertFalse(router.is_paused("limite-copie"))
+        for i in range(60):                                       # cycle à trois sans copie
+            de, vers = [("a", "b"), ("b", "c"), ("c", "a")][i % 3]
+            router.get_targets(de, f"@{vers} suite", "limite-cycle")
+        self.assertFalse(router.is_paused("limite-cycle"))
+
     def test_seul_un_humain_leve_la_pause(self):
         router = Router(["a", "b", "c"], default_mention="none", max_hops=2)
         for de, vers in (("a", "b"), ("b", "a"), ("a", "b")):
