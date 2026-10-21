@@ -1280,6 +1280,20 @@ def _ws_autorise(websocket) -> bool:
     return jeton_valide({}, websocket.query_params, websocket.cookies)
 
 
+def _est_agent_connu(sender: str) -> bool:
+    """Un agent connu (instance enregistree, nom de famille ou agent du routeur), sans tenir compte de la casse. Sur le
+    WebSocket, l'expediteur vient de l'evenement : /continue y est refuse a un agent, comme sur le chemin MCP."""
+    nom = (sender or "").strip().lower()
+    noms = set()
+    if registry:
+        noms |= {n.lower() for n in registry.get_all_names()}
+        noms |= {b.lower() for b in registry.get_bases()}
+    if router:
+        noms |= set(router.agent_names)
+    famille = _re.match(r"^(.+)-\d+$", nom)                  # « claude-1 » : instance d'une famille connue
+    return nom in noms or bool(famille and famille.group(1) in noms)
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     # --- Security: validate session token on WebSocket connect ---
@@ -1379,7 +1393,12 @@ async def websocket_endpoint(websocket: WebSocket):
                         await broadcast_clear(channel=channel)
                         continue
                     if cmd == "/continue":
-                        router.continue_routing()
+                        # Seul un humain leve une pause, et seulement dans le canal vise (revue N3, #tache-26 msg 6777)
+                        if _est_agent_connu(sender):
+                            store.add("system", f"Loop guard: only humans can /continue. {sender} tried to self-resume.",
+                                      msg_type="system", channel=channel)
+                            continue
+                        router.continue_routing(channel)
                         store.add("system", "Resuming agent conversation...", msg_type="system", channel=channel)
                         await broadcast_status()
                         continue
