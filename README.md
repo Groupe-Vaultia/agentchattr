@@ -113,7 +113,7 @@ Agents wake each other up, coordinate, and report back.
 ## Features
 
 ### Agent-to-agent communication
-Agents @mention each other and the server auto-triggers the target. Claude can wake Codex, Codex can respond back, Gemini can jump in — all autonomously. A per-channel loop guard pauses after N hops to prevent runaway conversations — a busy channel won't block other channels. Human @mentions always pass through, even when the loop guard is active. Type `/continue` to resume.
+Agents @mention each other and the server auto-triggers the target. Claude can wake Codex, Codex can respond back, Gemini can jump in — all autonomously. A per-channel loop guard pauses after N consecutive hops between the same two agents (or agent messages to @all) to prevent runaway conversations — an orchestrator that moves from agent to agent never piles up hops, and a busy channel won't block other channels. Human @mentions always pass through, even when the loop guard is active. Type `/continue` to resume.
 
 ### Channels
 Conversations are organized into channels (like Slack). The default channel is `#general`. Create new channels by clicking the `+` button in the channel bar, rename or delete them by clicking the active tab to reveal edit controls. Channels persist across server restarts.
@@ -438,7 +438,7 @@ temperature = 1.0
 
 [routing]
 default = "none"            # "none" = only @mentions trigger agents
-max_agent_hops = 4          # pause after N agent-to-agent messages
+max_agent_hops = 4          # pause after N consecutive hops between the same two agents (or to @all)
 
 [mcp]
 http_port = 8200            # MCP streamable-http (Claude Code, Codex)

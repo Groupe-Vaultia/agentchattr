@@ -1026,10 +1026,12 @@ async def _handle_new_message(msg: dict):
         # Only emit the loop guard notice once per pause
         if not router.is_guard_emitted(channel):
             router.set_guard_emitted(channel)
+            paire = router.derniere_paire(channel)
+            entre = f" between {' and '.join(paire)}" if len(paire) == 2 else ""
             store.add(
                 "system",
-                f"Loop guard: {router.max_hops} agent-to-agent hops reached. "
-                "Type /continue to resume.",
+                f"Loop guard: {router.max_hops} consecutive agent-to-agent hops{entre} "
+                "(same two agents or @all, no third agent, no human). Type /continue to resume.",
                 channel=channel
             )
             await _reveiller_chef_garde(channel, sender, msg.get("id"))

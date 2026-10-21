@@ -125,5 +125,77 @@ class RouterProgressGuardTests(unittest.TestCase):
         self.assertFalse(router.is_paused("general"))
 
 
+class RouterPaireTests(unittest.TestCase):
+    """Loop guard par paire (21 oct. 2026) : seuls comptent les relais consécutifs entre les deux mêmes agents et les
+    messages d'agent à @all/@both ; un relais vers une autre paire repart à 1. Mesure sur le journal réel (#tache-26
+    msg 6751) : 1 261 relais sur 1 263 passent par le chef, et la plus longue suite entre deux mêmes agents en un mois
+    est de 11 relais."""
+
+    def test_orchestration_du_chef_ne_pause_jamais(self):
+        # Le chef passe d'un agent à l'autre (consigne, livraison, consigne suivante) : 300 relais, aucune pause.
+        router = Router(["chef", "a", "b", "c"], default_mention="none", max_hops=4)
+        agents = ["a", "b", "c"]
+        for i in range(150):
+            agent = agents[i % 3]
+            self.assertEqual(router.get_targets("chef", f"@{agent} lot {i}", "tache-21"), [agent])
+            self.assertEqual(router.get_targets(agent, f"@chef livré {i}", "tache-21"), ["chef"])
+        self.assertFalse(router.is_paused("tache-21"))
+
+    def test_boucle_entre_deux_agents_pause_apres_max_hops(self):
+        router = Router(["a", "b"], default_mention="none", max_hops=4)
+        for i in range(4):
+            de, vers = ("a", "b") if i % 2 == 0 else ("b", "a")
+            self.assertEqual(router.get_targets(de, f"@{vers} merci", "general"), [vers])
+        self.assertEqual(router.get_targets("a", "@b merci", "general"), [])
+        self.assertTrue(router.is_paused("general"))
+        self.assertEqual(router.derniere_paire("general"), ["a", "b"])
+
+    def test_le_chef_n_est_pas_exempte(self):
+        # Une boucle chef <-> agent est une boucle comme une autre.
+        router = Router(["chef", "a"], default_mention="none", max_hops=4)
+        for i in range(5):
+            de, vers = ("chef", "a") if i % 2 == 0 else ("a", "chef")
+            router.get_targets(de, f"@{vers} relance", "tache-21")
+        self.assertTrue(router.is_paused("tache-21"))
+
+    def test_un_tiers_remet_la_suite_a_un(self):
+        router = Router(["a", "b", "c"], default_mention="none", max_hops=4)
+        for _ in range(3):
+            for de, vers in (("a", "b"), ("b", "a"), ("a", "b")):
+                router.get_targets(de, f"@{vers} x", "general")
+            router.get_targets("c", "@a avis", "general")          # tiers : la suite a<->b repart de zéro
+        self.assertFalse(router.is_paused("general"))
+
+    def test_messages_a_all_comptent_toujours(self):
+        # Une avalanche de @all entre agents est une boucle, même si l'expéditeur change à chaque message.
+        router = Router(["a", "b", "c"], default_mention="none", max_hops=4)
+        for i, de in enumerate(["a", "b", "c", "a"]):
+            self.assertNotEqual(router.get_targets(de, "@all point", "general"), [])
+        self.assertEqual(router.get_targets("b", "@all point", "general"), [])
+        self.assertTrue(router.is_paused("general"))
+
+    def test_mention_de_soi_seul_neutre(self):
+        # Une mention de soi seul ne route rien, ne compte pas et ne remet pas la suite à zéro.
+        router = Router(["a", "b"], default_mention="none", max_hops=4)
+        for de, vers in (("a", "b"), ("b", "a"), ("a", "a"), ("a", "b"), ("b", "a")):
+            router.get_targets(de, f"@{vers} x", "general")
+        self.assertFalse(router.is_paused("general"))
+        self.assertEqual(router.get_targets("a", "@b x", "general"), [])      # 5e relais de la paire
+        self.assertTrue(router.is_paused("general"))
+
+    def test_seul_un_humain_leve_la_pause(self):
+        router = Router(["a", "b", "c"], default_mention="none", max_hops=2)
+        for de, vers in (("a", "b"), ("b", "a"), ("a", "b")):
+            router.get_targets(de, f"@{vers} x", "general")
+        self.assertTrue(router.is_paused("general"))
+        self.assertEqual(router.get_targets("c", "@a autre sujet", "general"), [])   # un tiers ne lève pas la pause
+        router.note_progress("general", reprendre=False)                            # un progrès d'agent non plus
+        self.assertTrue(router.is_paused("general"))
+        router.get_targets("charles", "@a on reprend", "general")
+        self.assertFalse(router.is_paused("general"))
+        self.assertEqual(router.derniere_paire("general"), [])
+        self.assertEqual(router.get_targets("a", "@b reprends", "general"), ["b"])
+
+
 if __name__ == "__main__":
     unittest.main()

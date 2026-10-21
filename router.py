@@ -13,7 +13,7 @@ class Router:
         # SANS progres reel (note_progress), on cesse de relancer claude dans ce canal.
         self.anti_spin_ticks = anti_spin_ticks
         self._online_checker = online_checker  # callable() -> set of online agent names
-        # Per-channel state: { channel: { hop_count, paused, guard_emitted, heartbeats } }
+        # Per-channel state: { channel: { hop_count, paused, guard_emitted, heartbeats, paire } }
         self._channels: dict[str, dict] = {}
         self._build_pattern()
 
@@ -25,6 +25,8 @@ class Router:
                 "guard_emitted": False,
                 # battements de ronde recurrente depuis le dernier progres reel (anti-spin)
                 "heartbeats": 0,
+                # loop guard par paire : les deux agents du dernier relais adresse (None apres une remise a zero)
+                "paire": None,
             }
         return self._channels[channel]
 
@@ -35,6 +37,7 @@ class Router:
         self._mention_re = re.compile(
             rf"@({alternatives})(?![\w-])", re.IGNORECASE
         )
+        self._diffusion_re = re.compile(r"@(both|all)(?![\w-])", re.IGNORECASE)
 
     def parse_mentions(self, text: str) -> list[str]:
         mentions = set()
@@ -64,6 +67,7 @@ class Router:
             ch["hop_count"] = 0
             ch["paused"] = False
             ch["guard_emitted"] = False
+            ch["paire"] = None
             if not mentions:
                 if self.default_mention in ("both", "all"):
                     return list(self.agent_names)
@@ -78,12 +82,26 @@ class Router:
             # Only route if explicit @mention
             if not mentions:
                 return []
-            ch["hop_count"] += 1
+            # Don't route back to self ; a self-mention alone routes nothing, and neither counts nor resets
+            cibles = [m for m in mentions if m != sender.lower()]
+            if not cibles:
+                return []
+            # Loop guard par paire (21 oct. 2026, mesure de #tache-26 msg 6751) : une boucle, c'est deux agents qui se
+            # relancent sans tiers, ou des messages d'agent a @all/@both. Seuls ces relais comptent ; un relais vers
+            # une autre paire repart a 1. L'orchestration du chef, qui passe d'un agent a l'autre, ne s'accumule plus,
+            # et un agent ne leve toujours pas une pause (seul un humain : message ou /continue).
+            diffusion = bool(self._diffusion_re.search(text))
+            paire = frozenset([sender.lower(), *cibles])
+            if diffusion or (len(paire) == 2 and paire == ch["paire"]):
+                ch["hop_count"] += 1
+            else:
+                ch["hop_count"] = 1
+            if not diffusion:
+                ch["paire"] = paire
             if ch["hop_count"] > self.max_hops:
                 ch["paused"] = True
                 return []
-            # Don't route back to self
-            return [m for m in mentions if m != sender]
+            return cibles
 
     def continue_routing(self, channel: str = "general"):
         """Resume after loop guard pause."""
@@ -91,6 +109,11 @@ class Router:
         ch["hop_count"] = 0
         ch["paused"] = False
         ch["guard_emitted"] = False
+        ch["paire"] = None
+
+    def derniere_paire(self, channel: str = "general") -> list[str]:
+        """Les agents du dernier relais adresse (deux pour une boucle de paire), tries ; [] apres une remise a zero."""
+        return sorted(self._get_ch(channel)["paire"] or [])
 
     def is_paused(self, channel: str = "general") -> bool:
         return self._get_ch(channel)["paused"]
@@ -114,6 +137,7 @@ class Router:
         ch["paused"] = False
         ch["guard_emitted"] = False
         ch["heartbeats"] = 0
+        ch["paire"] = None
 
     def note_heartbeat(self, channel: str = "general") -> tuple[int, bool]:
         """Compte un battement de ronde recurrente (une planification qui relance claude) dans ce
