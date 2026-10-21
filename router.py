@@ -15,11 +15,15 @@ import re
 # Code dans un message (21 oct. 2026, #tache-26 msgs 6772 et 6789) : une mention citée dans du code n'est pas une
 # mention. Sinon un message qui parle de la règle réveille tout le monde. Lecture à la CommonMark :
 # - bloc : une ligne qui commence (au plus 3 espaces) par au moins trois accents graves ; il court jusqu'à une ligne de
-#   clôture d'au moins autant d'accents graves, ou jusqu'à la fin du message ;
+#   clôture d'au moins autant d'accents graves, ou jusqu'à la fin du message ; une ligne d'ouverture qui contient un autre
+#   accent grave n'ouvre pas de bloc (« ```code``` » en tête de ligne est du code en ligne) ;
 # - code en ligne : une suite de N accents graves s'ouvre et se ferme à la prochaine suite d'exactement N, même sur
 #   plusieurs lignes, mais pas au-delà d'une ligne vide ; sans fermeture, les accents graves restent du texte (un
 #   accent grave isolé ne coupe donc pas le reste du message) ;
-# - un accent grave précédé d'une barre oblique inverse est du texte, pas une ouverture.
+# - un accent grave précédé d'une barre oblique inverse est du texte, pas une ouverture ; deux barres obliques inverses
+#   sont une barre échappée, et l'accent grave qui les suit ouvre du code.
+# Non lus (re-N3 de claude-3, msg 6823 ; aucun cas dans le journal) : blocs en tildes, code indenté de 4 espaces (ses
+# accents graves peuvent former du code en ligne avec les suivants), fins de ligne CRLF.
 _FENCE_RE = re.compile(r"^ {0,3}(`{3,})", re.MULTILINE)
 _LIGNE_VIDE_RE = re.compile(r"\n[ \t]*\n")
 
@@ -43,8 +47,8 @@ def sans_code(text: str) -> str:
     out, i, n = [], 0, len(text)
     while i < n:
         c = text[i]
-        if c == "\\" and i + 1 < n and text[i + 1] == "`":
-            out.append(text[i:i + 2])                         # accent grave échappé : du texte
+        if c == "\\" and i + 1 < n and text[i + 1] in "\\`":
+            out.append(text[i:i + 2])                         # accent grave ou barre échappés : du texte
             i += 2
             continue
         if c != "`":
@@ -56,7 +60,9 @@ def sans_code(text: str) -> str:
             j += 1
         k = j - i
         debut_ligne = text.rfind("\n", 0, i) + 1
-        if k >= 3 and len(text[debut_ligne:i]) <= 3 and not text[debut_ligne:i].strip(" "):
+        fin_ligne = text.find("\n", j)
+        info = text[j:fin_ligne if fin_ligne >= 0 else n]
+        if k >= 3 and len(text[debut_ligne:i]) <= 3 and not text[debut_ligne:i].strip(" ") and "`" not in info:
             i = _fin_de_bloc(text, i, k)                      # bloc de code
             out.append(" ")
             continue

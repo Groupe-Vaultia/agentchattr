@@ -174,6 +174,42 @@ class RouterMentionsDansLeCodeTests(unittest.TestCase):
             self.assertEqual(router.get_targets(de, f"@{vers} voir `@all`", "general"), [vers])
         self.assertFalse(router.is_paused("general"))
 
+    def test_trois_accents_graves_fermes_sur_la_ligne_sont_du_code_en_ligne(self):
+        # re-N3 de claude-3 (#tache-26 msg 6823, D1) : la ligne d'ouverture d'un bloc ne contient pas d'autre accent grave ;
+        # « ```…``` » en tête de ligne est du code en ligne, et la vraie mention qui suit compte (0a97533 la gardait)
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(router.parse_mentions("```@all``` puis @b"), ["b"])
+        self.assertEqual(router.parse_mentions("``` @all ```\nsuite @c"), ["c"])
+
+    def test_barre_oblique_doublee_n_echappe_pas_l_accent_grave(self):
+        # D2 : deux barres obliques inverses sont une barre échappée ; l'accent grave qui suit ouvre du code
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(router.parse_mentions("chemin \\\\`@all` puis @b"), ["b"])
+
+    def test_code_en_ligne_se_ferme_sur_exactement_n_accents_graves(self):
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(router.parse_mentions("x ``a ` @b`` @c"), ["c"])
+        self.assertEqual(router.parse_mentions("x `a ``@b`` c` @a"), ["a"])
+        self.assertEqual(router.parse_mentions("`a ``` @b` @c"), ["c"])          # une suite plus longue ne ferme pas
+
+    def test_quatre_espaces_n_ouvrent_pas_de_bloc(self):
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(router.parse_mentions("    ```\n@b"), ["b"])
+
+    def test_cloture_de_bloc_aussi_longue_et_seule_sur_sa_ligne(self):
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(router.parse_mentions("````\n@b\n```\n@c\n````\n@a"), ["a"])
+        self.assertEqual(router.parse_mentions("```\n@b\n``` x\n@c\n```\n@a"), ["a"])
+
+    def test_ligne_d_espaces_arrete_le_code_en_ligne(self):
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(sorted(router.parse_mentions("x `a\n  \n@b` @c")), ["b", "c"])
+
+    def test_le_code_retire_laisse_une_espace(self):
+        # « @a`x`b » : CommonMark lit « @a », du code, puis « b » ; la mention de a compte
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(router.parse_mentions("@a`x`b"), ["a"])
+
 
 class RouterPaireTests(unittest.TestCase):
     """Loop guard par groupe (21 oct. 2026) : seuls comptent les relais consécutifs du même groupe d'agents (expéditeur et
