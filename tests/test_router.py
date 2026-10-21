@@ -126,10 +126,10 @@ class RouterProgressGuardTests(unittest.TestCase):
 
 
 class RouterPaireTests(unittest.TestCase):
-    """Loop guard par paire (21 oct. 2026) : seuls comptent les relais consécutifs entre les deux mêmes agents et les
-    messages d'agent à @all/@both ; un relais vers une autre paire repart à 1. Mesure sur le journal réel (#tache-26
-    msg 6751) : 1 261 relais sur 1 263 passent par le chef, et la plus longue suite entre deux mêmes agents en un mois
-    est de 11 relais."""
+    """Loop guard par groupe (21 oct. 2026) : seuls comptent les relais consécutifs du même groupe d'agents (expéditeur et
+    destinataires) et les messages d'agent à @all/@both ; un relais vers un autre groupe repart à 1. Mesure sur le journal
+    réel (#tache-26 msgs 6751 et 6769, noms de famille compris) : 1 261 relais sur 1 263 passent par le chef ; plus
+    longues suites identiques depuis le 21 sept. : 14 relais à deux, 7 à trois, 4 à quatre et plus."""
 
     def test_orchestration_du_chef_ne_pause_jamais(self):
         # Le chef passe d'un agent à l'autre (consigne, livraison, consigne suivante) : 300 relais, aucune pause.
@@ -182,6 +182,25 @@ class RouterPaireTests(unittest.TestCase):
         self.assertFalse(router.is_paused("general"))
         self.assertEqual(router.get_targets("a", "@b x", "general"), [])      # 5e relais de la paire
         self.assertTrue(router.is_paused("general"))
+
+    def test_trois_agents_qui_se_mettent_en_copie_pausent(self):
+        # msg 6769 : A -> B + C, B -> A + C, C -> A + B... le même groupe de trois revient à chaque relais.
+        router = Router(["a", "b", "c"], default_mention="none", max_hops=4)
+        tours = [("a", "@b @c"), ("b", "@a @c"), ("c", "@a @b"), ("a", "@b @c")]
+        for de, texte in tours:
+            self.assertNotEqual(router.get_targets(de, f"{texte} merci", "general"), [])
+        self.assertEqual(router.get_targets("b", "@a @c merci", "general"), [])
+        self.assertTrue(router.is_paused("general"))
+        self.assertEqual(router.derniere_paire("general"), ["a", "b", "c"])
+
+    def test_consigne_a_plusieurs_puis_reponse_au_chef_sont_deux_groupes(self):
+        # « chef -> a + b », puis « a -> chef », puis « b -> chef » : jamais le même groupe deux fois de suite.
+        router = Router(["chef", "a", "b"], default_mention="none", max_hops=2)
+        for i in range(50):
+            self.assertEqual(sorted(router.get_targets("chef", f"@a @b lot {i}", "tache-21")), ["a", "b"])
+            self.assertEqual(router.get_targets("a", f"@chef livré {i}", "tache-21"), ["chef"])
+            self.assertEqual(router.get_targets("b", f"@chef revu {i}", "tache-21"), ["chef"])
+        self.assertFalse(router.is_paused("tache-21"))
 
     def test_seul_un_humain_leve_la_pause(self):
         router = Router(["a", "b", "c"], default_mention="none", max_hops=2)

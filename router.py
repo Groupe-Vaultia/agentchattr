@@ -25,7 +25,7 @@ class Router:
                 "guard_emitted": False,
                 # battements de ronde recurrente depuis le dernier progres reel (anti-spin)
                 "heartbeats": 0,
-                # loop guard par paire : les deux agents du dernier relais adresse (None apres une remise a zero)
+                # loop guard par groupe : les participants du dernier relais adresse (None apres une remise a zero)
                 "paire": None,
             }
         return self._channels[channel]
@@ -86,13 +86,14 @@ class Router:
             cibles = [m for m in mentions if m != sender.lower()]
             if not cibles:
                 return []
-            # Loop guard par paire (21 oct. 2026, mesure de #tache-26 msg 6751) : une boucle, c'est deux agents qui se
-            # relancent sans tiers, ou des messages d'agent a @all/@both. Seuls ces relais comptent ; un relais vers
-            # une autre paire repart a 1. L'orchestration du chef, qui passe d'un agent a l'autre, ne s'accumule plus,
-            # et un agent ne leve toujours pas une pause (seul un humain : message ou /continue).
+            # Loop guard par groupe (21 oct. 2026, mesure de #tache-26 msgs 6751 et 6769) : une boucle, c'est le meme
+            # groupe d'agents (expediteur + destinataires : deux agents qui se relancent, ou trois qui se mettent en
+            # copie) qui revient a chaque relais, ou des messages d'agent a @all/@both. Seuls ces relais comptent ; un
+            # relais vers un autre groupe repart a 1. L'orchestration du chef (« chef -> a + b », puis « a -> chef » :
+            # deux groupes) ne s'accumule plus, et un agent ne leve toujours pas une pause (seul un humain).
             diffusion = bool(self._diffusion_re.search(text))
             paire = frozenset([sender.lower(), *cibles])
-            if diffusion or (len(paire) == 2 and paire == ch["paire"]):
+            if diffusion or paire == ch["paire"]:
                 ch["hop_count"] += 1
             else:
                 ch["hop_count"] = 1
@@ -112,7 +113,7 @@ class Router:
         ch["paire"] = None
 
     def derniere_paire(self, channel: str = "general") -> list[str]:
-        """Les agents du dernier relais adresse (deux pour une boucle de paire), tries ; [] apres une remise a zero."""
+        """Les agents du dernier relais adresse (le groupe qui boucle), tries ; [] apres une remise a zero."""
         return sorted(self._get_ch(channel)["paire"] or [])
 
     def is_paused(self, channel: str = "general") -> bool:
