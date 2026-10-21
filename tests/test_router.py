@@ -141,6 +141,25 @@ class RouterMentionsDansLeCodeTests(unittest.TestCase):
         self.assertEqual(router.parse_mentions(bloc), [])
         self.assertEqual(router.parse_mentions("Bloc non refermé :\n```\n@c relance"), [])
 
+    def test_code_en_ligne_sur_deux_lignes(self):
+        # re-N3 (#tache-26 msg 6789) : un passage de code en ligne peut passer à la ligne ; la vraie mention après reste
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(router.parse_mentions("Exemple `code\n@all` puis @b"), ["b"])
+        self.assertEqual(router.parse_mentions("Exemple ``deux\nlignes @c`` puis @a"), ["a"])
+        # mais pas au-delà d'une ligne vide : l'accent grave resté ouvert est du texte
+        self.assertEqual(router.parse_mentions("Un ` ouvert\n\n@b, à toi, puis `x`"), ["b"])
+
+    def test_accents_graves_echappes_sont_du_texte(self):
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(router.parse_mentions("Écrire \\`@b\\` en texte"), ["b"])
+        self.assertEqual(router.parse_mentions("Échappé \\` puis `@c` en code, et @a"), ["a"])
+
+    def test_accent_grave_isole_ne_coupe_pas_la_suite(self):
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(router.parse_mentions("Un accent grave ` isolé dans la phrase, puis @c à la fin"), ["c"])
+        self.assertEqual(router.parse_mentions("Trois ``` au milieu d'une ligne, sans fermeture : @b"), ["b"])
+        self.assertEqual(sorted(router.get_targets("a", "Le caractère ` sert au code ; @b et @c, à vous.", "general")), ["b", "c"])
+
     def test_mention_ordinaire_compte_toujours(self):
         router = Router(["a", "b", "c"], default_mention="none")
         self.assertEqual(router.parse_mentions("@b relis `@c` puis réponds"), ["b"])
