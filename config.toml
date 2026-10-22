@@ -12,6 +12,11 @@ command = "claude"
 cwd = ".."
 color = "#da7756"
 label = "Claude"
+# Auto-compaction à 200 k jetons au lieu de la fenêtre de 1 M : 81 % de la charge Claude des agents
+# est du contexte relu à chaque appel, et 56 % de cette relecture se faisait au-dessus de 500 k
+# (mesure du 14 au 21 oct. 2026, outils/flux-lots/revue_consommation_jetons_21oct.md). Prend effet
+# au prochain lancement de chaque instance ; s'applique aussi aux `claude -p` qu'elle lance.
+env = { CLAUDE_CODE_AUTO_COMPACT_WINDOW = "200000" }
 
 [agents.codex]
 command = "codex"
