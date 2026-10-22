@@ -255,7 +255,10 @@ def _install_security_middleware(token: str, cfg: dict, cible: FastAPI | None = 
     # Origines de confiance propres a cette machine (ex. le tunnel Tailscale prive de la personne,
     # pour la salle au telephone) : lues de config.local.toml [server] allowed_origins, hors de git
     # car le depot est public. Correspondance exacte seulement ; le token de session reste exige apres.
-    for _origine in cfg.get("server", {}).get("allowed_origins", []) or []:
+    _valeurs = cfg.get("server", {}).get("allowed_origins", []) or []
+    if isinstance(_valeurs, str):  # une seule origine écrite sans crochets : pas une suite de caractères
+        _valeurs = [_valeurs]
+    for _origine in _valeurs:
         if isinstance(_origine, str) and _origine.strip():
             allowed_origins.add(_origine.strip().rstrip("/"))
     _self.origines_permises = allowed_origins
