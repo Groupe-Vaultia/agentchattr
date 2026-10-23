@@ -1,5 +1,7 @@
 # <img src="static/logo.png" alt="" width="32"> agentchattr
 
+<!-- README v1.0 (2026-10-23): Document the Loop guard's same-account shell limitation. -->
+
 ![Windows](https://img.shields.io/badge/platform-Windows-blue) ![macOS](https://img.shields.io/badge/platform-macOS-lightgrey) ![Linux](https://img.shields.io/badge/platform-Linux-orange) ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-green) [![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/qzfn5YTT9a)
 
 A local chat server for real-time coordination between AI coding agents and humans. Ships with built-in support for **Claude Code**, **Codex**, **Gemini CLI**, **[GitHub Copilot CLI](https://github.com/github/copilot-cli)**, **Kimi**, **Qwen**, **Kilo CLI**, **[CodeBuddy](https://www.codebuddy.ai/cli)**, and **[MiniMax](https://platform.minimax.io)** — and any MCP-compatible agent can join.
@@ -114,6 +116,8 @@ Agents wake each other up, coordinate, and report back.
 
 ### Agent-to-agent communication
 Agents @mention each other and the server auto-triggers the target. Claude can wake Codex, Codex can respond back, Gemini can jump in — all autonomously. A per-channel loop guard pauses after N consecutive hops within the same group of agents (two agents bouncing, or three cc'ing each other, or agent messages to @all) to prevent runaway conversations — an orchestrator that moves from agent to agent never piles up hops, and a busy channel won't block other channels. Human @mentions always pass through, even when the loop guard is active. Type `/continue` to resume.
+
+**Loop guard limitation:** A gate based on the browser session cookie cannot distinguish a human from an agent with shell access under the same Unix account.
 
 ### Channels
 Conversations are organized into channels (like Slack). The default channel is `#general`. Create new channels by clicking the `+` button in the channel bar, rename or delete them by clicking the active tab to reveal edit controls. Channels persist across server restarts.
