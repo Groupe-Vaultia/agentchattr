@@ -611,11 +611,37 @@ def _build_provider_launch(
         inject_cfg, instance_name, data_dir, proxy_url,
         token=token, mcp_cfg=mcp_cfg, project_dir=project_dir,
     )
+    # La table `env` de l'agent passe AVANT celles du MCP : un réglage de config
+    # ne peut pas écraser le chemin de settings que le MCP vient d'écrire.
+    inject_env = {**_agent_env(agent_cfg), **inject_env}
 
     launch_args = [*mcp_args, *extra_args]
     launch_env = dict(env)
 
     return launch_args, launch_env, inject_env, settings_path
+
+
+_NOM_VARIABLE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _agent_env(agent_cfg: dict) -> dict[str, str]:
+    """Variables d'environnement fixées par `[agents.X] env = { ... }` dans la config.
+
+    Elles vont DANS le processus de l'agent (comme les variables du MCP), donc aussi
+    dans les `claude -p` et sous-agents qu'il lance. Un nom invalide est ignoré avec
+    un avertissement : il casserait le préfixe `env VAR=val` de la commande tmux.
+    """
+    table = agent_cfg.get("env") or {}
+    if not isinstance(table, dict):
+        print(f"  Warning: env de l'agent ignoré (table attendue, reçu {type(table).__name__})")
+        return {}
+    sortie: dict[str, str] = {}
+    for nom, valeur in table.items():
+        if not isinstance(nom, str) or not _NOM_VARIABLE.fullmatch(nom):
+            print(f"  Warning: variable d'environnement ignorée, nom invalide : {nom!r}")
+            continue
+        sortie[nom] = str(valeur)
+    return sortie
 
 
 def _register_instance(server_port: int, base: str, label: str | None = None) -> dict:
