@@ -1280,18 +1280,14 @@ def _ws_autorise(websocket) -> bool:
     return jeton_valide({}, websocket.query_params, websocket.cookies)
 
 
-def _est_agent_connu(sender: str) -> bool:
-    """Un agent connu (instance enregistree, nom de famille ou agent du routeur), sans tenir compte de la casse. Sur le
-    WebSocket, l'expediteur vient de l'evenement : /continue y est refuse a un agent, comme sur le chemin MCP."""
-    nom = (sender or "").strip().lower()
-    noms = set()
-    if registry:
-        noms |= {n.lower() for n in registry.get_all_names()}
-        noms |= {b.lower() for b in registry.get_bases()}
-    if router:
-        noms |= set(router.agent_names)
-    famille = _re.match(r"^(.+)-\d+$", nom)                  # « claude-1 » : instance d'une famille connue
-    return nom in noms or bool(famille and famille.group(1) in noms)
+def _ws_session_humaine(websocket) -> bool:
+    """Le navigateur présente le cookie de session et une origine autorisée.
+
+    Un client qui n'a que le jeton en ?token= (agents et scripts) peut utiliser /ws, mais pas /continue.
+    Le champ sender d'un événement WebSocket ne prouve jamais l'identité du client.
+    """
+    origine = websocket.headers.get("origin")
+    return origine in origines_permises and jeton_valide({}, {}, websocket.cookies)
 
 
 @app.websocket("/ws")
@@ -1304,6 +1300,7 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close(code=4003, reason="forbidden: invalid session token")
         return
 
+    session_humaine = _ws_session_humaine(websocket)
     await websocket.accept()
     ws_clients.add(websocket)
 
@@ -1393,13 +1390,14 @@ async def websocket_endpoint(websocket: WebSocket):
                         await broadcast_clear(channel=channel)
                         continue
                     if cmd == "/continue":
-                        # Seul un humain leve une pause, et seulement dans le canal vise (revue N3, #tache-26 msg 6777)
-                        if _est_agent_connu(sender):
-                            store.add("system", f"Loop guard: only humans can /continue. {sender} tried to self-resume.",
+                        # L'identité vient de la connexion, jamais du sender fourni par l'événement.
+                        if not session_humaine:
+                            store.add("system", "Loop guard: only humans can /continue.",
                                       msg_type="system", channel=channel)
                             continue
                         router.continue_routing(channel)
-                        store.add("system", "Resuming agent conversation...", msg_type="system", channel=channel)
+                        store.add("system", f"Routing resumed by {room_settings.get('username', 'user')}.",
+                                  msg_type="system", channel=channel)
                         await broadcast_status()
                         continue
                     # Broadcast slash commands — expand without storing the raw command.

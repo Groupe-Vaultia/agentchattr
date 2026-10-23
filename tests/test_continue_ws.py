@@ -1,5 +1,6 @@
 """/continue sur le chemin WebSocket (revue N3 de codex-2, #tache-26 msg 6777).
 
+v1.1 (2026-10-23, codex-1) : l'identité de /continue vient du cookie et de l'origine de la connexion, jamais de sender.
 v1.0 (2026-10-21, claude-2) : l'invariant « seul un humain leve une pause » valait sur le chemin MCP mais pas sur le
 WebSocket, ou l'expediteur vient de l'evenement et ou /continue relancait « general » quel que soit le canal vise.
 Donnees synthetiques seulement ; connexion WebSocket reelle par TestClient.
@@ -54,12 +55,19 @@ class ContinueWebSocketTests(unittest.TestCase):
         app.app.user_middleware = self._mw
         app.app.middleware_stack = None
 
-    def _continue(self, sender, canal):
+    def _continue(self, sender, canal, navigateur=False):
         """Envoie /continue par le WebSocket et attend l'avis système du canal visé."""
         avant = len(app.store.get_recent(1000, channel=canal))
         client = TestClient(app.app)
         self.addCleanup(client.close)
-        with client.websocket_connect("/ws?token=sess") as ws:
+        if navigateur:
+            url = "/ws"
+            entetes = {"origin": "http://127.0.0.1:8300",
+                       "cookie": f"{app.cookie_session}=sess"}
+        else:
+            url = "/ws?token=sess"
+            entetes = {"origin": "http://127.0.0.1:8300"}
+        with client.websocket_connect(url, headers=entetes) as ws:
             ws.send_json({"type": "message", "text": "/continue", "sender": sender, "channel": canal})
             fin = time.monotonic() + 5
             while time.monotonic() < fin and len(app.store.get_recent(1000, channel=canal)) == avant:
@@ -75,10 +83,20 @@ class ContinueWebSocketTests(unittest.TestCase):
             self.assertTrue(app.router.is_paused("tache-9"))
 
     def test_un_humain_ne_relance_que_le_canal_vise(self):
-        avis = self._continue("user", "tache-9")
-        self.assertIn("Resuming", avis)
+        avis = self._continue("user", "tache-9", navigateur=True)
+        self.assertIn("Routing resumed by user", avis)
         self.assertFalse(app.router.is_paused("tache-9"))
         self.assertTrue(app.router.is_paused("general"))         # avant : continue_routing() relançait « general »
+
+    def test_sender_user_forge_par_un_client_au_jeton_url_est_refuse(self):
+        avis = self._continue("user", "tache-9")
+        self.assertIn("only humans can /continue", avis)
+        self.assertTrue(app.router.is_paused("tache-9"))
+
+    def test_sender_agent_dans_evenement_du_navigateur_est_ignore(self):
+        avis = self._continue("codex", "tache-9", navigateur=True)
+        self.assertIn("Routing resumed by user", avis)
+        self.assertFalse(app.router.is_paused("tache-9"))
 
 
 if __name__ == "__main__":
