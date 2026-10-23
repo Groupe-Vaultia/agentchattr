@@ -1029,10 +1029,12 @@ async def _handle_new_message(msg: dict):
         # Only emit the loop guard notice once per pause
         if not router.is_guard_emitted(channel):
             router.set_guard_emitted(channel)
+            groupe = router.derniere_paire(channel)
+            entre = f" between {', '.join(groupe[:-1])} and {groupe[-1]}" if len(groupe) >= 2 else ""
             store.add(
                 "system",
-                f"Loop guard: {router.max_hops} agent-to-agent hops reached. "
-                "Type /continue to resume.",
+                f"Loop guard: {router.max_hops} consecutive agent-to-agent hops{entre} "
+                "(same group of agents or @all, no one else, no human). Type /continue to resume.",
                 channel=channel
             )
             await _reveiller_chef_garde(channel, sender, msg.get("id"))
@@ -1281,6 +1283,16 @@ def _ws_autorise(websocket) -> bool:
     return jeton_valide({}, websocket.query_params, websocket.cookies)
 
 
+def _ws_session_humaine(websocket) -> bool:
+    """Le navigateur présente le cookie de session et une origine autorisée.
+
+    Un client qui n'a que le jeton en ?token= (agents et scripts) peut utiliser /ws, mais pas /continue.
+    Le champ sender d'un événement WebSocket ne prouve jamais l'identité du client.
+    """
+    origine = websocket.headers.get("origin")
+    return origine in origines_permises and jeton_valide({}, {}, websocket.cookies)
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     # --- Security: validate session token on WebSocket connect ---
@@ -1291,6 +1303,7 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.close(code=4003, reason="forbidden: invalid session token")
         return
 
+    session_humaine = _ws_session_humaine(websocket)
     await websocket.accept()
     ws_clients.add(websocket)
 
@@ -1380,8 +1393,14 @@ async def websocket_endpoint(websocket: WebSocket):
                         await broadcast_clear(channel=channel)
                         continue
                     if cmd == "/continue":
-                        router.continue_routing()
-                        store.add("system", "Resuming agent conversation...", msg_type="system", channel=channel)
+                        # L'identité vient de la connexion, jamais du sender fourni par l'événement.
+                        if not session_humaine:
+                            store.add("system", "Loop guard: only humans can /continue.",
+                                      msg_type="system", channel=channel)
+                            continue
+                        router.continue_routing(channel)
+                        store.add("system", f"Routing resumed by {room_settings.get('username', 'user')}.",
+                                  msg_type="system", channel=channel)
                         await broadcast_status()
                         continue
                     # Broadcast slash commands — expand without storing the raw command.

@@ -125,5 +125,195 @@ class RouterProgressGuardTests(unittest.TestCase):
         self.assertFalse(router.is_paused("general"))
 
 
+class RouterMentionsDansLeCodeTests(unittest.TestCase):
+    """Une mention citée dans du code n'est pas une mention (#tache-26 msg 6772 : un message qui citait la règle entre
+    accents graves a réveillé tous les agents et fait sauter le Loop guard)."""
+
+    def test_mention_en_code_en_ligne_ignoree(self):
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(router.parse_mentions("La règle compte les messages à `@all` et `@both`."), [])
+        self.assertEqual(router.parse_mentions("Cite ``@b`` sans le réveiller."), [])
+        self.assertEqual(router.get_targets("a", "Seuls comptent les relais à `@all`.", "general"), [])
+
+    def test_mention_dans_un_bloc_de_code_ignoree(self):
+        router = Router(["a", "b", "c"], default_mention="none")
+        bloc = "Exemple :\n```\nrouter.get_targets('a', '@b merci', 'general')\n@all\n```\nFin."
+        self.assertEqual(router.parse_mentions(bloc), [])
+        self.assertEqual(router.parse_mentions("Bloc non refermé :\n```\n@c relance"), [])
+
+    def test_code_en_ligne_sur_deux_lignes(self):
+        # re-N3 (#tache-26 msg 6789) : un passage de code en ligne peut passer à la ligne ; la vraie mention après reste
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(router.parse_mentions("Exemple `code\n@all` puis @b"), ["b"])
+        self.assertEqual(router.parse_mentions("Exemple ``deux\nlignes @c`` puis @a"), ["a"])
+        # mais pas au-delà d'une ligne vide : l'accent grave resté ouvert est du texte
+        self.assertEqual(router.parse_mentions("Un ` ouvert\n\n@b, à toi, puis `x`"), ["b"])
+
+    def test_accents_graves_echappes_sont_du_texte(self):
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(router.parse_mentions("Écrire \\`@b\\` en texte"), ["b"])
+        self.assertEqual(router.parse_mentions("Échappé \\` puis `@c` en code, et @a"), ["a"])
+
+    def test_accent_grave_isole_ne_coupe_pas_la_suite(self):
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(router.parse_mentions("Un accent grave ` isolé dans la phrase, puis @c à la fin"), ["c"])
+        self.assertEqual(router.parse_mentions("Trois ``` au milieu d'une ligne, sans fermeture : @b"), ["b"])
+        self.assertEqual(sorted(router.get_targets("a", "Le caractère ` sert au code ; @b et @c, à vous.", "general")), ["b", "c"])
+
+    def test_mention_ordinaire_compte_toujours(self):
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(router.parse_mentions("@b relis `@c` puis réponds"), ["b"])
+        self.assertEqual(router.parse_mentions("Après le bloc ```@c``` : @a, à toi."), ["a"])
+        self.assertEqual(sorted(router.get_targets("a", "@b et @c, voyez `@all`", "general")), ["b", "c"])
+        self.assertFalse(router.is_paused("general"))
+
+    def test_all_en_code_ne_compte_pas_comme_diffusion(self):
+        # Trois groupes différents, chacun citant la règle entre accents graves : aucune diffusion, donc aucune pause.
+        router = Router(["a", "b", "c"], default_mention="none", max_hops=2)
+        for de, vers in (("a", "b"), ("b", "c"), ("c", "a")):
+            self.assertEqual(router.get_targets(de, f"@{vers} voir `@all`", "general"), [vers])
+        self.assertFalse(router.is_paused("general"))
+
+    def test_trois_accents_graves_fermes_sur_la_ligne_sont_du_code_en_ligne(self):
+        # re-N3 de claude-3 (#tache-26 msg 6823, D1) : la ligne d'ouverture d'un bloc ne contient pas d'autre accent grave ;
+        # « ```…``` » en tête de ligne est du code en ligne, et la vraie mention qui suit compte (0a97533 la gardait)
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(router.parse_mentions("```@all``` puis @b"), ["b"])
+        self.assertEqual(router.parse_mentions("``` @all ```\nsuite @c"), ["c"])
+
+    def test_barre_oblique_doublee_n_echappe_pas_l_accent_grave(self):
+        # D2 : deux barres obliques inverses sont une barre échappée ; l'accent grave qui suit ouvre du code
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(router.parse_mentions("chemin \\\\`@all` puis @b"), ["b"])
+
+    def test_code_en_ligne_se_ferme_sur_exactement_n_accents_graves(self):
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(router.parse_mentions("x ``a ` @b`` @c"), ["c"])
+        self.assertEqual(router.parse_mentions("x `a ``@b`` c` @a"), ["a"])
+        self.assertEqual(router.parse_mentions("`a ``` @b` @c"), ["c"])          # une suite plus longue ne ferme pas
+
+    def test_quatre_espaces_n_ouvrent_pas_de_bloc(self):
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(router.parse_mentions("    ```\n@b"), ["b"])
+
+    def test_cloture_de_bloc_aussi_longue_et_seule_sur_sa_ligne(self):
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(router.parse_mentions("````\n@b\n```\n@c\n````\n@a"), ["a"])
+        self.assertEqual(router.parse_mentions("```\n@b\n``` x\n@c\n```\n@a"), ["a"])
+
+    def test_ligne_d_espaces_arrete_le_code_en_ligne(self):
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(sorted(router.parse_mentions("x `a\n  \n@b` @c")), ["b", "c"])
+
+    def test_le_code_retire_laisse_une_espace(self):
+        # « @a`x`b » : CommonMark lit « @a », du code, puis « b » ; la mention de a compte
+        router = Router(["a", "b", "c"], default_mention="none")
+        self.assertEqual(router.parse_mentions("@a`x`b"), ["a"])
+
+
+class RouterPaireTests(unittest.TestCase):
+    """Loop guard par groupe (21 oct. 2026) : seuls comptent les relais consécutifs du même groupe d'agents (expéditeur et
+    destinataires) et les messages d'agent à @all/@both ; un relais vers un autre groupe repart à 1. Mesure sur le journal
+    réel (#tache-26 msgs 6751 et 6769, noms de famille compris) : 1 261 relais sur 1 263 passent par le chef ; plus
+    longues suites identiques depuis le 21 sept. : 14 relais à deux, 7 à trois, 4 à quatre et plus."""
+
+    def test_orchestration_du_chef_ne_pause_jamais(self):
+        # Le chef passe d'un agent à l'autre (consigne, livraison, consigne suivante) : 300 relais, aucune pause.
+        router = Router(["chef", "a", "b", "c"], default_mention="none", max_hops=4)
+        agents = ["a", "b", "c"]
+        for i in range(150):
+            agent = agents[i % 3]
+            self.assertEqual(router.get_targets("chef", f"@{agent} lot {i}", "tache-21"), [agent])
+            self.assertEqual(router.get_targets(agent, f"@chef livré {i}", "tache-21"), ["chef"])
+        self.assertFalse(router.is_paused("tache-21"))
+
+    def test_boucle_entre_deux_agents_pause_apres_max_hops(self):
+        router = Router(["a", "b"], default_mention="none", max_hops=4)
+        for i in range(4):
+            de, vers = ("a", "b") if i % 2 == 0 else ("b", "a")
+            self.assertEqual(router.get_targets(de, f"@{vers} merci", "general"), [vers])
+        self.assertEqual(router.get_targets("a", "@b merci", "general"), [])
+        self.assertTrue(router.is_paused("general"))
+        self.assertEqual(router.derniere_paire("general"), ["a", "b"])
+
+    def test_le_chef_n_est_pas_exempte(self):
+        # Une boucle chef <-> agent est une boucle comme une autre.
+        router = Router(["chef", "a"], default_mention="none", max_hops=4)
+        for i in range(5):
+            de, vers = ("chef", "a") if i % 2 == 0 else ("a", "chef")
+            router.get_targets(de, f"@{vers} relance", "tache-21")
+        self.assertTrue(router.is_paused("tache-21"))
+
+    def test_un_tiers_remet_la_suite_a_un(self):
+        router = Router(["a", "b", "c"], default_mention="none", max_hops=4)
+        for _ in range(3):
+            for de, vers in (("a", "b"), ("b", "a"), ("a", "b")):
+                router.get_targets(de, f"@{vers} x", "general")
+            router.get_targets("c", "@a avis", "general")          # tiers : la suite a<->b repart de zéro
+        self.assertFalse(router.is_paused("general"))
+
+    def test_messages_a_all_comptent_toujours(self):
+        # Une avalanche de @all entre agents est une boucle, même si l'expéditeur change à chaque message.
+        router = Router(["a", "b", "c"], default_mention="none", max_hops=4)
+        for i, de in enumerate(["a", "b", "c", "a"]):
+            self.assertNotEqual(router.get_targets(de, "@all point", "general"), [])
+        self.assertEqual(router.get_targets("b", "@all point", "general"), [])
+        self.assertTrue(router.is_paused("general"))
+
+    def test_mention_de_soi_seul_neutre(self):
+        # Une mention de soi seul ne route rien, ne compte pas et ne remet pas la suite à zéro.
+        router = Router(["a", "b"], default_mention="none", max_hops=4)
+        for de, vers in (("a", "b"), ("b", "a"), ("a", "a"), ("a", "b"), ("b", "a")):
+            router.get_targets(de, f"@{vers} x", "general")
+        self.assertFalse(router.is_paused("general"))
+        self.assertEqual(router.get_targets("a", "@b x", "general"), [])      # 5e relais de la paire
+        self.assertTrue(router.is_paused("general"))
+
+    def test_trois_agents_qui_se_mettent_en_copie_pausent(self):
+        # msg 6769 : A -> B + C, B -> A + C, C -> A + B... le même groupe de trois revient à chaque relais.
+        router = Router(["a", "b", "c"], default_mention="none", max_hops=4)
+        tours = [("a", "@b @c"), ("b", "@a @c"), ("c", "@a @b"), ("a", "@b @c")]
+        for de, texte in tours:
+            self.assertNotEqual(router.get_targets(de, f"{texte} merci", "general"), [])
+        self.assertEqual(router.get_targets("b", "@a @c merci", "general"), [])
+        self.assertTrue(router.is_paused("general"))
+        self.assertEqual(router.derniere_paire("general"), ["a", "b", "c"])
+
+    def test_consigne_a_plusieurs_puis_reponse_au_chef_sont_deux_groupes(self):
+        # « chef -> a + b », puis « a -> chef », puis « b -> chef » : jamais le même groupe deux fois de suite.
+        router = Router(["chef", "a", "b"], default_mention="none", max_hops=2)
+        for i in range(50):
+            self.assertEqual(sorted(router.get_targets("chef", f"@a @b lot {i}", "tache-21")), ["a", "b"])
+            self.assertEqual(router.get_targets("a", f"@chef livré {i}", "tache-21"), ["chef"])
+            self.assertEqual(router.get_targets("b", f"@chef revu {i}", "tache-21"), ["chef"])
+        self.assertFalse(router.is_paused("tache-21"))
+
+    def test_limites_connues_de_la_regle_par_groupe(self):
+        # Documentées dans la docstring de router.py : elles passent sans pause (ce test casse si la règle change).
+        router = Router(["a", "b", "c"], default_mention="none", max_hops=4)
+        for i in range(60):                                       # A <-> B, C en copie un relais sur quatre
+            de, vers = ("a", "b") if i % 2 == 0 else ("b", "a")
+            texte = f"@{vers} @c suite" if i % 4 == 3 else f"@{vers} suite"
+            self.assertNotEqual(router.get_targets(de, texte, "limite-copie"), [])
+        self.assertFalse(router.is_paused("limite-copie"))
+        for i in range(60):                                       # cycle à trois sans copie
+            de, vers = [("a", "b"), ("b", "c"), ("c", "a")][i % 3]
+            router.get_targets(de, f"@{vers} suite", "limite-cycle")
+        self.assertFalse(router.is_paused("limite-cycle"))
+
+    def test_seul_un_humain_leve_la_pause(self):
+        router = Router(["a", "b", "c"], default_mention="none", max_hops=2)
+        for de, vers in (("a", "b"), ("b", "a"), ("a", "b")):
+            router.get_targets(de, f"@{vers} x", "general")
+        self.assertTrue(router.is_paused("general"))
+        self.assertEqual(router.get_targets("c", "@a autre sujet", "general"), [])   # un tiers ne lève pas la pause
+        router.note_progress("general", reprendre=False)                            # un progrès d'agent non plus
+        self.assertTrue(router.is_paused("general"))
+        router.get_targets("charles", "@a on reprend", "general")
+        self.assertFalse(router.is_paused("general"))
+        self.assertEqual(router.derniere_paire("general"), [])
+        self.assertEqual(router.get_targets("a", "@b reprends", "general"), ["b"])
+
+
 if __name__ == "__main__":
     unittest.main()

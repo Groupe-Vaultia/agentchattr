@@ -106,6 +106,8 @@ temperature = 1.0
 [routing]
 # "none" = only route on explicit @mention. "all" = route to all agents by default.
 default = "none"
+# Loop guard : pause apres N relais consecutifs dans le meme groupe d'agents (expediteur + destinataires) ou a
+# @all, sans autre agent ni humain ; un relais vers un autre groupe repart a 1. Seul un humain leve la pause (message ou /continue).
 max_agent_hops = 4
 # Agent reveille quand le loop guard coupe un canal ("" = personne).
 chef = "claude-1"
