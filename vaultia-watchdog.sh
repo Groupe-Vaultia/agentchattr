@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # vaultia-watchdog.sh — surveille la salle et relance ce qui tombe (ponts, agents CLI, serveur).
 # Objectif : plus de pauses/pannes a gerer a la main.
+# 19 oct. 2026 (claude-2, claude-1 msg 5600) : cli() remplace par scripts/gardien_instances.py. L'ancien cli() ne regardait que
+# l'instance 1 et son pkill tuait les relais de TOUTES les instances de la famille (qwencode-3 et -4 sans relais depuis 17 h 10).
+# Le gardien juge chaque instance (ac-<a><n> / agentchattr-<a>-<n>), ne tue qu'un PID, relance avec la commande d'origine du
+# lanceur, et se contente de signaler un relais mort dont le TUI vit (le relancer fermerait le TUI).
+GARDE="claude:3 codex:2 qwencode:4 grok:1"   # doit suivre les lanceurs de vaultia-start.sh
 cd "$(dirname "$0")" || exit 1
 NODE_BIN="$(ls -d "$HOME"/.nvm/versions/node/*/bin 2>/dev/null | tail -1)"
 export PATH="${NODE_BIN}:$HOME/.local/bin:$PATH"
@@ -18,19 +23,12 @@ pont(){ # $1 = nom d'agent API
     note "pont relance : $a"
   fi
 }
-cli(){ # $1 = nom ; $2.. = flags
-  local a="$1"; shift
-  # la session TUI reelle (agentchattr-<a>) meurt quand le CLI meurt ; c'est le vrai signal
-  if ! tmux has-session -t "agentchattr-$a" 2>/dev/null; then
-    tmux kill-session -t "ac-$a" 2>/dev/null
-    # tuer le wrapper orphelin (sinon il garde le nom "en ligne" -> <a>-2). Motif ANCRE sur le processus
-    # python : la ligne de commande du SERVEUR tmux contient aussi "wrapper.py <agent>" (celui qui l'a
-    # demarre) -- un pkill -f non ancre tuait tmux, donc TOUS les agents (26 sept. 2026).
-    # Pas de dereg : l'API exige le jeton propre a l'agent (403) ; le serveur libere le nom seul.
-    pkill -f "^[^ ]*python[^ ]* wrapper\.py $a( |\$)" 2>/dev/null; sleep 2
-    tmux new-session -d -s "ac-$a" -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py $a $*; read"
-    note "agent CLI relance : $a"
-  fi
+cli(){ # une passe sur toutes les instances CLI ; options de secours si aucun lanceur de la famille n'a de commande connue
+  "$PY" scripts/gardien_instances.py $GARDE \
+    --defaut "claude=--dangerously-skip-permissions" \
+    --defaut "codex=--dangerously-bypass-approvals-and-sandbox --config=check_for_update_on_startup=false" \
+    --defaut "qwencode=--approval-mode=yolo" \
+    --defaut "grok=" >> "$LOG" 2>&1
 }
 
 note "gardien demarre"
@@ -41,9 +39,6 @@ while true; do
     sleep 25; continue
   fi
   pont gemini   # cursor et qwenlocal retires le 4 oct. 2026
-  cli claude --dangerously-skip-permissions
-  cli codex --dangerously-bypass-approvals-and-sandbox --config=check_for_update_on_startup=false
-  cli qwencode --approval-mode=yolo
-  cli grok
+  cli
   sleep 30
 done
