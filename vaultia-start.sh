@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# vaultia-start.sh — demarre TOUTE la salle Vaultia proprement : serveur + 5 agents.
+# vaultia-start.sh — demarre TOUTE la salle Vaultia proprement : serveur + 10 agents (claude x3, codex x2, qwencode x4, pont gemini).
+# 27 oct. 2026 : en-tete corrige (disait « 5 agents » depuis le 21 sept.) ; grok retire (compte parti, Charles ; bilan du 27 oct.).
 # Evite le piege recurrent (serveur relance sans ses ponts -> agents "en ligne" mais muets).
 cd "$(dirname "$0")" || exit 1
 NODE_BIN="$(ls -d "$HOME"/.nvm/versions/node/*/bin 2>/dev/null | tail -1)"
@@ -32,12 +33,35 @@ for a in gemini; do : > "data/$a.log"; (setsid nohup env PATH="$PATH" "$PY" wrap
 
 echo "== agents CLI (Claude, Codex) en tmux =="
 tmux new-session -d -s ac-claude -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py claude --dangerously-skip-permissions; read"
+tmux new-session -d -s ac-claude2 -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py claude --dangerously-skip-permissions; read"
+tmux new-session -d -s ac-claude3 -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py claude --dangerously-skip-permissions; read"
 tmux new-session -d -s ac-codex  -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py codex --dangerously-bypass-approvals-and-sandbox --config=check_for_update_on_startup=false; read"
-tmux new-session -d -s ac-qwencode -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py qwencode --approval-mode=yolo; read"
-tmux new-session -d -s ac-grok -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py grok; read"
+tmux new-session -d -s ac-codex2 -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py codex --dangerously-bypass-approvals-and-sandbox --config=check_for_update_on_startup=false; read"
+# 18 oct. 2026 : bolt (Nemotron) retire ; ses 2 instances deviennent qwencode-3 et -4, sur le routeur Qwen :8085 (cartes A + B).
+Q8085_FLAGS="--approval-mode=yolo --auth-type openai --openai-base-url http://172.30.0.1:8085/v1 --openai-api-key local -m qwen-cartes-ab"   # nom absent de ~/.qwen/settings.json : sinon Qwen Code reprend son baseUrl :8080
+# 19 oct. 2026 : qwencode-1/-2 passent aussi en Q4 sur :8085 (Charles msg tache-26) ; qwen-local :8080 (Q6, 2 cartes) ne charge plus.
+tmux new-session -d -s ac-qwencode -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py qwencode $Q8085_FLAGS; read"
+tmux new-session -d -s ac-qwencode2 -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py qwencode $Q8085_FLAGS; read"
+tmux new-session -d -s ac-qwencode3 -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py qwencode $Q8085_FLAGS; read"
+tmux new-session -d -s ac-qwencode4 -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py qwencode $Q8085_FLAGS; read"
+# 27 oct. 2026 : grok n'est plus lance (compte parti). Gemini reste jusqu'en decembre 2026.
 
 sleep 12
 TOK=$(grep -oiE "session token: *[0-9a-f]+" data/server.log | tail -1 | grep -o "[0-9a-f]\{16,\}")
 echo "== etat =="
 curl -s 127.0.0.1:8300/api/status -H "X-Session-Token: $TOK" | python3 -c "import json,sys;d=json.load(sys.stdin);print({k:v.get('available') for k,v in d.items() if k!='paused'})" 2>/dev/null
+
+echo "== roles =="
+sleep 8
+sr(){ curl -s -X POST "127.0.0.1:8300/api/roles/$1" -H "X-Session-Token: $TOK" -H "Content-Type: application/json" -d "{\"role\":\"$2\"}" >/dev/null; echo "  $1 -> $2"; }
+sr claude-1 chef
+sr claude-2 producteur
+sr claude-3 producteur
+sr codex-1 verificateur
+sr codex-2 verificateur
+sr gemini producteur
+sr qwencode-1 producteur
+sr qwencode-2 producteur
+sr qwencode-3 producteur
+sr qwencode-4 producteur
 echo "Salle prete : http://127.0.0.1:8300/"

@@ -5,7 +5,7 @@
 # l'instance 1 et son pkill tuait les relais de TOUTES les instances de la famille (qwencode-3 et -4 sans relais depuis 17 h 10).
 # Le gardien juge chaque instance (ac-<a><n> / agentchattr-<a>-<n>), ne tue qu'un PID, relance avec la commande d'origine du
 # lanceur, et se contente de signaler un relais mort dont le TUI vit (le relancer fermerait le TUI).
-GARDE="claude:3 codex:2 qwencode:4 grok:1"   # doit suivre les lanceurs de vaultia-start.sh
+GARDE="claude:3 codex:2 qwencode:4"   # doit suivre les lanceurs de vaultia-start.sh ; grok retire le 27 oct. 2026 (compte parti)
 cd "$(dirname "$0")" || exit 1
 NODE_BIN="$(ls -d "$HOME"/.nvm/versions/node/*/bin 2>/dev/null | tail -1)"
 export PATH="${NODE_BIN}:$HOME/.local/bin:$PATH"
@@ -27,8 +27,7 @@ cli(){ # une passe sur toutes les instances CLI ; options de secours si aucun la
   "$PY" scripts/gardien_instances.py $GARDE \
     --defaut "claude=--dangerously-skip-permissions" \
     --defaut "codex=--dangerously-bypass-approvals-and-sandbox --config=check_for_update_on_startup=false" \
-    --defaut "qwencode=--approval-mode=yolo" \
-    --defaut "grok=" >> "$LOG" 2>&1
+    --defaut "qwencode=--approval-mode=yolo" >> "$LOG" 2>&1
 }
 
 note "gardien demarre"
