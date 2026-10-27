@@ -1,6 +1,11 @@
 # Équipe d'agents — rôles, cycle et règles
 
-**Version : v1.7** — 2026-10-16.
+**Version : v1.8** — 2026-10-27.
+Changement v1.7 → v1.8 (Charles, 27 oct., bilan de la salle) : §1 retire **grok** (compte parti ; le lanceur
+et le gardien le relançaient encore), borne **gemini** à décembre 2026, et fait de **qwencode** le premier
+producteur en volume : tout lot d'exécution à porte machine lui va d'abord, parce que le modèle local ne
+coûte rien ; il ne conçoit pas et ne juge pas (T30 : 13 NO-GO sur 26 quand la consigne était floue ; pilote
+CAO loop-engine : 7/7 quand la conception était faite et la porte scellée). Carte R1 v1.7 (#33 remplacée).
 Changement v1.6.1 → v1.7 : §2 ajoute la sous-section « Mise en service »
 (`outils-socle/mise-en-service.sh` : fusion sans redémarrage quand seuls `static/`, `docs/`, `tests/`
 ou des `*.md` changent); §3 ajoute R13 v1 Canal de tâche (claude-1, 16 oct., carte en attente).
@@ -37,14 +42,13 @@ la carte active l'emporte et ce document doit être corrigé (avec bump de versi
 | Agent | Rôle | Tranche | Ne fait pas |
 |---|---|---|---|
 | **Charles** | Propriétaire, décideur final | Objectifs, grosses décisions, tout push, tout merge | — |
-| **claude** | Chef et producteur principal | Découpage, assignations, arbitrages techniques, validation des livrables | Push ou merge sans le « oui » nommé de Charles |
+| **claude** (claude-1 chef intégrateur ; claude-2, -3) | Conception, spécification, intégration | Découpage en lots d'exécution, consigne avec référence et porte, GO / NO-GO, intégration au contrat | Exécuter lui-même ce qu'une consigne et une porte permettent de confier à qwencode ; push ou merge hors de R2 v1.6 |
 | **codex** | Revue, tests, appui | Revue technique, tests, vérifications, déblocage | Production intégrale; renverser une décision de claude |
-| **qwencode** | Producteur sur lot assigné (Qwen Code CLI) | Le lot que claude lui assigne (ex. l'interface `static/atelier.*`) | Toucher un fichier hors de son lot |
-| **grok** | Producteur sur lot assigné (exception de Charles, #2030) | Le lot que claude lui assigne (ex. `historique.py`) | Idem |
-| **gemini** | Avis; producteur sur lot assigné (exception de Charles, #2030) | Conseil, relecture, CAO dans `cad-gemini` | Idem |
+| **qwencode** ×4 | **Premier producteur en volume** (Qwen Code CLI, 27B local, gratuit) | Tout lot d'exécution à porte machine : pièce cadgen d'une conception faite, note au gabarit, migration de copie, mesure, régénération de rendus | Concevoir, juger, écrire une règle ou un relevé de processus ; toucher un fichier hors de son lot |
+| **gemini** (jusqu'en décembre 2026) | Avis de style, relecture | Conseil ; CAO dans `cad-gemini` seulement sur lot assigné | Idem |
 
-Retirés le 4 oct. 2026 (commit 1f55829) : **cursor** et **qwenlocal**. Les cartes v1.5 les nomment
-encore (R1, R6); en attendant leur remplacement, « qwenlocal » s'y lit « un agent sans outils ».
+Retirés : **cursor** et **qwenlocal** le 4 oct. 2026 (commit 1f55829) ; **grok** le 27 oct. 2026 (compte
+parti, Charles). Un agent retiré ne reste ni dans le lanceur, ni dans le gardien, ni dans une carte active.
 
 Seul Charles renverse une décision de claude. Les objections techniques sont encouragées :
 elles remontent à claude, qui tranche et qui les documente si elles changent quelque chose.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# vaultia-start.sh — demarre TOUTE la salle Vaultia proprement : serveur + 11 agents (claude x3, codex x2, qwencode x4, grok, pont gemini).
-# 27 oct. 2026 : en-tete corrige (disait « 5 agents » depuis le 21 sept. ; bilan du 27 oct.).
+# vaultia-start.sh — demarre TOUTE la salle Vaultia proprement : serveur + 10 agents (claude x3, codex x2, qwencode x4, pont gemini).
+# 27 oct. 2026 : en-tete corrige (disait « 5 agents » depuis le 21 sept.) ; grok retire (compte parti, Charles ; bilan du 27 oct.).
 # Evite le piege recurrent (serveur relance sans ses ponts -> agents "en ligne" mais muets).
 cd "$(dirname "$0")" || exit 1
 NODE_BIN="$(ls -d "$HOME"/.nvm/versions/node/*/bin 2>/dev/null | tail -1)"
@@ -44,7 +44,7 @@ tmux new-session -d -s ac-qwencode -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py 
 tmux new-session -d -s ac-qwencode2 -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py qwencode $Q8085_FLAGS; read"
 tmux new-session -d -s ac-qwencode3 -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py qwencode $Q8085_FLAGS; read"
 tmux new-session -d -s ac-qwencode4 -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py qwencode $Q8085_FLAGS; read"
-tmux new-session -d -s ac-grok -c "$PWD" "env PATH=\"$PATH\" $PY wrapper.py grok; read"
+# 27 oct. 2026 : grok n'est plus lance (compte parti). Gemini reste jusqu'en decembre 2026.
 
 sleep 12
 TOK=$(grep -oiE "session token: *[0-9a-f]+" data/server.log | tail -1 | grep -o "[0-9a-f]\{16,\}")
@@ -59,7 +59,6 @@ sr claude-2 producteur
 sr claude-3 producteur
 sr codex-1 verificateur
 sr codex-2 verificateur
-sr grok producteur
 sr gemini producteur
 sr qwencode-1 producteur
 sr qwencode-2 producteur
