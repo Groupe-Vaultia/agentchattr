@@ -1,5 +1,7 @@
 # Méthodes par étape
 
+v1.4 (27 oct. 2026) : la règle du juge visuel ne nomme plus Bolt (agent retiré le 18 oct., carte rendue à Qwen) : c'est le modèle vision local qui répond sur :8085, par les mêmes outils `juge_visuel` / `juge-visuel` / `gate-visuel` (vérifié le 27 oct. : VERDICT: PASS sur VLT-10136). Bilan du 27 oct. : la salle citait un agent qui n'existait plus.
+v1.3 (16 oct. 2026) : `design_initial` reprend le squelette de points durs (étape 4 du skill `designer-produit`, absente d'ici) et ajoute masses et stabilité (`cg_stabilite.py`) à la méthode, au livrable et au critère de sortie. Motif : squelette du quad (#25) à 0 NO-GO, mais sans aucun calcul de basculement.
 v1.2 (15 oct. 2026) : deux règles universelles ajoutées (structure suit la fonction ; « vert » ≠ « réel »), pour que le principe s'applique à **tout produit futur**, pas seulement au quad (Charles, 15 oct.).
 v1.1 (14 oct. 2026) : étape `design_initial` entre `concepts` et `conception` (skill `designer-produit`), décision de Charles msg 2945.
 v1.0 (13 oct. 2026) : méthodes des 8 étapes pour la consigne `methode_etape` (lot P3, SOCLE-SHOP v1.1).
@@ -14,7 +16,7 @@ Règles pour toutes les étapes :
 - `fait` exige une preuve : commande et sa sortie, sortie d'outil, ou fichier:ligne.
 - **La structure suit la fonction, jamais l'enveloppe.** Tout objet se conçoit à partir de ses **interfaces et points durs** — où il se monte, se connecte, pivote, prend ou transmet des charges, où l'usager le touche, où ses composants s'attachent — puis la forme, puis la matière. Remplir une boîte paramétrique qui respecte l'enveloppe (empattement, voie, hauteur…) n'est PAS une conception : chaque élément de matière existe pour tenir un point dur ou en relier deux. Vaut pour un châssis, un boîtier, un bâti, un outil, un montage — tout produit. (Détail : skill `designer-produit`, étape `design_initial`.)
 - **« Vert » ≠ « réel ».** Un livrable visuel ou destiné à l'usager (dessin, modèle 3D, page, pièce) n'est `fait` que **rendu ET regardé** : le plan à côté d'une vraie référence, la 3D ou la page chargée et vue (navigateur headless s'il le faut), pas seulement « le script a tourné » ou « le test passe ». L'agent signale ce qui « ne ressemble pas » ou « ne s'affiche pas » avant de livrer, au lieu de laisser Charles le découvrir.
-- **Faire REGARDER le visuel par le modèle vision (Bolt).** Pour appliquer « vert ≠ réel » sans attendre Charles : rends le livrable en image (plan → PNG par `pdftoppm`, 3D → capture) et fais-le juger. Outil MCP `juge_visuel` (image + critère → analyse + `VERDICT: PASS|FAIL`), ou en ligne : `juge-visuel <image> "<critère>"`, ou `gate-visuel <image> "<critère>"` pour une porte (code ≠ 0 = refus). Un visuel qui échoue le critère se corrige **avant** de livrer. Un plan SVG/PDF se rasterise d'abord.
+- **Faire REGARDER le visuel par le modèle vision local (Qwen sur :8085 ; Bolt est retiré depuis le 18 oct.).** Pour appliquer « vert ≠ réel » sans attendre Charles : rends le livrable en image (plan → PNG par `pdftoppm`, 3D → capture) et fais-le juger. Outil MCP `juge_visuel` (image + critère → analyse + `VERDICT: PASS|FAIL`), ou en ligne : `juge-visuel <image> "<critère>"`, ou `gate-visuel <image> "<critère>"` pour une porte (code ≠ 0 = refus). Un visuel qui échoue le critère se corrige **avant** de livrer. Un plan SVG/PDF se rasterise d'abord.
 - TRIZ est obligatoire à `concepts`, et dès qu'un essai bute sur une contradiction (améliorer A dégrade B, ou le même paramètre doit prendre deux valeurs). S'il n'y a pas de contradiction, l'écrire en une ligne et ne pas en inventer une. La matrice se consulte par `python3 ~/atelier/.claude/skills/triz/scripts/matrice.py AMÉLIORÉ DÉGRADÉ`, jamais de mémoire. Une piste TRIZ reste une hypothèse tant que le calcul, le DFM et l'essai ne l'ont pas confirmée.
 
 ## probleme
@@ -72,21 +74,29 @@ Règles pour toutes les étapes :
 
 ## design_initial
 
-**Risque visé.** Calculer et dessiner un produit juste qui ne ressemble pas à ce qu'on attend, puis devoir refaire les calculs pour en changer l'allure (cadre « boîte » du quad, msg 2909).
+**Risque visé.** Calculer et dessiner un produit juste qui ne ressemble pas à ce qu'on attend, puis devoir refaire les calculs pour en changer l'allure (cadre « boîte » du quad, msg 2909). Ou bien un produit qui a la bonne allure, mais dont l'architecture ne tient pas : points durs non reliés, centre de gravité jamais calculé (squelette du quad, #25).
 
 **Méthode.**
 
 1. Brief : pour qui, quel usage, quelle impression, contraintes reprises de `probleme` et du concept retenu.
 2. 3 à 5 références réelles, chacune avec une image ouverte (URL) ; une cote de référence vient d'une fiche ouverte, sinon « ? ».
 3. Planche de proportions chiffrée (encombrement, garde au sol, ergonomie de l'utilisateur), valeur visée et plage des références.
-4. 2 ou 3 pistes de style rendues à la même échelle que les références, avec ce que chacune coûte (pièces, outillage, effet sur le calcul).
-5. Carte à Charles, piste recommandée en premier (R12). Le choix devient hypothèse `confirmee` et les proportions deviennent des critères de la fiche.
+4. Squelette fonctionnel : points durs chiffrés dans le repère du produit, chacun sourcé ou « ? », et structure qui les relie. `verifier_points_durs.py` contrôle que chaque point dur est un nœud. Rendu à l'échelle.
+5. Masses et stabilité : centre de gravité pour chaque configuration (à vide, avec l'usager, en charge) et angles de basculement, calculés par `cg_stabilite.py` à partir des masses du squelette. Les angles sont comparés à un critère sourcé (norme ouverte, ou mesures de produits réels faites de la même façon), sinon « ? ». Une hauteur de centre de gravité supposée n'est pas acceptée quand le squelette permet de la calculer.
+6. 2 ou 3 pistes de style rendues à la même échelle que les références, avec ce que chacune coûte (pièces, outillage, effet sur le calcul).
+7. Carte à Charles, piste recommandée en premier (R12). Le choix devient hypothèse `confirmee` et les proportions deviennent des critères de la fiche.
 
-**Skills.** `designer-produit`. gemini en avis de style.
+**Skills.** `designer-produit` (scripts `verifier_points_durs.py` et `cg_stabilite.py`). gemini en avis de style. codex relance les deux scripts sur le sha livré.
 
-**Livrable.** `design/brief.md` : références sourcées, planche de proportions, pistes avec rendus, choix de Charles, critères.
+**Livrable.** `design/brief.md` : références sourcées, planche de proportions, pistes avec rendus, choix de Charles, critères. Avec lui : `design/points_durs.json`, `design/masses.json` et `design/stabilite.json`.
 
-**Critère de sortie.** Charles a choisi une piste sur rendu. Les proportions retenues sont des critères mesurables de la fiche, repris en entrée par `conception`. Les tâches des étapes 1 à 4 peuvent alors aller au jalon J1.
+**Critère de sortie.**
+- Charles a choisi une piste sur rendu.
+- Les points durs passent `verifier_points_durs.py` (0 ouvert, 0 NO-GO) et ont été revus par un autre agent que leur auteur.
+- Le centre de gravité et les angles de basculement sont calculés et tiennent un critère sourcé. Sinon, l'écart est sur la carte de Charles.
+- Les proportions, les points durs (coordonnées) et la hauteur du centre de gravité deviennent des critères mesurables de la fiche et des paramètres du contrat (skill `systeme`). `conception` les reprend en entrée.
+
+Les tâches des étapes 1 à 4 peuvent alors aller au jalon J1.
 
 ## conception
 
