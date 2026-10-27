@@ -1,6 +1,10 @@
 # Équipe d'agents — rôles, cycle et règles
 
-**Version : v1.8** — 2026-10-27.
+**Version : v1.9** — 2026-10-27.
+Changement v1.8 → v1.9 (Charles, 27 oct., essai d'autonomie du 27 oct. au 10 nov. 2026) : le plafond du garde-fou de
+boucle passe de 50 à 500 relais (`MAX_AGENT_HOPS_PLAFOND` dans `app.py`, réglage « Loop guard » des Réglages) ; le
+réglage courant passe de 20 à 200, pour que la salle tourne deux semaines sans qu'un humain lève la pause (5 pauses
+en 7 jours à 20). Le garde-fou reste : au-delà du réglage, seul un humain relance (`/continue`).
 Changement v1.7 → v1.8 (Charles, 27 oct., bilan de la salle) : §1 retire **grok** (compte parti ; le lanceur
 et le gardien le relançaient encore), borne **gemini** à décembre 2026, et fait de **qwencode** le premier
 producteur en volume : tout lot d'exécution à porte machine lui va d'abord, parce que le modèle local ne
