@@ -171,6 +171,9 @@ def _settings_path() -> Path:
 
 
 ROOM_SUBTITLE_MAX = 40
+# Plafond du réglage « Loop guard » (max_agent_hops). 27 oct. 2026 (Charles, essai d'autonomie du 27 oct. au 10 nov.) :
+# 50 → 500, pour que la salle tourne deux semaines sans qu'un humain lève la pause ; au-delà du réglage, seul un humain relance.
+MAX_AGENT_HOPS_PLAFOND = 500
 
 
 def normalize_room_subtitle(value):
@@ -1548,7 +1551,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 if "max_agent_hops" in new:
                     try:
                         hops = int(new["max_agent_hops"])
-                        hops = max(1, min(hops, 50))
+                        hops = max(1, min(hops, MAX_AGENT_HOPS_PLAFOND))
                         room_settings["max_agent_hops"] = hops
                         router.max_hops = hops
                     except (ValueError, TypeError):
