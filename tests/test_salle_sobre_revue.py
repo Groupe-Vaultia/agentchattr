@@ -1,5 +1,6 @@
 """Salle sobre : un test par constat de la revue independante du 20 oct. 2026 (PR #66 et #67).
 
+v1.1 (2026-11-09, claude) : /api/messages avec since_id rend tout ce qui suit, comme hors salle sobre.
 v1.0 (2026-10-20, claude) : chaque test reproduit le scenario du relecteur et verifie la correction.
 Donnees synthetiques seulement.
 """
@@ -227,6 +228,17 @@ class ApiMessagesTests(_AppReelle):
             app.store.add("grok", f"bruit {i}", channel=self.canal)
         textes = [m["text"] for m in self.agent.get(f"/api/messages?channel={self.canal}&limit=5").json()]
         self.assertEqual(textes, ["@gemini fais le DFM", "DFM fait : 2 avertissements"])
+
+    def test_since_id_rend_tout_ce_qui_suit(self):
+        """Avec since_id, la route rend tout ce qui suit (comme hors salle sobre) : couper aux `limit` plus recents
+        faisait perdre les plus anciens a un client qui repart du dernier id recu."""
+        app.store.add("system", "ouverture", channel="hors-test")   # since_id=0 voudrait dire « aucun »
+        debut = app.store.add("Charles", "go", channel=self.canal)
+        for i in range(8):
+            app.store.add("codex", f"@gemini point {i}", channel=self.canal)
+            app.store.add("grok", f"bruit {i}", channel=self.canal)
+        r = self.agent.get(f"/api/messages?channel={self.canal}&since_id={debut['id']}&limit=3").json()
+        self.assertEqual([m["text"] for m in r], [f"@gemini point {i}" for i in range(8)])
 
     def test_chef_voit_tout(self):
         app.store.add("codex", "@qwen a toi", channel=self.canal)

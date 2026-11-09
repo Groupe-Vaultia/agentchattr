@@ -385,7 +385,7 @@ def chat_send(
                     reply_to=reply_id, channel=channel,
                     msg_type=msg_type, metadata=metadata,
                     projet_id=projet_id or None, tache_id=tache_id)
-    _update_cursor(sender, [msg], channel)
+    _avancer_apres_envoi(sender, msg, channel)
     with _presence_lock:
         _presence[sender] = time.time()
     return f"Sent (id={msg['id']})"
@@ -421,7 +421,7 @@ def chat_propose_job(
         channel=channel,
         metadata={"title": title, "body": body, "status": "pending"},
     )
-    _update_cursor(sender, [msg], channel)
+    _avancer_apres_envoi(sender, msg, channel)
     with _presence_lock:
         _presence[sender] = time.time()
     return f"Proposed job (msg_id={msg['id']}): {title}"
@@ -728,6 +728,48 @@ def _update_cursor(sender: str, msgs: list[dict], channel: str | None):
         _save_cursors()
 
 
+def _curseur(sender: str, channel: str | None) -> int:
+    with _cursors_lock:
+        return _cursors.get(sender, {}).get(channel if channel else "__all__", 0)
+
+
+def _avancer_curseur(sender: str, channel: str | None, msg_id: int):
+    """Pose le curseur sur `msg_id` sans jamais le faire reculer (un recul ferait relire ce qui a deja ete rendu)."""
+    if not sender or not msg_id:
+        return
+    ch_key = channel if channel else "__all__"
+    with _cursors_lock:
+        agent_cursors = _cursors.setdefault(sender, {})
+        if agent_cursors.get(ch_key, 0) >= msg_id:
+            return
+        agent_cursors[ch_key] = msg_id
+    _save_cursors()
+
+
+def _avancer_apres_envoi(sender: str, msg: dict, channel: str | None):
+    """Apres un envoi, le curseur saute le message envoye seulement si rien d'un autre n'est arrive depuis la
+    derniere lecture. Sinon il ne bouge pas : la prochaine lecture rend ce qui est arrive entre-temps (et le message
+    envoye, une fois). Avant le 9 nov. 2026, il sautait tout : un NO-GO arrive pendant le travail etait perdu."""
+    if not sender or not msg:
+        return
+    depuis = _curseur(sender, channel)
+    if not depuis:
+        return  # jamais lu ce canal : la premiere lecture rendra le contexte recent, message envoye compris
+    entre = [m for m in store.get_since(depuis, channel=channel) if m["id"] < msg["id"]]
+    if all(m.get("sender") == sender for m in entre):
+        _avancer_curseur(sender, channel, msg["id"])
+
+
+def _note_suite(reste: int, borne: int, channel: str | None, since_id: bool) -> str:
+    cible = f"channel='{channel}'" if channel else ""
+    if since_id:
+        appel = f"chat_read({cible + ', ' if cible else ''}since_id={borne})"
+    else:
+        appel = f"chat_read({cible})"
+    return (f"[suite] {reste} message(s) de plus apres l'id {borne}, non rendus ici (limite atteinte, "
+            f"les plus anciens d'abord). Relis : {appel}.")
+
+
 def chat_read(
     sender: str = "",
     since_id: int = 0,
@@ -745,8 +787,11 @@ def chat_read(
 
     Smart defaults:
     - First call with sender: returns last `limit` messages (full context).
-    - Subsequent calls with same sender: returns only NEW messages since last read.
-    - Pass since_id to override and read from a specific point.
+    - Subsequent calls with same sender: returns only NEW messages since last read, OLDEST first. If more than
+      `limit` are new, you get the first `limit` and a « [suite] » line: read again to get the rest. Nothing is
+      skipped.
+    - Pass since_id to override and read from a specific point (the `limit` messages that follow it; the
+      « [suite] » line gives the since_id to continue). It never moves your cursor backward.
     - Omit sender to always get the last `limit` messages (no cursor).
     - Pass channel to filter by channel name (default: all channels).
     - Pass job_id to read a specific job. Job reads return a header entry first,
@@ -812,19 +857,24 @@ def chat_read(
     # Le chef est exempte : le loop guard le reveille sur un message entre deux AUTRES agents (revue du 20 oct.).
     sobre = bool(sender) and sender.lower() not in _humains_salle() and not _est_chef(sender)
     filtrer = sobre and not complet and (ch is None or _sobriete.est_canal_tache(ch))
+    # Lecture incrementale (curseur ou since_id) : les plus ANCIENS d'abord, et le curseur ne depasse jamais le
+    # dernier message rendu. Avant le 9 nov. 2026, on gardait les `limit` plus recents et le curseur sautait les
+    # autres : perdus sans trace (veilles du 19 oct., NO-GO manque du 25 oct.).
+    incrementale = False
+    complete_tache = False
     if since_id:
         msgs = store.get_since(since_id, channel=ch)
+        incrementale = True
     elif complet and _sobriete.est_canal_tache(ch):
         # Lecture complete demandee : le recent du canal, curseur ignore (sinon les masques deja depasses par le
         # curseur ne reviendraient jamais).
         msgs = store.get_recent(limit, channel=ch)
+        complete_tache = True
     elif sender:
-        ch_key = ch if ch else "__all__"
-        with _cursors_lock:
-            agent_cursors = _cursors.get(sender, {})
-            cursor = agent_cursors.get(ch_key, 0)
+        cursor = _curseur(sender, ch)
         if cursor:
             msgs = store.get_since(cursor, channel=ch)
+            incrementale = True
         else:
             # Premiere lecture filtree : on prend plus large, le filtre retire ensuite ce qui n'est pas adresse.
             msgs = store.get_recent(limit * 5 if filtrer else limit, channel=ch)
@@ -832,17 +882,45 @@ def chat_read(
         msgs = store.get_recent(limit, channel=ch)
 
     note_sobre = ""
+    note_suite = ""
     if filtrer:
         tous = msgs
         msgs, masques = _sobriete.filtrer_pour(msgs, sender, _humains_salle(), base=_base_de(sender))
-        msgs = msgs[-limit:]
-        _update_cursor(sender, tous[-1:], ch)   # le curseur avance aussi sur les masques : ils ne reviennent pas
+        if incrementale and len(msgs) > limit:
+            reste = len(msgs) - limit
+            msgs = msgs[:limit]
+            borne = msgs[-1]["id"]
+            masques = [m for m in masques if m["id"] <= borne]   # les suivants seront comptes a la prochaine lecture
+            _avancer_curseur(sender, ch, borne)
+            note_suite = _note_suite(reste, borne, ch, bool(since_id))
+        else:
+            msgs = msgs[-limit:]
+            if tous:   # le curseur avance aussi sur les masques : ils ne reviennent pas
+                _avancer_curseur(sender, ch, tous[-1]["id"])
         if sobriete is not None and (masques or _sobriete.est_canal_tache(ch)):
             sobriete.masquer(sender, masques)
         note_sobre = _sobriete.note_masques(masques, ch)
     else:
-        msgs = msgs[-limit:]
-        _update_cursor(sender, msgs, ch)
+        if incrementale and len(msgs) > limit:
+            reste = len(msgs) - limit
+            msgs = msgs[:limit]
+            _avancer_curseur(sender, ch, msgs[-1]["id"])
+            note_suite = _note_suite(reste, msgs[-1]["id"], ch, bool(since_id))
+        elif complete_tache and sender and msgs:
+            # La fenetre ne couvre pas forcement tout le non-lu : si un message non lu la precede, le curseur ne
+            # bouge pas (la prochaine lecture rendra le trou; mieux vaut un doublon qu'une perte).
+            depuis = _curseur(sender, ch)
+            trou = [m for m in store.get_since(depuis, channel=ch) if m["id"] < msgs[0]["id"]] if depuis else []
+            if trou:
+                note_suite = (f"[suite] {len(trou)} message(s) non lu(s) plus ancien(s) que cette fenetre dans "
+                              f"#{ch} : ta prochaine lecture chat_read(channel='{ch}') les rendra. Pour tout voir "
+                              f"d'un coup : chat_read(channel='{ch}', complet=True, since_id={depuis}).")
+            else:
+                _avancer_curseur(sender, ch, msgs[-1]["id"])
+        else:
+            msgs = msgs[-limit:]
+            if msgs:
+                _avancer_curseur(sender, ch, msgs[-1]["id"])
         if sobre and complet and sobriete is not None and _sobriete.est_canal_tache(ch):
             sobriete.ajouter(sender, lecture_complete=1)
     serialized = _serialize_messages(msgs)
@@ -851,6 +929,8 @@ def chat_read(
         serialized = f"{serialized}\n\n{_note_pj}" if serialized else _note_pj
     if note_sobre:
         serialized = f"{serialized}\n\n{note_sobre}" if serialized else note_sobre
+    if note_suite:
+        serialized = f"{serialized}\n\n{note_suite}" if serialized else note_suite
 
     # Escalating empty-read hints to discourage polling loops
     if not serialized and sender:
