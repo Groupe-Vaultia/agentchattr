@@ -5,6 +5,7 @@ v1.0 (2026-11-09, claude) : donnees synthetiques seulement. Trois pertes reprodu
   au dernier : les plus anciens etaient perdus (salle sobre ou non);
 - une lecture complete (complet=True) qui ne couvre pas tout le non-lu avancait le curseur par-dessus le trou;
 - chat_send avancait le curseur jusqu'au message envoye, par-dessus ce qui etait arrive depuis la derniere lecture.
+v1.1 (2026-11-09, claude) : limit < 1 vaut le defaut au lieu de planter (IndexError, NO-GO codex-1 msg 8335).
 """
 
 import json
@@ -114,6 +115,28 @@ class CurseurPagineTests(_Base):
         mcp_bridge.chat_read(sender="claude-2", channel="general", limit=50)  # a tout lu
         mcp_bridge.chat_read(sender="claude-2", channel="general", since_id=premier["id"], limit=2)  # relit le debut
         self.assertIn("No new messages", mcp_bridge.chat_read(sender="claude-2", channel="general"))
+
+    def test_limite_nulle_ou_negative_vaut_le_defaut_sans_planter(self):
+        premier = self._ajout("Charles", "debut")
+        self._ajout("Charles", "go", canal="tache-7")
+        mcp_bridge.chat_read(sender="claude-2", channel="general", limit=0)   # premiere lecture : pose le curseur
+        mcp_bridge.chat_read(sender="qwen", channel="tache-7", limit=0)
+        attendus = [f"m{i}" for i in range(25)]
+        for t in attendus:
+            self._ajout("codex", t)
+            self._ajout("codex", f"@qwen {t}", canal="tache-7")
+        for limite in (0, -3):
+            with self.subTest(limit=limite):
+                brut = mcp_bridge.chat_read(sender="claude-3", channel="general", since_id=premier["id"],
+                                            limit=limite)
+                self.assertEqual(self._textes(brut), attendus[:20])
+        brut = mcp_bridge.chat_read(sender="claude-2", channel="general", limit=0)       # curseur, non filtre
+        self.assertEqual(self._textes(brut), attendus[:20])
+        self.assertIn("5 message(s) de plus", brut)
+        brut = mcp_bridge.chat_read(sender="qwen", channel="tache-7", limit=0)           # curseur, salle sobre
+        self.assertEqual(self._textes(brut), [f"@qwen {t}" for t in attendus[:20]])
+        brut = mcp_bridge.chat_read(sender="qwen", channel="tache-7", complet=True, limit=0)
+        self.assertEqual(len(self._textes(brut)), 20)
 
     def test_premiere_lecture_garde_le_contexte_recent(self):
         for i in range(30):

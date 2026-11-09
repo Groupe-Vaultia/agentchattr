@@ -793,12 +793,17 @@ def chat_read(
     - Pass since_id to override and read from a specific point (the `limit` messages that follow it; the
       « [suite] » line gives the since_id to continue). It never moves your cursor backward.
     - Omit sender to always get the last `limit` messages (no cursor).
+    - A `limit` below 1 means the default (20).
     - Pass channel to filter by channel name (default: all channels).
     - Pass job_id to read a specific job. Job reads return a header entry first,
       including title and body, followed by the thread messages."""
     sender, err = _resolve_tool_identity(sender, ctx, field_name="sender", required=False)
     if err:
         return err
+    if limit < 1:
+        # limit=0 plantait la pagination (msgs[:0] puis msgs[-1], NO-GO codex-1 msg 8335). Avant la pagination, il
+        # rendait tout le canal (msgs[-0:]) : des milliers de messages. Le defaut ne perd rien, « [suite] » rend le reste.
+        limit = 20
 
     # Job-scoped read: return job metadata plus the thread messages
     if job_id and jobs:
