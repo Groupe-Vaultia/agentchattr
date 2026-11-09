@@ -1866,7 +1866,9 @@ async def get_messages(request: Request, since_id: int = 0, limit: int = 50, cha
                                                garder_siens=True)
         if sobriete is not None:
             sobriete.masquer(agent, masques)
-        return msgs[-limit:]
+        # Avec since_id, tout ce qui suit, comme la branche non filtree ci-dessous : couper aux `limit` plus
+        # recents faisait perdre les plus anciens a un client qui repart du dernier id recu (9 nov. 2026).
+        return msgs if since_id else msgs[-limit:]
     msgs = store.get_since(since_id, channel=ch) if since_id else store.get_recent(limit, channel=ch)
     if sobre and complet and sobriete is not None:
         sobriete.ajouter(agent, lecture_complete=1)
